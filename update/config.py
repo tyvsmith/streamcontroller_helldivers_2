@@ -50,10 +50,15 @@ STRATAGEM_MAPPINGS = {
     # GENERAL STRATAGEMS
     # =========================================================================
     "Reinforce": {"wiki": "Reinforce", "svg": "Reinforce", "name": "Reinforce"},
+    "ReinforcementPods": {
+        "wiki": "Reinforcement Pods",
+        "svg": "Upload Data",
+        "name": "Reinforcement Pods",
+    },
     "Resupply": {"wiki": "Resupply", "svg": "Resupply", "name": "Resupply"},
     "SOSBeacon": {"wiki": "SoS Beacon", "svg": "SOS Beacon", "name": "SOS Beacon"},
     "UploadData": {"wiki": "Upload Data", "svg": "Upload Data", "name": "Upload Data"},
-    "Hellbomb": {"wiki": "Hellbomb", "svg": "Hellbomb", "name": "Hellbomb"},
+    "Hellbomb": {"wiki": "NUX-223 Hellbomb", "svg": "Hellbomb", "name": "Hellbomb"},
     "SEAFArtillery": {
         "wiki": "SEAF Artillery",
         "svg": "SEAF Artillery",
@@ -321,7 +326,7 @@ STRATAGEM_MAPPINGS = {
         "name": "Incendiary Mines",
     },
     "GuardDogRover": {
-        "wiki": 'AX/LAS-5 "Guard Dog" Rover',
+        "wiki": "AX/LAS-5 Rover",
         "svg": "Guard Dog Rover",
         "name": '"Guard Dog" Rover',
     },
@@ -370,7 +375,7 @@ STRATAGEM_MAPPINGS = {
         "name": "Mortar Sentry",
     },
     "GuardDog": {
-        "wiki": 'AX/AR-23 "Guard Dog"',
+        "wiki": "AX/AR-23 Guard Dog",
         "svg": "Guard Dog",
         "name": "Guard Dog",
     },
@@ -408,7 +413,7 @@ STRATAGEM_MAPPINGS = {
         "name": "Sterilizer",
     },
     "GuardDogBreath": {
-        "wiki": 'AX/TX-13 "Guard Dog" Dog Breath',
+        "wiki": "AX/TX-13 Dog Breath",
         "svg": "Guard Dog Breath",
         "name": '"Guard Dog" Dog Breath',
     },
@@ -463,7 +468,7 @@ STRATAGEM_MAPPINGS = {
         "name": "GL-52 De-Escalator",
     },
     "GuardDogK9": {
-        "wiki": 'AX/ARC-3 "Guard Dog" K-9',
+        "wiki": "AX/ARC-3 K-9",
         "svg": "Guard Dog K-9",
         "name": '"Guard Dog" K-9',
     },
@@ -497,7 +502,7 @@ STRATAGEM_MAPPINGS = {
         "name": "Defoliation Tool",
     },
     "GuardDogHotDog": {
-        "wiki": 'AX/FLAM-75 "Guard Dog" Hot Dog',
+        "wiki": "AX/FLAM-75 Hot Dog",
         "svg": "Guard Dog Hot Dog",
         "name": '"Guard Dog" Hot Dog',
     },
@@ -505,14 +510,21 @@ STRATAGEM_MAPPINGS = {
     # REDACTED REGIMENT
     # =========================================================================
     "C4Pack": {"wiki": "B/MD C4 Pack", "svg": "C4 Pack", "name": "C4 Pack"},
+    # =========================================================================
+    # SIEGE BREAKERS
+    # =========================================================================
     "BastionMkXvi": {
-        "wiki": "Bastion MK XVI",
+        "wiki": "TD-220 Bastion MK XVI",
         "svg": "Bastion MK XVI",
         "name": "Bastion MK XVI",
     },
-    "Cqc20": {"wiki": "CQC-20", "svg": "CQC-20", "name": "CQC-20"},
-    "Eat411": {"wiki": "EAT-411", "svg": "EAT-411", "name": "EAT-411"},
-    "Gl28": {"wiki": "GL-28", "svg": "GL-28", "name": "GL-28"},
+    "Cqc20": {"wiki": "CQC-20 Breaching Hammer", "svg": "CQC-20", "name": "CQC-20"},
+    "Eat411": {"wiki": "EAT-411 Leveller", "svg": "EAT-411", "name": "EAT-411"},
+    "Gl28": {
+        "wiki": "GL-28 Belt-Fed Grenade Launcher",
+        "svg": "GL-28",
+        "name": "GL-28",
+    },
 }
 
 

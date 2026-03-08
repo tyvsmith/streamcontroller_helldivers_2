@@ -109,6 +109,13 @@
     "DOWN",
     "RIGHT"
   ],
+  "Cqc20": [
+    "DOWN",
+    "LEFT",
+    "RIGHT",
+    "LEFT",
+    "UP"
+  ],
   "DarkFluidVessel": [
     "UP",
     "LEFT",
@@ -189,6 +196,13 @@
     "RIGHT",
     "RIGHT"
   ],
+  "Eat411": [
+    "DOWN",
+    "DOWN",
+    "LEFT",
+    "UP",
+    "DOWN"
+  ],
   "EmancipatorExosuit": [
     "LEFT",
     "DOWN",
@@ -261,6 +275,14 @@
     "UP",
     "RIGHT",
     "LEFT"
+  ],
+  "Gl28": [
+    "DOWN",
+    "LEFT",
+    "UP",
+    "LEFT",
+    "UP",
+    "UP"
   ],
   "GrenadeLauncher": [
     "DOWN",
@@ -560,6 +582,13 @@
     "DOWN",
     "RIGHT",
     "LEFT",
+    "UP"
+  ],
+  "ReinforcementPods": [
+    "LEFT",
+    "RIGHT",
+    "UP",
+    "UP",
     "UP"
   ],
   "Resupply": [
