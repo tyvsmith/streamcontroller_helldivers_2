@@ -26,7 +26,7 @@ from .config import (
     DEFAULT_ICON_SCALE,
     DEFAULT_ICON_SIZE,
     ICONS_DIR,
-    SVG_TO_KEY_MAPPINGS,
+    STRATAGEM_MAPPINGS,
 )
 
 
@@ -353,11 +353,6 @@ def svg_to_png_with_borders(
     return original_color, color, was_mapped, had_corners
 
 
-def get_output_key(svg_name: str) -> str:
-    """Get the internal key for an SVG name."""
-    return SVG_TO_KEY_MAPPINGS.get(svg_name, svg_name.replace(" ", "").replace("-", ""))
-
-
 def generate_icons(
     svg_dir: Path,
     output_dir: Path = ICONS_DIR,
@@ -368,7 +363,11 @@ def generate_icons(
 ) -> tuple[int, int]:
     """
     Generate PNG icons from SVG files.
-    
+
+    Iterates config entries rather than SVG files so that multiple entries
+    sharing the same svg field (e.g. UploadData, SSDDelivery, ReinforcementPods)
+    each get their own correctly-named {key}.png output.
+
     Args:
         svg_dir: Directory containing SVG category folders
         output_dir: Output directory for PNG files
@@ -376,76 +375,92 @@ def generate_icons(
         icon_scale: Scale factor for the icon within the image
         dry_run: If True, don't actually generate files
         verbose: If True, print detailed output
-        
+
     Returns:
         Tuple of (converted_count, error_count)
     """
     if not check_dependencies():
         return 0, 1
-    
+
     from .download import find_all_svgs
-    
+
     svgs_by_category = find_all_svgs(svg_dir)
-    
+
     if not svgs_by_category:
         print("No SVG files found!")
         return 0, 1
-    
+
     total_svgs = sum(len(svgs) for svgs in svgs_by_category.values())
     print(f"Found {total_svgs} SVG files in {len(svgs_by_category)} categories")
-    
+
+    # Build flat lookup: svg_name -> svg_path
+    svg_lookup: dict[str, Path] = {
+        svg_name: svg_path
+        for svgs in svgs_by_category.values()
+        for svg_path, svg_name in svgs
+    }
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     converted = 0
     errors = 0
-    failed_svgs: list[str] = []
+    missing: list[str] = []
+    failed: list[str] = []
 
-    for category, svgs in sorted(svgs_by_category.items()):
-        print(f"\n{category}:")
-        
-        for svg_path, svg_name in sorted(svgs, key=lambda x: x[1]):
-            key = get_output_key(svg_name)
-            output_path = output_dir / f"{key}.png"
-            
-            if dry_run:
-                svg_content = svg_path.read_text(encoding='utf-8')
-                original_color, used_default = extract_accent_color(svg_content)
-                if used_default:
-                    print(f"  WARNING: {svg_name}: No valid fill color found, would use default {DEFAULT_ICON_COLOR}")
-                final_color, was_mapped = apply_color_mapping(original_color)
-                had_corners = has_corner_borders(svg_content)
-                corner_note = " (will remove corners)" if had_corners else ""
-                if was_mapped:
-                    color_info = f"{original_color} -> {final_color}"
-                else:
-                    color_info = final_color
-                print(f"  {svg_name} -> {key}.png ({color_info}){corner_note}")
+    for key, data in STRATAGEM_MAPPINGS.items():
+        svg_name = data.get('svg')
+        if not svg_name:
+            continue
+
+        if svg_name not in svg_lookup:
+            missing.append(f'{key} (svg: "{svg_name}")')
+            continue
+
+        svg_path = svg_lookup[svg_name]
+        output_path = output_dir / f"{key}.png"
+
+        if dry_run:
+            svg_content = svg_path.read_text(encoding='utf-8')
+            original_color, used_default = extract_accent_color(svg_content)
+            if used_default:
+                print(f"  WARNING: {svg_name}: No valid fill color found, would use default {DEFAULT_ICON_COLOR}")
+            final_color, was_mapped = apply_color_mapping(original_color)
+            had_corners = has_corner_borders(svg_content)
+            corner_note = " (will remove corners)" if had_corners else ""
+            if was_mapped:
+                color_info = f"{original_color} -> {final_color}"
             else:
-                try:
-                    original_color, final_color, was_mapped, had_corners = svg_to_png_with_borders(
-                        svg_path, output_path, size, icon_scale
-                    )
-                    converted += 1
-                    if verbose:
-                        corner_note = " (removed corners)" if had_corners else ""
-                        if was_mapped:
-                            color_info = f"{original_color} -> {final_color}"
-                        else:
-                            color_info = final_color
-                        print(f"  {svg_name} -> {key}.png ({color_info}){corner_note}")
-                except Exception as e:
-                    print(f"  ERROR: {svg_name}: {e}")
-                    errors += 1
-                    failed_svgs.append(svg_name)
+                color_info = final_color
+            if verbose:
+                print(f"  {key}.png  <-  {svg_name} ({color_info}){corner_note}")
+        else:
+            try:
+                original_color, final_color, was_mapped, had_corners = svg_to_png_with_borders(
+                    svg_path, output_path, size, icon_scale
+                )
+                converted += 1
+                if verbose:
+                    corner_note = " (removed corners)" if had_corners else ""
+                    if was_mapped:
+                        color_info = f"{original_color} -> {final_color}"
+                    else:
+                        color_info = final_color
+                    print(f"  {key}.png  <-  {svg_name} ({color_info}){corner_note}")
+            except Exception as e:
+                print(f'  ERROR: {key} (svg: "{svg_name}"): {e}')
+                errors += 1
+                failed.append(key)
 
     if dry_run:
-        print(f"\nDry run complete. Would convert {total_svgs} files.")
+        print(f"\nDry run complete. Would convert {len(STRATAGEM_MAPPINGS)} entries.")
     else:
         print(f"\nConversion complete!")
         print(f"  Converted: {converted}")
+        if missing:
+            print(f"  No SVG found ({len(missing)}): {', '.join(missing)}")
         print(f"  Errors: {errors}")
-        if errors and failed_svgs:
-            print(f"  Failed: {', '.join(failed_svgs)}")
-    
+        if failed:
+            print(f"  Failed: {', '.join(failed)}")
+
     return converted, errors
 
