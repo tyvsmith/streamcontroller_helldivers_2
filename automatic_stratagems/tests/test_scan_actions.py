@@ -740,6 +740,75 @@ class ActionTests(unittest.TestCase):
                 scan.assert_called_once_with(action, replace=True)
                 execute.assert_not_called()
 
+    def test_empty_auto_short_tap_scans_from_completed_states(self):
+        for status in ('idle', 'ready', 'partial', 'failed'):
+            with self.subTest(status=status):
+                action = self.rendering_action(
+                    self.mod.AutomaticStratagem,
+                    {'slot': 1, 'group': status, 'color_filter': 'red'})
+                action.on_ready_called = True
+                self.coordinator.register_action(action)
+                session = self.coordinator.session(action)
+                if status != 'idle':
+                    token = session.begin({1: 'red'})
+                    if status == 'failed':
+                        session.fail(token, 'capture failed')
+                    else:
+                        report = ({'status': 'matched', 'rows': [{'id': 'A'}]}
+                                  if status == 'ready' else
+                                  {'status': 'partial', 'rows': [{'id': None}]})
+                        session.finish(token, report, self.plugin.stratagems,
+                                       {'A': 'blue'})
+                self.assertEqual(session.snapshot().status, status)
+                with patch.object(self.mod, 'badged_icon') as badge:
+                    badge.return_value.copy.return_value = object()
+                    action.render()
+
+                with patch.object(self.coordinator, 'start') as scan, \
+                     patch.object(self.mod, 'execute_stratagem') as execute:
+                    action.on_key_down()
+                    action.on_key_short_up()
+                scan.assert_called_once_with(action, replace=True)
+                execute.assert_not_called()
+
+    def test_empty_auto_short_tap_rejects_stale_or_unsafe_release(self):
+        cases = ('revision', 'context', 'filter', 'disabled', 'not_present',
+                 'uncontrollable', 'scanning')
+        for case in cases:
+            with self.subTest(case=case):
+                settings = {'slot': 1, 'group': case, 'color_filter': 'any'}
+                action = self.rendering_action(self.mod.AutomaticStratagem)
+                action.get_settings = lambda: dict(settings)
+                action.set_settings = lambda value: settings.update(value)
+                action.on_ready_called = True
+                self.coordinator.register_action(action)
+                session = self.coordinator.session(action)
+                action.render()
+                action.on_key_down()
+                if case == 'revision':
+                    token = session.begin({1: 'any'})
+                    session.fail(token, 'changed')
+                elif case == 'context':
+                    settings['group'] = 'changed'
+                elif case == 'filter':
+                    settings['color_filter'] = 'red'
+                elif case == 'disabled':
+                    self.plugin.get_settings = lambda: {}
+                elif case == 'not_present':
+                    action.get_is_present = lambda: False
+                elif case == 'uncontrollable':
+                    action.has_image_control = lambda: False
+                elif case == 'scanning':
+                    session.begin({1: 'any'})
+
+                with patch.object(self.coordinator, 'start') as scan, \
+                     patch.object(self.mod, 'execute_stratagem') as execute:
+                    action.on_key_short_up()
+                scan.assert_not_called()
+                execute.assert_not_called()
+                self.plugin.get_settings = lambda: {
+                    'automatic_stratagems_enabled': True}
+
     def test_auto_release_rejects_assignment_changed_since_press(self):
         action = self.rendering_action(self.mod.AutomaticStratagem)
         session = self.coordinator.session(action)

@@ -925,11 +925,16 @@ class AutomaticStratagem(ScanActionBase):
         color_filter = self.color_filter()
         key = snapshot.assignments.get(slot)
         if (not self.get_is_present() or not self.controllable()
-                or snapshot.status not in ('ready', 'partial', 'failed') or key is None
+                or snapshot.status not in ('idle', 'ready', 'partial', 'failed')
                 or self.displayed != (snapshot.revision, slot, key)):
             return
         context = self.coordinator.context(self)
         if pressed != (context, snapshot.revision, slot, color_filter, key):
+            return
+        if key is None:
+            self.coordinator.start(self, replace=True)
+            return
+        if snapshot.status == 'idle':
             return
 
         def still_current():

@@ -47,7 +47,8 @@ per-backend failures and may try the next backend.
 - hold **Auto Stratagems** to delete its generated page and saved page assignments;
   source-page assignments remain
 - tap **Scan Stratagems** to replace the current group from a fresh scan; hold to clear
-- tap **Auto Stratagem** to execute its assignment; hold to scan its group
+- tap **Auto Stratagem** to execute its assignment, or scan its group when empty;
+  hold to scan its group regardless of assignment
 - leave slot at **-1 (automatic)** to assign distinct numbers in page order, skipping
   explicit slot numbers; choose a positive number to pin a slot
 - configure Any/Red/Blue/Green/Yellow filters; groups isolate assignments by deck
