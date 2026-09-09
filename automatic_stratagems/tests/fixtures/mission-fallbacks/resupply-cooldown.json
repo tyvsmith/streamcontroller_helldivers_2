@@ -1,0 +1,23 @@
+{
+  "source_scan": "scan-tathld0t",
+  "captured_at": "2026-09-09T03:51:22.744211+00:00",
+  "source_sha256": "abd1c36a63d5271e758e7b1801b97b792c94d75c1aa2ad9feee4eb2d2395f006",
+  "source_size": [
+    5120,
+    2160
+  ],
+  "crop": [
+    0,
+    0,
+    800,
+    1145
+  ],
+  "expected_ids": [
+    "Reinforce",
+    "Resupply",
+    "Orbital380MMHEBarrage",
+    "AirburstRocketLauncher",
+    "AutocannonSentry",
+    "EagleAirstrike"
+  ]
+}

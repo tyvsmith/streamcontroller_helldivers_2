@@ -1,0 +1,5 @@
+- retain seven visually labeled icon crops from `scan-1ydxf07c`; record their keys in `sources.json`
+- compare local brightness detail after removing blurred scenery, frame edges and quantity badges
+- validate against five other captures of this loadout, previous mission captures, unrelated catalog icons and live tiles
+- add references only after visual identity verification; do not derive labels from scanner predictions
+- retain the plugin matcher for icons outside this small reference set
