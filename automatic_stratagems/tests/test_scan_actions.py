@@ -782,7 +782,7 @@ class ActionTests(unittest.TestCase):
         self.plugin.input_lock.release()
         action.show_error.assert_not_called()
 
-    def test_assigned_auto_plays_scanning_animation_until_scan_finishes(self):
+    def test_noninitiating_auto_keeps_assignment_during_scan(self):
         action = self.rendering_action(self.mod.AutomaticStratagem)
         self.plugin.get_show_labels = lambda: False
         session = self.coordinator.session(action)
@@ -790,12 +790,155 @@ class ActionTests(unittest.TestCase):
         session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
         token = session.begin([1], replace=True)
         action.render()
-        self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/scanning.mp4'))
+        self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/A.png'))
         action.on_tick()
         action.set_media.assert_called_once()
         session.fail(token, 'Capture failed')
         action.render()
         self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/A.png'))
+
+    def test_only_initiating_scanner_animates_and_auto_slots_stay_normal(self):
+        initiator = self.rendering_action(self.mod.ScanStratagems)
+        other = self.rendering_action(self.mod.ScanStratagems)
+        automatic = self.rendering_action(self.mod.AutomaticStratagem)
+        for action in (initiator, other, automatic):
+            action.on_ready_called = True
+            self.coordinator.actions.add(action)
+
+        with patch.object(self.mod, 'Thread'):
+            self.coordinator.start(initiator, replace=True)
+        initiator.render(); other.render(); automatic.render()
+
+        self.assertTrue(initiator.set_media.call_args.kwargs['media_path'].endswith(
+            '/scanning.mp4'))
+        self.assertTrue(other.set_media.call_args.kwargs['media_path'].endswith(
+            '/scan-update.png'))
+        self.assertTrue(automatic.set_media.call_args.kwargs['media_path'].endswith(
+            '/auto-any.png'))
+        self.plugin.input_lock.release()
+
+    def test_auto_hold_initiator_animates_while_other_auto_stays_normal(self):
+        initiator = self.rendering_action(self.mod.AutomaticStratagem, {'slot': 1})
+        other = self.rendering_action(self.mod.AutomaticStratagem, {'slot': 2})
+        for action in (initiator, other):
+            action.on_ready_called = True
+            self.coordinator.actions.add(action)
+
+        with patch.object(self.mod, 'Thread'):
+            self.coordinator.start(initiator, replace=True)
+        initiator.render(); other.render()
+
+        self.assertTrue(initiator.set_media.call_args.kwargs['media_path'].endswith(
+            '/scanning.mp4'))
+        self.assertTrue(other.set_media.call_args.kwargs['media_path'].endswith(
+            '/auto-any.png'))
+        self.plugin.input_lock.release()
+
+    def test_loading_owner_survives_worker_finalizer_until_queued_finish(self):
+        action = self.rendering_action(self.mod.ScanStratagems)
+        automatic = self.rendering_action(self.mod.AutomaticStratagem)
+        for registered in (action, automatic):
+            registered.on_ready_called = True
+            self.coordinator.actions.add(registered)
+        queued = []
+        with patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod, 'run_scan',
+                          return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
+             patch.object(self.mod.GLib, 'idle_add',
+                          side_effect=lambda callback, *args: queued.append((callback, args)) or 1):
+            self.coordinator.start(action, replace=True)
+            thread.call_args.kwargs['target']()
+            self.assertNotIn(self.coordinator.context(action), self.coordinator.active_scans)
+            action.render()
+            self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith(
+                '/scanning.mp4'))
+            callback, args = queued.pop()
+            callback(*args)
+            action.render()
+        self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith(
+            '/scan-update.png'))
+
+    def test_scanner_center_stays_blank_for_failed_and_partial_results(self):
+        action = self.rendering_action(self.mod.ScanStratagems)
+        session = self.coordinator.session(action)
+        for report in ({'status': 'no_detections', 'rows': []},
+                       {'status': 'partial', 'rows': [{'id': None}]}):
+            token = session.begin([1], replace=True)
+            session.finish(token, report, self.plugin.stratagems)
+            action.render()
+            self.assertEqual(action.set_center_label.call_args.args[0], '')
+
+    def test_hard_scan_failure_marks_only_initiating_button(self):
+        initiator = self.rendering_action(self.mod.ScanStratagems)
+        other = self.rendering_action(self.mod.ScanStratagems)
+        automatic = self.rendering_action(self.mod.AutomaticStratagem)
+        for action in (initiator, other, automatic):
+            action.show_error = Mock()
+            action.on_ready_called = True
+            self.coordinator.actions.add(action)
+        with patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod, 'run_scan', return_value={
+                 'status': 'no_detections', 'rows': []}), \
+             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
+            self.coordinator.start(initiator, replace=True)
+            thread.call_args.kwargs['target']()
+
+        initiator.show_error.assert_called_once_with(duration=3)
+        other.show_error.assert_not_called()
+        automatic.show_error.assert_not_called()
+
+    def test_duplicate_slots_mark_only_initiating_scanner(self):
+        initiator = self.rendering_action(self.mod.ScanStratagems)
+        other = self.rendering_action(self.mod.ScanStratagems)
+        first = self.rendering_action(self.mod.AutomaticStratagem, {'slot': 1})
+        second = self.rendering_action(self.mod.AutomaticStratagem, {'slot': 1})
+        for action in (initiator, other, first, second):
+            action.show_error = Mock()
+            action.on_ready_called = True
+            self.coordinator.actions.add(action)
+        self.coordinator.start(initiator, replace=True)
+
+        initiator.show_error.assert_called_once_with(duration=3)
+        other.show_error.assert_not_called()
+        first.show_error.assert_not_called()
+        second.show_error.assert_not_called()
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_empty_partial_slots_badge_colored_placeholder_but_complete_do_not(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem, {'slot': 1})
+        session = self.coordinator.session(action)
+        with patch.object(self.mod, 'badged_icon') as badge:
+            badge.return_value.copy.return_value = object()
+            for color in ('any', 'red', 'blue', 'green', 'yellow'):
+                action.get_settings = lambda color=color: {'slot': 1, 'color_filter': color}
+                token = session.begin({1: color})
+                session.finish(token, {'status': 'partial', 'rows': [{'id': None}]},
+                               self.plugin.stratagems)
+                action.render()
+                self.assertTrue(badge.call_args.args[0].endswith(
+                    f'/automatic_stratagems/assets/icons/auto-{color}.png'))
+                self.assertEqual(action.set_center_label.call_args.args[0], '1')
+
+            badge.reset_mock()
+            token = session.begin({1: 'any', 2: 'any'}, replace=True)
+            session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                           self.plugin.stratagems)
+            action.get_settings = lambda: {'slot': 2, 'color_filter': 'any'}
+            action.render()
+            badge.assert_not_called()
+            self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith(
+                '/auto-any.png'))
+
+    def test_configuration_change_after_complete_scan_does_not_add_badge(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem, {'slot': 2})
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                       self.plugin.stratagems)
+        session.reconcile({1: 'any', 2: 'any'})
+        with patch.object(self.mod, 'badged_icon') as badge:
+            action.render()
+        badge.assert_not_called()
 
     def test_clear_resets_linked_pages_and_persists_without_touching_other_groups(self):
         launcher, root = self.temporary_setup()
@@ -848,6 +991,7 @@ class ActionTests(unittest.TestCase):
         action = self.rendering_action(self.mod.ScanStratagems)
         session = self.coordinator.session(action)
         token = session.begin([1])
+        action._scan_presentation = self.coordinator.context(action), session, token
         action.render()
         media = action.set_media.call_args.kwargs
         self.assertTrue(media['media_path'].endswith('/automatic_stratagems/assets/icons/scanning.mp4'))
@@ -860,7 +1004,7 @@ class ActionTests(unittest.TestCase):
         self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/automatic_stratagems/assets/icons/scan-update.png'))
         self.assertEqual(action.set_top_label.call_args.args[0], 'Scan')
         self.assertEqual(action.set_bottom_label.call_args.args[0], 'Stratagems')
-        self.assertEqual(action.set_center_label.call_args.args[0], 'Failed')
+        self.assertEqual(action.set_center_label.call_args.args[0], '')
 
     def test_scan_completion_and_cancel_restore_static_artwork(self):
         for outcome in ('matched', 'partial', 'cancel'):

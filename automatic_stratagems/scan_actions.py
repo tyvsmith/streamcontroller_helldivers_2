@@ -145,6 +145,19 @@ class ScanCoordinator:
         except Exception:
             log.exception('Unable to show automatic stratagem error')
 
+    def loading(self, action):
+        presentation = getattr(action, '__dict__', {}).get('_scan_presentation')
+        if presentation is None:
+            return False
+        context, session, token = presentation
+        try:
+            active = self.context(action) == context and session.is_active(token)
+        except Exception:
+            active = False
+        if not active:
+            action._scan_presentation = None
+        return active
+
     def settings_changed(self):
         if not self.enabled:
             self.cancel_all()
@@ -497,6 +510,7 @@ class ScanCoordinator:
             if token is None:
                 finalize()
                 return
+            action._scan_presentation = context, session, token
             operation = {'cancel': Event(), 'setup_done': Event(), 'started': False,
                          'thread': None, 'action': ref(action)}
             self.active_scans[context] = operation
@@ -505,6 +519,7 @@ class ScanCoordinator:
             if not new_page and (not slots or len(slots) != len(set(slots))):
                 session.fail(token, 'Add uniquely numbered Automatic slots')
                 self.persist(action, session)
+                self.show_action_error(action)
                 finalize()
                 self.redraw(context)
                 return
@@ -526,10 +541,13 @@ class ScanCoordinator:
                     else:
                         if session.finish(token, report, self.plugin.stratagems, colors):
                             self.persist(action, session)
-                            if session.snapshot().status in ('ready', 'partial'):
+                            result = session.snapshot()
+                            if result.status in ('ready', 'partial'):
                                 self.share_report(context, report, colors, replace=replace)
                                 if new_page:
                                     self.page_result(action, report, colors)
+                            elif result.status == 'failed':
+                                self.show_action_error(action)
                         log.info('Stratagem scan: {}', session.snapshot().message)
                     self.redraw(context)
                 except Exception as error:
@@ -537,6 +555,7 @@ class ScanCoordinator:
                         self.slot_filters(context, session))
                     session.fail(failure, str(error))
                     self.persist(action, session)
+                    self.show_action_error(action)
                     log.exception('Unable to finish stratagem scan')
                     self.redraw(context)
                 return False
@@ -723,16 +742,17 @@ class ScanStratagems(ScanActionBase):
                          top, '', 'Disabled')
             self.displayed = shown
             return
-        snapshot = self.coordinator.session(self).snapshot()
-        shown = snapshot.revision, cached
+        session = self.coordinator.session(self)
+        snapshot = session.snapshot()
+        loading = self.coordinator.loading(self)
+        shown = snapshot.revision, cached, loading
         if self.displayed == shown:
             return
         filename = ('scan.png' if cached else 'scan-new-page.png') if mode == 'new_page' else 'scan-update.png'
-        if snapshot.status == 'scanning':
+        if loading:
             filename = 'scanning.mp4'
-        status = snapshot.status.title() if snapshot.status in ('failed', 'partial') else ''
         self.artwork('automatic_stratagems/assets/icons/' + filename,
-                     top, status, 'Stratagems')
+                     top, '', 'Stratagems')
         self.displayed = shown
 
     def get_config_rows(self):
@@ -836,14 +856,15 @@ class AutomaticStratagem(ScanActionBase):
                          'AUTO', str(self.slot()), 'Disabled', center_size=28)
             self.displayed = shown
             return
-        snapshot = self.coordinator.session(self).snapshot()
+        session = self.coordinator.session(self)
+        snapshot = session.snapshot()
         slot = self.slot()
         key = snapshot.assignments.get(slot)
         shown = snapshot.revision, slot, key
         if self.displayed == shown:
             return
         self.displayed = None
-        if snapshot.status == 'scanning':
+        if self.coordinator.loading(self):
             self.artwork('automatic_stratagems/assets/icons/scanning.mp4', f'AUTO {slot}', '', 'Scanning')
         elif key:
             path = str(Path(self.plugin_base.PATH) / 'assets/icons' / (key + '.png'))
@@ -857,10 +878,22 @@ class AutomaticStratagem(ScanActionBase):
             self.set_background_color([0, 0, 0, 255])
         else:
             label = ('Unknown' if slot in snapshot.unknown_slots else
-                     'Scanning' if snapshot.status == 'scanning' else
                      'Stale' if key else 'Empty')
-            self.artwork(f'automatic_stratagems/assets/icons/auto-{self.color_filter()}.png', 'AUTO', str(slot), label,
-                         center_size=28)
+            filename = f'automatic_stratagems/assets/icons/auto-{self.color_filter()}.png'
+            report = session.latest_report()
+            completed_partial = (snapshot.status == 'partial' and report is not None
+                                 and (report.get('status') == 'partial'
+                                      or snapshot.unknown
+                                      or snapshot.unconfirmed_slots))
+            if completed_partial:
+                path = str(Path(self.plugin_base.PATH) / filename)
+                self.set_media(image=badged_icon(path).copy())
+                self.set_top_label('AUTO')
+                self.set_center_label(str(slot), font_size=28)
+                self.set_bottom_label(label)
+                self.set_background_color([26, 26, 26, 255])
+            else:
+                self.artwork(filename, 'AUTO', str(slot), label, center_size=28)
         self.displayed = shown
 
     def on_key_down(self, data=None):

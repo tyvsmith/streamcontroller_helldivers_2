@@ -58,6 +58,9 @@ per-backend failures and may try the next backend.
 - keep unknown slots disabled; recognized IDs use existing catalog sequences
 - inspect **Last scan** for failures; Partial means unknown or unconfirmed results,
   not extra recognized stratagems beyond page capacity
+- only the pressed button animates during scanning or shows an error triangle;
+  Auto Stratagems and Scan Stratagems keep their center labels empty
+- a question mark on an empty Auto slot means a completed scan was partial
 - restored/unconfirmed badges are not cooldown indicators
 - disable scanning to preserve configured buttons and assignments while blocking scan actions
 
