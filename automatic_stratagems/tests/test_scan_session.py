@@ -63,6 +63,25 @@ class ScanSessionTests(unittest.TestCase):
         self.assertEqual((snapshot.recognized, snapshot.unknown, snapshot.overflow), (3, 1, 1))
         self.assertEqual(snapshot.status, 'partial')
 
+    def test_complete_recognition_remains_ready_with_limited_page_capacity(self):
+        for slots in ((), (1,), (1, 2)):
+            with self.subTest(slots=slots):
+                session = ScanSession()
+                token = session.begin(slots, replace=True)
+                session.finish(token, report('A', 'B', 'C'), CATALOG)
+                snapshot = session.snapshot()
+                self.assertEqual(snapshot.status, 'ready')
+                self.assertEqual(snapshot.overflow, 3 - len(slots))
+                self.assertEqual(snapshot.recognized, 3)
+                self.assertEqual(session.latest_report(), report('A', 'B', 'C'))
+
+    def test_partial_recognition_stays_partial_without_vacancies(self):
+        token = self.session.begin([1], replace=True)
+        self.session.finish(token, report('A', 'B', None), CATALOG)
+        self.assertEqual(self.session.snapshot().status, 'partial')
+        self.assertEqual(self.session.snapshot().unknown, 1)
+        self.assertEqual(self.session.snapshot().overflow, 1)
+
     def test_failure_retains_ids(self):
         self.scan(['A'])
         for failure in ({'status': 'no_detections', 'rows': []},

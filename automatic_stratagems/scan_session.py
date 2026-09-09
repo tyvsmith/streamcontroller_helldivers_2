@@ -246,7 +246,7 @@ class ScanSession:
                 assignments=MappingProxyType(assignments),
                 unknown_slots=frozenset(unknown_slots),
                 unconfirmed_slots=frozenset(unconfirmed), replacing=False,
-                status='partial' if unknown or overflow or unconfirmed or status == 'partial' else 'ready',
+                status='partial' if unknown or unconfirmed or status == 'partial' else 'ready',
                 message=f'{len(recognized)} recognized, {len(unconfirmed)} unconfirmed, {unknown} unknown, {overflow} overflow',
                 recognized=len(recognized), unknown=unknown, overflow=overflow,
                 last_scan_at=datetime.now(timezone.utc).isoformat())
