@@ -1,6 +1,9 @@
 import json
 import os
-from time import sleep
+from threading import Lock
+from weakref import ref
+
+from .stratagem_execution import execute_stratagem
 
 from src.backend.PluginManager.ActionHolder import ActionHolder
 from src.backend.PluginManager.PluginBase import PluginBase
@@ -10,8 +13,22 @@ from evdev import ecodes, UInput
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw
+from gi.repository import Gtk, Adw, GLib
 from loguru import logger as log
+
+AUTOMATIC_IMPORT_ERROR = None
+try:
+    from .automatic_stratagems.scan_actions import (
+        AutomaticStratagem, ScanCoordinator, ScanStratagems, TemporaryScanBack)
+    from .automatic_stratagems.scan_runner import scan_workers
+    from .automatic_stratagems.visibility import (
+        ChooserCompatibilityError, update_visibility)
+except Exception as error:
+    AUTOMATIC_IMPORT_ERROR = str(error)
+    ScanCoordinator = ScanStratagems = AutomaticStratagem = TemporaryScanBack = None
+
+    def scan_workers(value=2):
+        return 2
 
 from .key_mapping import (
     DEFAULT_DIRECTION_KEY_LAYOUT,
@@ -195,59 +212,15 @@ class CustomStratagemButton(KeyAction):
             log.error("UInput not initialized! Check /dev/uinput permissions.")
             log.error("Try: sudo usermod -aG input $USER (then logout/login)")
             return
-        
         sequence = self.get_sequence()
+        name = self.get_custom_name()
         if not sequence:
-            log.warning(f"No sequence configured for custom stratagem '{self.get_custom_name()}'!")
+            log.warning(f"No sequence configured for custom stratagem '{name}'!")
             return
-        
-        if self.plugin_base.executing:
+        if self.plugin_base.executing or self.plugin_base.input_lock.locked():
             log.debug("Currently executing other stratagem! Aborting!")
             return
-        
-        self.plugin_base.executing = True
-        modifier_pressed = False
-        
-        # Get settings
-        key_delay = self.plugin_base.get_key_delay()
-        modifier_key = self.plugin_base.get_modifier_key()
-        hold_modifier = self.plugin_base.get_hold_modifier()
-        
-        try:
-            log.info(f"Execute Custom Stratagem: {self.get_custom_name()}: {sequence}")
-            
-            if not self.plugin_base.hero_mode:
-                log.debug(f"Not in Hero mode - pressing {modifier_key}")
-                modifier_code = ecodes.ecodes.get(modifier_key, ecodes.KEY_LEFTCTRL)
-                self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 1)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-                modifier_pressed = True
-                
-                # If not holding, release modifier before sequence
-                if not hold_modifier:
-                    self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 0)
-                    self.plugin_base.ui.syn()
-                    sleep(key_delay)
-            
-            for key in sequence:
-                key_code = ecodes.ecodes[self.plugin_base.get_direction_key(key)]
-                self.plugin_base.ui.write(ecodes.EV_KEY, key_code, 1)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-                self.plugin_base.ui.write(ecodes.EV_KEY, key_code, 0)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-        except Exception as e:
-            log.error(f"Error executing custom stratagem: {e}")
-        finally:
-            # Release modifier if we were holding it
-            if modifier_pressed and hold_modifier and not self.plugin_base.hero_mode:
-                modifier_code = ecodes.ecodes.get(modifier_key, ecodes.KEY_LEFTCTRL)
-                self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 0)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-            self.plugin_base.executing = False
+        execute_stratagem(self.plugin_base, name, sequence)
 
     def on_key_up(self, data=None):
         pass
@@ -387,64 +360,56 @@ class StratagemButton(KeyAction):
             log.error("UInput not initialized! Check /dev/uinput permissions.")
             log.error("Try: sudo usermod -aG input $USER (then logout/login)")
             return
-        
         if not self.stratagem:
             log.error(f"No sequence for stratagem '{self.stratagem_key}'!")
             return
-        
-        if self.plugin_base.executing:
+        if self.plugin_base.executing or self.plugin_base.input_lock.locked():
             log.debug("Currently executing other stratagem! Aborting!")
             return
-        
-        self.plugin_base.executing = True
-        modifier_pressed = False
-        
-        # Get settings
-        key_delay = self.plugin_base.get_key_delay()
-        modifier_key = self.plugin_base.get_modifier_key()
-        hold_modifier = self.plugin_base.get_hold_modifier()
-        
-        try:
-            log.info(f"Execute Stratagem: {self.stratagem_key}: {self.stratagem}")
-            
-            if not self.plugin_base.hero_mode:
-                log.debug(f"Not in Hero mode - pressing {modifier_key}")
-                modifier_code = ecodes.ecodes.get(modifier_key, ecodes.KEY_LEFTCTRL)
-                self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 1)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-                modifier_pressed = True
-                
-                # If not holding, release modifier before sequence
-                if not hold_modifier:
-                    self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 0)
-                    self.plugin_base.ui.syn()
-                    sleep(key_delay)
-            
-            for key in self.stratagem:
-                key_code = ecodes.ecodes[self.plugin_base.get_direction_key(key)]
-                self.plugin_base.ui.write(ecodes.EV_KEY, key_code, 1)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-                self.plugin_base.ui.write(ecodes.EV_KEY, key_code, 0)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-        except Exception as e:
-            log.error(f"Error executing stratagem: {e}")
-        finally:
-            # Release modifier if we were holding it
-            if modifier_pressed and hold_modifier and not self.plugin_base.hero_mode:
-                modifier_code = ecodes.ecodes.get(modifier_key, ecodes.KEY_LEFTCTRL)
-                self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 0)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-            self.plugin_base.executing = False
+        execute_stratagem(self.plugin_base, self.stratagem_key, self.stratagem)
 
     def on_key_up(self, data=None):
         pass
 
     def on_key_short_up(self, data=None):
         pass
+
+
+class UnavailableAutomaticAction(KeyAction):
+    """Retain automatic action IDs when their optional integration cannot load."""
+
+    def on_ready(self):
+        self.show_error(duration=-1)
+
+    def on_key_down(self, data=None):
+        self.show_error(duration=3)
+
+    def on_key_up(self, data=None):
+        pass
+
+    def on_key_short_up(self, data=None):
+        pass
+
+
+class UnavailableScanCoordinator:
+    def __init__(self, error):
+        self.compatibility_error = f'Automatic scanning unavailable: {error}'
+        self.temporary_pages = None
+        self.closed = False
+
+    @property
+    def enabled(self):
+        return False
+
+    def settings_changed(self):
+        pass
+
+    def disable_compatibility(self, message):
+        self.compatibility_error = str(message)
+
+    def shutdown(self, timeout=3):
+        self.closed = True
+        return True
 
 
 class HellDiversPlugin(PluginBase):
@@ -466,6 +431,63 @@ class HellDiversPlugin(PluginBase):
         self.hero_mode = False
 
         self.executing = False
+        self.input_lock = Lock()
+        self._automatic_closed = False
+        self._automatic_chooser = None
+        self._automatic_chooser_handler = None
+        automatic_initialized = False
+        if ScanCoordinator is None:
+            self.scan_coordinator = UnavailableScanCoordinator(AUTOMATIC_IMPORT_ERROR)
+            log.error(self.scan_coordinator.compatibility_error)
+        else:
+            try:
+                from src.Signals import Signals
+                import globals as gl
+                self.scan_coordinator = ScanCoordinator(self, state_dir=os.path.join(
+                    gl.DATA_PATH, self.get_plugin_id(), 'scan-state'))
+                automatic_initialized = True
+            except Exception as error:
+                self.scan_coordinator = UnavailableScanCoordinator(error)
+                log.error(self.scan_coordinator.compatibility_error)
+
+        if automatic_initialized:
+            self_ref = ref(self)
+
+            def page_changed(*args):
+                plugin = self_ref()
+                if plugin is not None and not plugin._automatic_closed:
+                    return plugin.scan_coordinator.page_changed(*args)
+
+            def app_quit(*args):
+                plugin = self_ref()
+                if plugin is not None:
+                    plugin._teardown_automatic_scanning()
+
+            self._automatic_page_callback = page_changed
+            self._automatic_quit_callback = app_quit
+            try:
+                gl.signal_manager.connect_signal(Signals.ChangePage, page_changed)
+                gl.signal_manager.connect_signal(Signals.AppQuit, app_quit)
+            except Exception as error:
+                self.scan_coordinator.disable_compatibility(
+                    f'Automatic scanning lifecycle integration is unsupported: {error}')
+
+        automatic_classes = ((ScanStratagems, AutomaticStratagem, TemporaryScanBack)
+                             if automatic_initialized else
+                             (UnavailableAutomaticAction,) * 3)
+        for action, suffix, name, icon in (
+                (automatic_classes[0], "ScanStratagems", "Auto Stratagem Scanner", "automatic_stratagems/assets/icons/scan.png"),
+                (automatic_classes[1], "AutomaticStratagem", "Auto Stratagem", "automatic_stratagems/assets/icons/auto-any.png"),
+                (automatic_classes[2], "TemporaryScanBack", "Temporary Scan Back", "assets/icons/_stepbakcward.png")):
+            self.add_action_holder(ActionHolder(plugin_base=self, action_base=action,
+                action_id=f"net_jslay_helldivers_2::{suffix}", action_name=name,
+                icon=Gtk.Image.new_from_file(os.path.join(self.PATH, icon))))
+        if automatic_initialized:
+            try:
+                self.scan_coordinator.enable_temporary_pages(gl.page_manager)
+            except Exception as error:
+                self.scan_coordinator.disable_compatibility(
+                    f'Automatic scanning page integration is unsupported: {error}')
 
         for stratagem in self.stratagems:
             try:
@@ -500,7 +522,83 @@ class HellDiversPlugin(PluginBase):
             app_version="1.5.0-beta"
         )
 
-    
+        if automatic_initialized:
+            try:
+                def connect_automatic_visibility():
+                    plugin = self_ref()
+                    if plugin is None or plugin._automatic_closed:
+                        return False
+                    return plugin._connect_automatic_action_visibility()
+
+                if gl.app is None:
+                    gl.app_loading_finished_tasks.append(connect_automatic_visibility)
+                else:
+                    GLib.idle_add(connect_automatic_visibility)
+            except Exception as error:
+                self._disable_automatic_compatibility(error)
+
+    def _connect_automatic_action_visibility(self):
+        import globals as gl
+        if self._automatic_closed or ScanCoordinator is None:
+            return False
+        try:
+            chooser = gl.app.main_win.sidebar.action_chooser
+            update_visibility(chooser, self.scan_coordinator.enabled)
+            self_ref = ref(self)
+
+            def chooser_mapped(mapped):
+                plugin = self_ref()
+                if plugin is None or plugin._automatic_closed:
+                    return
+                try:
+                    update_visibility(mapped, plugin.scan_coordinator.enabled)
+                except ChooserCompatibilityError as error:
+                    plugin._disable_automatic_compatibility(error)
+
+            self._automatic_chooser = chooser
+            self._automatic_chooser_handler = chooser.connect('map', chooser_mapped)
+        except Exception as error:
+            self._disable_automatic_compatibility(error)
+        return False
+
+    def _disable_automatic_compatibility(self, error):
+        self.scan_coordinator.disable_compatibility(
+            f'Automatic scanning is unsupported by this StreamController version: {error}')
+        row = getattr(self, '_automatic_enable_row', None)
+        if row is not None:
+            row.set_subtitle(self.scan_coordinator.compatibility_error)
+            row.set_sensitive(False)
+
+    def _teardown_automatic_scanning(self, *, uninstall=False):
+        self._automatic_closed = True
+        try:
+            if not self.scan_coordinator.shutdown():
+                log.error('Automatic scanner cleanup did not finish before shutdown deadline')
+        except Exception:
+            log.exception('Unable to shut down automatic scanner work')
+        temporary_pages = getattr(self.scan_coordinator, 'temporary_pages', None)
+        if temporary_pages is not None:
+            try:
+                if uninstall:
+                    temporary_pages.cleanup()
+                else:
+                    temporary_pages.unregister_all()
+            except Exception:
+                log.exception('Unable to release automatic scanner pages')
+        chooser = self._automatic_chooser
+        handler = self._automatic_chooser_handler
+        if chooser is not None and handler is not None:
+            try:
+                chooser.disconnect(handler)
+            except Exception:
+                log.exception('Unable to disconnect automatic action visibility')
+        self._automatic_chooser = None
+        self._automatic_chooser_handler = None
+
+    def on_uninstall(self):
+        self._teardown_automatic_scanning(uninstall=True)
+        super().on_uninstall()
+
     def init_locale_manager(self):
         self.lm = self.locale_manager
         self.lm.set_to_os_default()
@@ -578,9 +676,58 @@ class HellDiversPlugin(PluginBase):
         
         # Display settings
         group.add(self._create_show_labels_row())
+        group.add(self._create_automatic_stratagems_row())
+        self._automatic_settings_rows = [self._create_capture_backend_row(), self._create_scan_workers_row()]
+        for row in self._automatic_settings_rows:
+            row.set_sensitive(self.scan_coordinator.enabled)
+            group.add(row)
         
         return group
+
+    def _create_automatic_stratagems_row(self):
+        error = self.scan_coordinator.compatibility_error
+        row = Adw.SwitchRow(title='Enable automatic stratagems',
+                            subtitle=error or
+                            'Show Scan and Auto actions and allow screenshot scanning. Off by default.')
+        row.set_active(self.scan_coordinator.enabled)
+        row.set_sensitive(error is None)
+        row.connect('notify::active', self._on_automatic_stratagems_changed)
+        self._automatic_enable_row = row
+        return row
+
+    def _on_automatic_stratagems_changed(self, row, _):
+        self._save_setting('automatic_stratagems_enabled', row.get_active())
+        self.scan_coordinator.settings_changed()
+        for setting_row in self._automatic_settings_rows:
+            setting_row.set_sensitive(self.scan_coordinator.enabled)
+        chooser = getattr(self, '_automatic_chooser', None)
+        if chooser is not None:
+            try:
+                update_visibility(chooser, self.scan_coordinator.enabled)
+            except Exception as error:
+                self._disable_automatic_compatibility(error)
+
+    def _create_scan_workers_row(self):
+        row = Adw.ActionRow(title='Scan workers',
+                            subtitle='Parallel icon matching. Default 2; use 1 to disable parallel matching.')
+        adjustment = Gtk.Adjustment(value=scan_workers(self.get_settings().get('scan_workers', 2)),
+                                    lower=1, upper=32, step_increment=1, page_increment=1)
+        spin = Gtk.SpinButton(adjustment=adjustment, digits=0, valign=Gtk.Align.CENTER)
+        spin.connect('value-changed', lambda widget: self._save_setting('scan_workers', widget.get_value_as_int()))
+        row.add_suffix(spin)
+        return row
     
+    def _create_capture_backend_row(self):
+        choices = ("auto", "gamescope", "steam", "desktop")
+        row = Adw.ComboRow(title="Capture Backend",
+                          subtitle="Automatic tries Gamescope, Steam F12, then desktop. Steam keeps a screenshot.")
+        row.set_model(Gtk.StringList.new(["Automatic", "Gamescope", "Steam F12", "Desktop"]))
+        current = self.get_settings().get("capture_backend", "auto")
+        row.set_selected(choices.index(current) if current in choices else 0)
+        row.connect("notify::selected", lambda widget, _: self._save_setting(
+            "capture_backend", choices[widget.get_selected()]))
+        return row
+
     def _create_key_delay_row(self) -> Adw.ActionRow:
         """Create the key delay slider row."""
         row = Adw.ActionRow(

@@ -1,0 +1,1184 @@
+import importlib
+import json
+from pathlib import Path
+import sys
+import threading
+import time
+import types
+import unittest
+from tempfile import TemporaryDirectory
+from unittest.mock import ANY, Mock, patch
+
+from .package_loader import plugin_module
+
+class ActionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        gi = types.ModuleType('gi.repository')
+        gi.GLib = Mock(); gi.Adw = Mock(); gi.Gtk = Mock()
+        bases = types.ModuleType('src.backend.PluginManager.InputBases')
+        bases.KeyAction = type('KeyAction', (), {})
+        execution = types.ModuleType(plugin_module('stratagem_execution'))
+        execution.execute_stratagem = Mock()
+        with patch.dict(sys.modules, {'gi.repository':gi, 'src.backend.PluginManager.InputBases':bases,
+                                     execution.__name__:execution, 'loguru':types.SimpleNamespace(logger=Mock())}):
+            cls.mod = importlib.import_module(plugin_module('automatic_stratagems.scan_actions'))
+
+    def setUp(self):
+        self.plugin = types.SimpleNamespace(input_lock=threading.Lock(), stratagems={'A':['UP']},
+                                           PATH='/tmp/plugin', get_settings=lambda:{'automatic_stratagems_enabled': True})
+        self.coordinator = self.mod.ScanCoordinator(self.plugin)
+        self.deck = object(); self.page = types.SimpleNamespace(json_path='/tmp/HD2.json')
+
+    def action(self):
+        a = Mock()
+        a.plugin_base=self.plugin; a.deck_controller=self.deck; a.page=self.page
+        a.get_settings.return_value={'slot':1}; a.get_is_present.return_value=True
+        a.on_ready_called=True
+        return a
+
+    def test_automatic_stratagems_require_explicit_opt_in(self):
+        for settings in ({}, {'automatic_stratagems_enabled': False},
+                         {'automatic_stratagems_enabled': 'true'}):
+            self.plugin.get_settings = lambda: settings
+            self.assertFalse(self.coordinator.enabled)
+            with patch.object(self.mod, 'Thread') as thread:
+                self.coordinator.start(self.action())
+                thread.assert_not_called()
+            self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_disabled_buttons_preserve_assignments_and_block_execution_and_clear(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        session = self.coordinator.session(action)
+        token = session.begin([1])
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+        action.displayed = (session.snapshot().revision, 1, 'A')
+        action.on_key_down()
+        self.plugin.get_settings = lambda: {}
+        self.coordinator.settings_changed()
+        with patch.object(self.mod, 'execute_stratagem') as execute:
+            action.on_key_short_up()
+            execute.assert_not_called()
+        self.coordinator.clear(action)
+        self.assertEqual(session.snapshot().assignments[1], 'A')
+        for cls in (self.mod.AutomaticStratagem, self.mod.ScanStratagems):
+            button = self.rendering_action(cls)
+            button.render()
+            button.set_bottom_label.assert_called_with('Disabled')
+        self.plugin.get_settings = lambda: {'automatic_stratagems_enabled': True}
+        self.coordinator.settings_changed()
+        self.assertEqual(session.snapshot().assignments[1], 'A')
+
+    def test_disabling_scan_rejects_pending_result_and_worker_releases_lock(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        self.coordinator.actions.add(action)
+        action.on_ready_called = True
+        session = self.coordinator.session(action)
+        with patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod, 'catalog_colors', return_value={}), \
+             patch.object(self.mod, 'run_scan', return_value={'status':'matched', 'rows':[{'id':'A'}]}), \
+             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f,*args:f(*args)):
+            self.coordinator.start(action, replace=True)
+            worker = thread.call_args.kwargs['target']
+            self.assertTrue(self.plugin.input_lock.locked())
+            self.plugin.get_settings = lambda: {}
+            self.coordinator.settings_changed()
+            self.assertTrue(self.plugin.input_lock.locked())
+            self.plugin.get_settings = lambda: {'automatic_stratagems_enabled': True}
+            worker()
+        self.assertFalse(self.plugin.input_lock.locked())
+        self.assertNotIn('A', session.snapshot().assignments.values())
+
+    def test_sessions_are_scoped_to_deck_page_and_group(self):
+        a=self.action(); s=self.coordinator.session(a)
+        self.assertIs(self.coordinator.session(a),s)
+        a.get_settings.return_value={'group':'other'}
+        self.assertIsNot(self.coordinator.session(a),s)
+
+    def test_late_result_after_page_change_is_rejected(self):
+        a=self.action(); s=self.coordinator.session(a); token=s.begin([1])
+        self.coordinator.page_changed(self.deck,'/tmp/HD2.json','/tmp/Else.json')
+        self.assertFalse(s.finish(token,{'status':'matched','rows':[{'id':'A'}]},self.plugin.stratagems))
+
+    def test_busy_input_does_not_launch_scanner(self):
+        a=self.action(); self.plugin.input_lock.acquire()
+        with patch.object(self.mod,'Thread') as thread:
+            self.coordinator.start(a)
+            thread.assert_not_called()
+        self.plugin.input_lock.release()
+
+    def test_setup_failures_release_input_and_allow_a_later_scan(self):
+        action = self.action()
+        slot = self.rendering_action(self.mod.AutomaticStratagem)
+        self.coordinator.actions.add(slot)
+        action.get_settings.side_effect = ValueError('invalid action settings')
+        self.coordinator.start(action)
+        self.assertFalse(self.plugin.input_lock.locked())
+
+        action.get_settings.side_effect = None
+        action.get_settings.return_value = {'slot': 1}
+        with patch.object(self.mod, 'Thread') as thread:
+            self.coordinator.start(action)
+        thread.assert_called_once()
+        self.assertTrue(self.plugin.input_lock.locked())
+        self.plugin.input_lock.release()
+
+    def test_persistence_failure_after_begin_releases_input(self):
+        action = self.action()
+        with patch.object(self.coordinator, 'persist', side_effect=RuntimeError('write failed')):
+            self.coordinator.start(action)
+        self.assertFalse(self.plugin.input_lock.locked())
+        self.assertNotEqual(self.coordinator.session(action).snapshot().status, 'scanning')
+
+    def test_thread_start_failure_releases_input(self):
+        action = self.action()
+        thread = Mock()
+        thread.start.side_effect = RuntimeError('thread unavailable')
+        with patch.object(self.mod, 'Thread', return_value=thread):
+            self.coordinator.start(action)
+        self.assertFalse(self.plugin.input_lock.locked())
+        self.assertEqual(self.coordinator.session(action).snapshot().status, 'failed')
+
+    def test_failed_main_context_queue_cancels_without_worker_render(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.render = Mock()
+        action.on_ready_called = True
+        self.coordinator.actions.add(action)
+        with patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod, 'run_scan', return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
+             patch.object(self.mod.GLib, 'idle_add', side_effect=RuntimeError('queue closed')):
+            self.coordinator.start(action, replace=True)
+            action.render.reset_mock()
+            thread.call_args.kwargs['target']()
+        self.assertFalse(self.plugin.input_lock.locked())
+        self.assertEqual(self.coordinator.session(action).snapshot().status, 'idle')
+        action.render.assert_not_called()
+
+    def test_real_worker_process_finishes_through_queued_main_callback(self):
+        from automatic_stratagems import scan_runner
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.on_ready_called = True
+        self.coordinator.actions.add(action)
+        report = {'schema_version': 1, 'phase': 1, 'status': 'matched',
+                  'rows': [{'id': 'A', 'name': 'A', 'sequence': ['UP']}],
+                  'warnings': []}
+        command = [sys.executable, '-c', f'import json; print(json.dumps({report!r}))']
+        queued = []
+        with TemporaryDirectory() as directory, \
+             patch.object(scan_runner, 'check_scan_setup'), \
+             patch.object(scan_runner, 'scan_command', return_value=command), \
+             patch.object(self.mod, 'run_scan', side_effect=scan_runner.run_scan), \
+             patch.object(self.mod.GLib, 'idle_add',
+                          side_effect=lambda callback, *args: queued.append((callback, args)) or 1):
+            self.plugin.PATH = directory
+            self.coordinator.start(action, replace=True)
+            self.wait_for_input_release()
+        self.assertEqual(self.coordinator.session(action).snapshot().status, 'scanning')
+        self.assertEqual(len(queued), 1)
+        callback, args = queued.pop()
+        callback(*args)
+        self.assertEqual(self.coordinator.session(action).snapshot().assignments[1], 'A')
+
+    def test_disable_cancels_and_reaps_real_worker_process(self):
+        from automatic_stratagems import scan_runner
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.on_ready_called = True
+        self.coordinator.actions.add(action)
+        with TemporaryDirectory() as directory:
+            child_pid = Path(directory) / 'scanner.pid'
+            command = [sys.executable, '-c',
+                       f'import os,pathlib,time; pathlib.Path({str(child_pid)!r}).write_text(str(os.getpid())); time.sleep(60)']
+            with patch.object(scan_runner, 'check_scan_setup'), \
+                 patch.object(scan_runner, 'scan_command', return_value=command), \
+                 patch.object(self.mod, 'run_scan', side_effect=scan_runner.run_scan), \
+                 patch.object(self.mod.GLib, 'idle_add', return_value=1):
+                self.plugin.PATH = directory
+                self.coordinator.start(action, replace=True)
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline and not child_pid.exists():
+                    time.sleep(.01)
+                self.assertTrue(child_pid.exists())
+                self.plugin.get_settings = lambda: {}
+                self.coordinator.settings_changed()
+                self.wait_for_input_release()
+            pid = int(child_pid.read_text())
+            self.assertFalse(Path(f'/proc/{pid}').exists())
+            self.assertEqual(self.coordinator.session(action).snapshot().status, 'idle')
+
+    def test_shutdown_cancels_joins_and_rejects_future_scans(self):
+        from automatic_stratagems import scan_runner
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.on_ready_called = True
+        self.coordinator.actions.add(action)
+        with TemporaryDirectory() as directory:
+            child_pid = Path(directory) / 'scanner.pid'
+            command = [sys.executable, '-c',
+                       f'import os,pathlib,time; pathlib.Path({str(child_pid)!r}).write_text(str(os.getpid())); time.sleep(60)']
+            with patch.object(scan_runner, 'check_scan_setup'), \
+                 patch.object(scan_runner, 'scan_command', return_value=command), \
+                 patch.object(self.mod, 'run_scan', side_effect=scan_runner.run_scan), \
+                 patch.object(self.mod.GLib, 'idle_add', return_value=1):
+                self.plugin.PATH = directory
+                self.coordinator.start(action, replace=True)
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline and not child_pid.exists():
+                    time.sleep(.01)
+                self.assertTrue(child_pid.exists())
+                self.assertTrue(self.coordinator.shutdown())
+                self.assertFalse(self.plugin.input_lock.locked())
+                with patch.object(self.mod, 'Thread') as thread:
+                    self.coordinator.start(action, replace=True)
+                thread.assert_not_called()
+            pid = int(child_pid.read_text())
+            self.assertFalse(Path(f'/proc/{pid}').exists())
+
+    def test_shutdown_blocks_retained_assignment_execution(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                       self.plugin.stratagems)
+        action.displayed = (session.snapshot().revision, 1, 'A')
+        self.coordinator.shutdown()
+        with patch.object(self.mod, 'execute_stratagem') as execute:
+            action.on_key_down()
+            action.on_key_short_up()
+        execute.assert_not_called()
+
+    def test_disable_during_blocked_setup_prevents_worker_launch(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.on_ready_called = True
+        self.coordinator.actions.add(action)
+        entered = threading.Event()
+        resume = threading.Event()
+        original_persist = self.coordinator.persist
+
+        def blocked_persist(*args):
+            entered.set()
+            self.assertTrue(resume.wait(3))
+            original_persist(*args)
+
+        scanner_thread = Mock()
+        with patch.object(self.coordinator, 'persist', side_effect=blocked_persist), \
+             patch.object(self.mod, 'Thread', return_value=scanner_thread):
+            setup = threading.Thread(target=self.coordinator.start, args=(action,),
+                                     kwargs={'replace': True})
+            setup.start()
+            self.assertTrue(entered.wait(3))
+            self.assertIn(self.coordinator.context(action), self.coordinator.active_scans)
+            self.plugin.get_settings = lambda: {}
+            self.coordinator.settings_changed()
+            resume.set()
+            setup.join(3)
+        self.assertFalse(setup.is_alive())
+        scanner_thread.start.assert_not_called()
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_shutdown_waits_for_blocked_setup_to_abort(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.on_ready_called = True
+        self.coordinator.actions.add(action)
+        entered = threading.Event()
+        resume = threading.Event()
+        original_persist = self.coordinator.persist
+
+        def blocked_persist(*args):
+            entered.set()
+            self.assertTrue(resume.wait(3))
+            original_persist(*args)
+
+        scanner_thread = Mock()
+        result = []
+        with patch.object(self.coordinator, 'persist', side_effect=blocked_persist), \
+             patch.object(self.mod, 'Thread', return_value=scanner_thread):
+            setup = threading.Thread(target=self.coordinator.start, args=(action,),
+                                     kwargs={'replace': True})
+            setup.start()
+            self.assertTrue(entered.wait(3))
+            shutdown = threading.Thread(
+                target=lambda: result.append(self.coordinator.shutdown()))
+            shutdown.start()
+            operation = self.coordinator.active_scans[self.coordinator.context(action)]
+            self.assertTrue(operation['cancel'].wait(3))
+            self.assertTrue(shutdown.is_alive())
+            resume.set()
+            setup.join(3)
+            shutdown.join(3)
+        self.assertEqual(result, [True])
+        scanner_thread.start.assert_not_called()
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_disable_after_worker_exit_rejects_queued_completion_after_reenable(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.on_ready_called = True
+        self.coordinator.actions.add(action)
+        queued = []
+        with patch.object(self.mod, 'run_scan',
+                          return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
+             patch.object(self.mod.GLib, 'idle_add',
+                          side_effect=lambda callback, *args: queued.append((callback, args)) or 1):
+            self.coordinator.start(action, replace=True)
+            self.wait_for_input_release()
+        self.assertEqual(self.coordinator.active_scans, {})
+        self.plugin.get_settings = lambda: {}
+        self.coordinator.settings_changed()
+        self.plugin.get_settings = lambda: {'automatic_stratagems_enabled': True}
+        self.coordinator.settings_changed()
+        callback, args = queued.pop()
+        callback(*args)
+        self.assertNotIn('A', self.coordinator.session(action).snapshot().assignments.values())
+
+    def wait_for_input_release(self):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and self.plugin.input_lock.locked():
+            time.sleep(.01)
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_automatic_ignores_stale_display_revision(self):
+        a=self.mod.AutomaticStratagem.__new__(self.mod.AutomaticStratagem)
+        a.plugin_base=self.plugin; self.plugin.scan_coordinator=self.coordinator
+        a.deck_controller=self.deck; a.page=self.page
+        a.get_settings=lambda:{'slot':1}; a.get_is_present=lambda:True
+        a.has_custom_user_asset=lambda:False; a.has_image_control=lambda:True
+        a.has_label_controls=lambda:[True]*3
+        a.displayed=None
+        s=self.coordinator.session(a); t=s.begin([1]); s.finish(t,{'status':'matched','rows':[{'id':'A'}]},self.plugin.stratagems)
+        with patch.object(self.mod,'execute_stratagem') as execute:
+            a.on_key_down(); a.on_key_short_up(); execute.assert_not_called()
+            a.displayed=(s.snapshot().revision,1,'A'); a.on_key_down(); a.on_key_short_up()
+            self.assertEqual(execute.call_args.args,(self.plugin,'A',['UP']))
+            guard=execute.call_args.kwargs['guard']
+            self.assertTrue(guard())
+            s.cancel()
+            self.assertFalse(guard())
+
+    def test_host_update_forces_redraw_of_same_snapshot(self):
+        a=self.mod.AutomaticStratagem.__new__(self.mod.AutomaticStratagem)
+        a.displayed=(1,1,'A'); a.render=Mock()
+        a.on_update()
+        self.assertIsNone(a.displayed)
+        a.render.assert_called_once()
+
+    def test_scan_completion_updates_slots_and_releases_input(self):
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.coordinator = self.mod.ScanCoordinator(self.plugin, state_dir=directory.name)
+        self.deck = type('Deck', (), {'serial_number': lambda self: 'deck-one'})()
+        a=self.action()
+        a.get_settings.return_value={'capture_backend':'steam'}
+        slot=self.mod.AutomaticStratagem.__new__(self.mod.AutomaticStratagem)
+        slot.deck_controller=self.deck; slot.page=self.page; slot.plugin_base=self.plugin
+        slot.get_settings=lambda:{'slot':1}; slot.get_is_present=lambda:True
+        slot.on_ready_called=True; slot.render=Mock()
+        self.coordinator.actions.add(slot)
+        report={'status':'matched','rows':[{'id':'A'}]}
+        with patch.object(self.mod,'Thread') as thread, patch.object(self.mod,'run_scan',return_value=report) as scan, patch.object(self.mod.GLib,'idle_add',side_effect=lambda f,*args:f(*args)):
+            thread.side_effect=lambda **kw: types.SimpleNamespace(start=kw['target'])
+            self.coordinator.start(a)
+            scan.assert_called_once_with('/tmp/plugin', backend='steam', workers=2,
+                                         cancel_event=ANY)
+        self.assertEqual(self.coordinator.session(a).snapshot().assignments[1],'A')
+        self.assertFalse(self.plugin.input_lock.locked())
+        self.assertEqual(slot.render.call_count,2)
+        saved = json.loads(self.coordinator.store.path(self.coordinator.identity(a)).read_text())
+        self.assertEqual(saved['slots']['1']['id'], 'A')
+        self.assertEqual(saved['status'], 'ready')
+        self.assertIsNotNone(saved['last_scan_at'])
+
+    def test_scanner_failure_releases_input_and_retains_old_results(self):
+        a=self.action()
+        slot=self.mod.AutomaticStratagem.__new__(self.mod.AutomaticStratagem)
+        slot.deck_controller=self.deck; slot.page=self.page; slot.plugin_base=self.plugin
+        slot.get_settings=lambda:{'slot':1}; slot.get_is_present=lambda:True
+        slot.on_ready_called=True; slot.render=Mock()
+        self.coordinator.actions.add(slot)
+        s=self.coordinator.session(a); t=s.begin([1]); s.finish(t,{'status':'matched','rows':[{'id':'A'}]},self.plugin.stratagems)
+        with patch.object(self.mod,'Thread') as thread, patch.object(self.mod,'run_scan',side_effect=ValueError('Focus game')), patch.object(self.mod.GLib,'idle_add',side_effect=lambda f,*args:f(*args)):
+            thread.side_effect=lambda **kw: types.SimpleNamespace(start=kw['target'])
+            self.coordinator.start(a)
+        self.assertEqual(s.snapshot().status,'failed')
+        self.assertEqual(s.snapshot().assignments[1],'A')
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_button_backend_overrides_plugin_default(self):
+        a=self.action()
+        self.plugin.get_settings=lambda:{'capture_backend':'gamescope'}
+        self.assertEqual(self.mod.capture_backend(a), 'gamescope')
+        for backend in ('auto','gamescope','steam','desktop'):
+            a.get_settings.return_value={'capture_backend':backend}
+            self.assertEqual(self.mod.capture_backend(a), backend)
+        a.get_settings.return_value={'capture_backend':'invalid'}
+        self.assertEqual(self.mod.capture_backend(a), 'auto')
+
+    def test_dropdown_saves_os_as_desktop_per_button(self):
+        a=self.mod.ScanStratagems.__new__(self.mod.ScanStratagems)
+        a.plugin_base=self.plugin
+        self.plugin.scan_coordinator=self.coordinator
+        a.deck_controller=self.deck; a.page=self.page
+        a.get_settings=lambda:{'capture_backend':'steam'}
+        a.configure=Mock()
+        mode_row, row = Mock(), Mock()
+        with patch.object(self.mod.Adw,'ComboRow', side_effect=[mode_row, row]):
+            rows=a.get_config_rows()
+            row.set_selected.assert_called_once_with(2)
+            self.assertIn(row, rows)
+            callback=row.connect.call_args.args[1]
+            row.get_selected.return_value=3
+            callback(row,None)
+            a.configure.assert_called_once_with('capture_backend','desktop')
+
+    def test_scan_tap_and_hold_are_mutually_exclusive(self):
+        a=self.mod.ScanStratagems.__new__(self.mod.ScanStratagems)
+        a.plugin_base=self.plugin
+        self.plugin.scan_coordinator=Mock()
+        start=self.plugin.scan_coordinator.start
+        a.on_key_down()
+        start.assert_not_called()
+        a.on_key_short_up()
+        start.assert_called_once_with(a, replace=True)
+        start.reset_mock()
+        a.on_key_down()
+        a.on_key_hold_start()
+        a.on_key_hold_start()
+        a.on_key_up()
+        a.on_key_short_up()
+        a.on_key_hold_stop()
+        start.assert_not_called()
+        self.plugin.scan_coordinator.clear.assert_called_once_with(a)
+
+    def test_uncertain_icon_is_badged_and_remains_executable_after_failure(self):
+        a=self.mod.AutomaticStratagem.__new__(self.mod.AutomaticStratagem)
+        a.plugin_base=self.plugin; self.plugin.scan_coordinator=self.coordinator
+        self.plugin.lm=Mock(); self.plugin.lm.get.return_value=''
+        self.plugin.get_show_labels=lambda:False
+        a.deck_controller=self.deck; a.page=self.page
+        a.get_settings=lambda:{'slot':1}; a.get_is_present=lambda:True
+        a.has_custom_user_asset=lambda:False; a.has_image_control=lambda:True
+        a.has_label_controls=lambda:[True]*3
+        a.displayed=None
+        for name in ['set_media','set_top_label','set_center_label','set_bottom_label','set_background_color']:
+            setattr(a,name,Mock())
+        s=self.coordinator.session(a)
+        token=s.begin([1]); s.finish(token,{'status':'matched','rows':[{'id':'A'}]},self.plugin.stratagems)
+        token=s.begin([1]); s.finish(token,{'status':'partial','rows':[{'id':None}]},self.plugin.stratagems)
+        token=s.begin([1],replace=True); s.fail(token,'capture failed')
+        with patch.object(self.mod,'badged_icon') as badge, patch.object(self.mod,'execute_stratagem') as execute:
+            a.render()
+            badge.assert_called_once_with('/tmp/plugin/assets/icons/A.png')
+            a.on_key_down()
+            a.on_key_short_up()
+            execute.assert_called_once()
+            self.assertTrue(execute.call_args.kwargs['guard']())
+
+    def test_color_filter_is_per_slot(self):
+        a=self.mod.AutomaticStratagem.__new__(self.mod.AutomaticStratagem)
+        a.get_settings=lambda:{'color_filter':'red'}
+        self.assertEqual(a.color_filter(),'red')
+        a.get_settings=lambda:{'color_filter':'invalid'}
+        self.assertEqual(a.color_filter(),'any')
+
+    def rendering_action(self, action_type, settings=None):
+        action = action_type.__new__(action_type)
+        action.plugin_base = self.plugin
+        self.plugin.scan_coordinator = self.coordinator
+        action.deck_controller = self.deck
+        action.page = self.page
+        values = dict(settings or {})
+        action.get_settings = lambda: dict(values)
+        action.set_settings = lambda updated: values.update(updated)
+        action.get_is_present = lambda: True
+        action.has_custom_user_asset = lambda: False
+        action.has_image_control = lambda: True
+        action.has_label_controls = lambda: [True] * 3
+        action.displayed = None
+        for name in ('set_media', 'set_top_label', 'set_center_label',
+                     'set_bottom_label', 'set_background_color'):
+            setattr(action, name, Mock())
+        return action
+
+    def test_auto_hold_scans_once_without_executing_even_when_empty(self):
+        for assigned in (False, True):
+            action = self.rendering_action(self.mod.AutomaticStratagem)
+            session = self.coordinator.session(action)
+            if assigned:
+                token = session.begin([1])
+                session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+                action.displayed = (session.snapshot().revision, 1, 'A')
+            with patch.object(self.coordinator, 'start') as scan, patch.object(self.mod, 'execute_stratagem') as execute:
+                action.on_key_down()
+                execute.assert_not_called()
+                action.on_key_hold_start()
+                action.on_key_hold_start()
+                action.on_key_short_up()
+                action.on_key_hold_stop()
+                scan.assert_called_once_with(action, replace=True)
+                execute.assert_not_called()
+
+    def test_auto_release_rejects_assignment_changed_since_press(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        session = self.coordinator.session(action)
+        token = session.begin([1])
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+        action.displayed = (session.snapshot().revision, 1, 'A')
+        with patch.object(self.mod, 'execute_stratagem') as execute:
+            action.on_key_down()
+            token = session.begin([1], replace=True)
+            session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+            action.displayed = (session.snapshot().revision, 1, 'A')
+            action.on_key_short_up()
+            execute.assert_not_called()
+
+    def test_automatic_execution_failure_shows_action_error(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.show_error = Mock()
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                       self.plugin.stratagems)
+        action.displayed = (session.snapshot().revision, 1, 'A')
+        with patch.object(self.mod, 'execute_stratagem', return_value=False):
+            action.on_key_down()
+            action.on_key_short_up()
+        action.show_error.assert_called_once_with(duration=3)
+
+    def test_busy_automatic_execution_does_not_show_failure(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.show_error = Mock()
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                       self.plugin.stratagems)
+        action.displayed = (session.snapshot().revision, 1, 'A')
+        action.on_key_down()
+        self.plugin.input_lock.acquire()
+        with patch.object(self.mod, 'execute_stratagem', return_value=False):
+            action.on_key_short_up()
+        self.plugin.input_lock.release()
+        action.show_error.assert_not_called()
+
+    def test_assigned_auto_plays_scanning_animation_until_scan_finishes(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        self.plugin.get_show_labels = lambda: False
+        session = self.coordinator.session(action)
+        token = session.begin([1])
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+        token = session.begin([1], replace=True)
+        action.render()
+        self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/scanning.mp4'))
+        action.on_tick()
+        action.set_media.assert_called_once()
+        session.fail(token, 'Capture failed')
+        action.render()
+        self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/A.png'))
+
+    def test_clear_resets_linked_pages_and_persists_without_touching_other_groups(self):
+        launcher, root = self.temporary_setup()
+        self.synchronous_scan(launcher, {'status': 'matched', 'rows': [{'id': 'A'}]})
+        scan = self.temporary_scan_action(self.deck.active_page.json_path)
+        source = self.coordinator.session(launcher)
+        other = self.action()
+        other.get_settings.return_value = {'group': 'other'}
+        separate = self.coordinator.session(other)
+        token = separate.begin([1])
+        separate.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+        before = separate.snapshot()
+        self.coordinator.clear(scan)
+        self.assertFalse(any(source.snapshot().assignments.values()))
+        self.assertIsNone(source.latest_report())
+        self.assertFalse(any(self.coordinator.session(scan).snapshot().assignments.values()))
+        self.assertEqual(separate.snapshot(), before)
+        restored = self.mod.ScanCoordinator(self.plugin, state_dir=root / 'scan-state').session(launcher)
+        self.assertIsNone(restored.latest_report())
+        self.assertFalse(any(restored.snapshot().assignments.values()))
+
+    def test_scan_mode_selects_artwork_and_configuration_redraws(self):
+        action = self.rendering_action(self.mod.ScanStratagems)
+        action.render()
+        self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/automatic_stratagems/assets/icons/scan.png'))
+        action.configure('scan_mode', 'new_page')
+        self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/automatic_stratagems/assets/icons/scan-new-page.png'))
+        self.assertEqual(action.set_top_label.call_args.args[0], 'Scan')
+        self.assertEqual(action.set_bottom_label.call_args.args[0], 'Stratagems')
+
+    def test_clear_during_scan_rejects_result_without_unlocking_worker_early(self):
+        action = self.rendering_action(self.mod.ScanStratagems)
+        slot = self.rendering_action(self.mod.AutomaticStratagem)
+        slot.on_ready_called = True
+        self.coordinator.actions.add(slot)
+        with patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod, 'run_scan', return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
+             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
+            self.coordinator.start(action, replace=True)
+            self.coordinator.clear(action)
+            self.assertTrue(self.plugin.input_lock.locked())
+            thread.call_args.kwargs['target']()
+        session = self.coordinator.session(action)
+        self.assertEqual(session.snapshot().status, 'idle')
+        self.assertFalse(any(session.snapshot().assignments.values()))
+        self.assertIsNone(session.latest_report())
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_scanning_loops_without_restarting_on_ticks_and_stops_on_failure(self):
+        action = self.rendering_action(self.mod.ScanStratagems)
+        session = self.coordinator.session(action)
+        token = session.begin([1])
+        action.render()
+        media = action.set_media.call_args.kwargs
+        self.assertTrue(media['media_path'].endswith('/automatic_stratagems/assets/icons/scanning.mp4'))
+        self.assertEqual((media['fps'], media['loop']), (30, True))
+        action.on_tick()
+        action.on_tick()
+        action.set_media.assert_called_once()
+        session.fail(token, 'Capture failed')
+        action.render()
+        self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/automatic_stratagems/assets/icons/scan.png'))
+        self.assertEqual(action.set_top_label.call_args.args[0], 'Scan')
+        self.assertEqual(action.set_bottom_label.call_args.args[0], 'Stratagems')
+        self.assertEqual(action.set_center_label.call_args.args[0], 'Failed')
+
+    def test_scan_completion_and_cancel_restore_static_artwork(self):
+        for outcome in ('matched', 'partial', 'cancel'):
+            with self.subTest(outcome=outcome):
+                action = self.rendering_action(self.mod.ScanStratagems, {'group': outcome})
+                session = self.coordinator.session(action)
+                token = session.begin([1])
+                action.render()
+                if outcome == 'cancel':
+                    session.cancel()
+                else:
+                    session.finish(token, {'status': outcome, 'rows': [{'id': 'A' if outcome == 'matched' else None}]}, self.plugin.stratagems)
+                action.render()
+                self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('.png'))
+
+    def test_empty_auto_artwork_tracks_filter_and_keeps_slot_number(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem, {'slot': 12})
+        for color in ('any', 'red', 'blue', 'green', 'yellow', 'invalid'):
+            with self.subTest(color=color):
+                action.configure('color_filter', color)
+                expected = 'any' if color == 'invalid' else color
+                self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith(f'/automatic_stratagems/assets/icons/auto-{expected}.png'))
+                self.assertEqual(action.set_center_label.call_args.args[0], '12')
+
+    def test_back_action_uses_existing_navigation_artwork(self):
+        action = self.rendering_action(self.mod.TemporaryScanBack)
+        action.render()
+        self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/_stepbakcward.png'))
+
+    def test_back_remains_available_while_automatic_scanning_is_disabled(self):
+        action = self.rendering_action(self.mod.TemporaryScanBack)
+        self.plugin.get_settings = lambda: {}
+        self.coordinator.temporary_pages = Mock()
+        self.coordinator.back(action)
+        self.coordinator.temporary_pages.back.assert_called_once_with(
+            action.deck_controller, action.page.json_path)
+
+    def test_back_failure_keeps_navigation_artwork_and_explains_error(self):
+        action = self.rendering_action(self.mod.TemporaryScanBack)
+        self.coordinator.temporary_pages = Mock()
+        self.coordinator.temporary_pages.back.side_effect = RuntimeError('Source page missing')
+        self.coordinator.back(action)
+        self.assertEqual(action.back_error, 'Source page missing')
+        self.assertEqual(action.set_top_label.call_args.args[0], 'Back failed')
+        self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/_stepbakcward.png'))
+
+    def test_assignment_replaces_auto_artwork_and_slot_number(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        self.plugin.get_show_labels = lambda: True
+        self.plugin.lm = Mock()
+        self.plugin.lm.get.return_value = 'Stratagem'
+        action.render()
+        session = self.coordinator.session(action)
+        token = session.begin([1])
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+        action.render()
+        self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith('/icons/A.png'))
+        action.set_center_label.assert_called_with('Stratagem')
+
+    def test_persistent_session_restores_on_new_controller(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as directory:
+            self.coordinator = self.mod.ScanCoordinator(self.plugin, state_dir=directory)
+            # Controllers are identity-keyed, like the host's DeckController.
+            self.deck = type('Deck', (), {'serial_number': lambda self: 'deck-one'})()
+            a = self.action()
+            session = self.coordinator.session(a)
+            token = session.begin([1])
+            session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+            self.coordinator.persist(a, session)
+            self.coordinator.disconnect(a)
+            a.deck_controller = type(self.deck)()
+            restored = self.coordinator.session(a).snapshot()
+            self.assertEqual(restored.assignments[1], 'A')
+            self.assertEqual(restored.status, 'ready')
+            other = self.mod.ScanCoordinator(self.plugin, state_dir=directory)
+            self.assertEqual(other.session(a).snapshot().assignments[1], 'A')
+
+    def test_corrupt_state_does_not_break_action(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as directory:
+            self.coordinator = self.mod.ScanCoordinator(self.plugin, state_dir=directory)
+            self.deck = type('Deck', (), {'serial_number': lambda self: 'deck-one'})()
+            a = self.action()
+            self.coordinator.store.path(self.coordinator.identity(a)).write_text('{')
+            self.assertFalse(self.coordinator.session(a).snapshot().assignments)
+            self.assertIn(self.coordinator.context(a), self.coordinator.state_errors)
+
+    def test_storage_failure_preserves_live_assignments(self):
+        with TemporaryDirectory() as directory:
+            self.coordinator = self.mod.ScanCoordinator(self.plugin, state_dir=directory)
+            self.deck = type('Deck', (), {'serial_number': lambda self: 'deck-one'})()
+            a = self.action()
+            session = self.coordinator.session(a)
+            token = session.begin([1])
+            session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+            with patch.object(self.coordinator.store, 'save', side_effect=OSError('disk full')):
+                self.coordinator.persist(a, session)
+            self.assertEqual(session.snapshot().assignments[1], 'A')
+            self.assertEqual(session.snapshot().status, 'ready')
+            self.assertIn('disk full', self.coordinator.state_errors[self.coordinator.context(a)])
+
+    def temporary_setup(self):
+        from .test_temporary_scan_page import Deck, PageManager
+        temporary = TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        source = root / 'original.json'
+        source.write_text('{"keys": {}}')
+        self.page = types.SimpleNamespace(json_path=str(source))
+        self.deck = Deck(source)
+        self.coordinator = self.mod.ScanCoordinator(self.plugin, state_dir=root / 'scan-state')
+        self.coordinator.enable_temporary_pages(PageManager())
+        load = self.deck.load_page
+        def switch(page):
+            old_path = self.deck.active_page.json_path
+            load(page)
+            self.coordinator.page_changed(self.deck, old_path, page.json_path)
+        self.deck.load_page = switch
+        action = self.action()
+        action.get_settings.return_value = {'group': 'HD2', 'scan_mode': 'new_page', 'capture_backend': 'steam'}
+        action.get_is_present.side_effect = lambda: self.deck.active_page.json_path == action.page.json_path
+        return action, root
+
+    def synchronous_scan(self, action, report=None, error=None):
+        with patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod, 'run_scan', return_value=report, side_effect=error), \
+             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
+            thread.side_effect = lambda **kw: types.SimpleNamespace(start=kw['target'])
+            self.coordinator.start(action)
+
+    def test_new_page_scans_without_source_slots_and_preserves_source_session(self):
+        action, root = self.temporary_setup()
+        original = self.action()
+        original.get_settings.return_value = {'group': 'HD2'}
+        session = self.coordinator.session(original)
+        token = session.begin([1])
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+        before = session.snapshot()
+        self.synchronous_scan(action, {'status': 'matched', 'rows': [{'id': 'A'}]})
+        path = self.deck.active_page.json_path
+        self.assertNotEqual(path, self.page.json_path)
+        self.assertEqual(session.snapshot(), before)
+        loaded = self.coordinator.sessions[(self.deck, path, 'HD2')].snapshot()
+        self.assertEqual(loaded.assignments[1], 'A')
+        self.assertEqual(len(loaded.assignments), 13)
+        identity = dict(deck='deck-one', page=path, group='HD2')
+        self.assertTrue(self.coordinator.store.path(identity).exists())
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_failed_or_unknown_initial_scan_does_not_create_page(self):
+        action, root = self.temporary_setup()
+        self.synchronous_scan(action, error=RuntimeError('capture failed'))
+        self.assertEqual(self.deck.active_page.json_path, self.page.json_path)
+        self.assertEqual(self.coordinator.session(action).snapshot().status, 'failed')
+        self.synchronous_scan(action, {'status': 'partial', 'rows': [{'id': None}]})
+        self.assertEqual(list((root / 'temporary-pages').glob('*.json')), [])
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_back_removes_temporary_page_and_state(self):
+        action, root = self.temporary_setup()
+        self.synchronous_scan(action, {'status': 'matched', 'rows': [{'id': 'A'}]})
+        path = self.deck.active_page.json_path
+        back = self.action()
+        back.page = types.SimpleNamespace(json_path=path)
+        back.get_settings.return_value = {'group': 'HD2'}
+        self.coordinator.back(back)
+        self.assertEqual(self.deck.active_page.json_path, self.page.json_path)
+        self.assertFalse(Path(path).exists())
+        self.assertEqual(len(list((root / 'scan-state').glob('*.json'))), 1)
+        saved = json.loads(next((root / 'scan-state').glob('*.json')).read_text())
+        self.assertEqual(saved['context']['page'], self.page.json_path)
+        self.assertNotIn((self.deck, path, 'HD2'), self.coordinator.sessions)
+
+    def test_page_open_failure_rolls_back_page_and_state(self):
+        action, root = self.temporary_setup()
+        with patch.object(self.coordinator.temporary_pages, 'show', side_effect=RuntimeError('load failed')):
+            self.synchronous_scan(action, {'status': 'matched', 'rows': [{'id': 'A'}]})
+        self.assertEqual(self.coordinator.session(action).snapshot().status, 'failed')
+        self.assertEqual(len(list((root / 'scan-state').glob('*.json'))), 1)
+        saved = json.loads(next((root / 'scan-state').glob('*.json')).read_text())
+        self.assertEqual(saved['context']['page'], self.page.json_path)
+        self.assertEqual(list((root / 'temporary-pages').glob('*.json')), [])
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_scan_mode_setting_defaults_to_update_and_selects_new_page(self):
+        a = self.mod.ScanStratagems.__new__(self.mod.ScanStratagems)
+        a.plugin_base = self.plugin
+        self.plugin.scan_coordinator = self.coordinator
+        a.deck_controller = self.deck
+        a.page = self.page
+        a.get_settings = lambda: {}
+        a.configure = Mock()
+        mode_row, backend_row = Mock(), Mock()
+        with patch.object(self.mod.Adw, 'ComboRow', side_effect=[mode_row, backend_row]):
+            a.get_config_rows()
+        mode_row.set_selected.assert_called_once_with(0)
+        mode_row.get_selected.return_value = 1
+        mode_row.connect.call_args.args[1](mode_row, None)
+        a.configure.assert_called_once_with('scan_mode', 'new_page')
+
+    def temporary_scan_action(self, path):
+        data = json.loads(Path(path).read_text())
+        entries = [value['states']['0']['actions'][0] for value in data['keys'].values()]
+        scan = self.action()
+        scan.page = types.SimpleNamespace(json_path=path)
+        scan.get_settings.return_value = entries[1]['settings']
+        scan.get_is_present.side_effect = lambda: self.deck.active_page.json_path == path
+        for entry in entries[2:]:
+            slot = self.mod.AutomaticStratagem.__new__(self.mod.AutomaticStratagem)
+            slot.deck_controller = self.deck
+            slot.page = scan.page
+            slot.plugin_base = self.plugin
+            slot.get_settings = lambda settings=entry['settings']: settings
+            slot.get_is_present = lambda: self.deck.active_page.json_path == path
+            slot.on_ready_called = True
+            slot.render = Mock()
+            # The real Page owns its actions; retain them while exercising its equivalent here.
+            self.__dict__.setdefault('page_actions', []).append(slot)
+            self.coordinator.actions.add(slot)
+        return scan
+
+    def test_scan_again_updates_temporary_page_without_creating_another(self):
+        launcher, root = self.temporary_setup()
+        self.plugin.stratagems['B'] = ['DOWN']
+        self.synchronous_scan(launcher, {'status': 'matched', 'rows': [{'id': 'A'}]})
+        path = self.deck.active_page.json_path
+        scan = self.temporary_scan_action(path)
+        self.synchronous_scan(scan, {'status': 'matched', 'rows': [{'id': 'B'}]})
+        snapshot = self.coordinator.session(scan).snapshot()
+        self.assertEqual(snapshot.assignments[1], 'A')
+        self.assertEqual(snapshot.assignments[2], 'B')
+        self.assertEqual(snapshot.unconfirmed_slots, frozenset({1}))
+        self.assertEqual(self.deck.active_page.json_path, path)
+        self.assertEqual(len(list((root / 'temporary-pages').glob('*.json'))), 1)
+
+    def test_back_during_scan_rejects_late_results_without_recreating_files(self):
+        launcher, root = self.temporary_setup()
+        report = {'status': 'matched', 'rows': [{'id': 'A'}]}
+        self.synchronous_scan(launcher, report)
+        path = self.deck.active_page.json_path
+        scan = self.temporary_scan_action(path)
+        with patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod, 'run_scan', return_value=report), \
+             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
+            self.coordinator.start(scan)
+            self.assertTrue(self.plugin.input_lock.locked())
+            back = self.action()
+            back.page = scan.page
+            back.get_settings.return_value = {'group': 'HD2'}
+            self.coordinator.back(back)
+            self.assertEqual(self.deck.active_page.json_path, self.page.json_path)
+            thread.call_args.kwargs['target']()
+        self.assertFalse(self.plugin.input_lock.locked())
+        self.assertFalse(Path(path).exists())
+        self.assertEqual(len(list((root / 'scan-state').glob('*.json'))), 1)
+        saved = json.loads(next((root / 'scan-state').glob('*.json')).read_text())
+        self.assertEqual(saved['context']['page'], self.page.json_path)
+
+    def test_changing_mode_preserves_existing_source_assignments(self):
+        action = self.mod.ScanStratagems.__new__(self.mod.ScanStratagems)
+        action.plugin_base = self.plugin
+        self.plugin.scan_coordinator = self.coordinator
+        action.deck_controller = self.deck
+        action.page = self.page
+        settings = {}
+        action.get_settings = lambda: dict(settings)
+        action.set_settings = lambda value: settings.update(value)
+        action.render = Mock()
+        session = self.coordinator.session(action)
+        token = session.begin([1])
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+        before = session.snapshot()
+        action.configure('scan_mode', 'new_page')
+        self.assertEqual(session.snapshot(), before)
+        self.assertIs(self.coordinator.session(action), session)
+
+    def test_cancelled_launch_does_not_open_page_when_result_arrives(self):
+        launcher, root = self.temporary_setup()
+        report = {'status': 'matched', 'rows': [{'id': 'A'}]}
+        with patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod, 'run_scan', return_value=report), \
+             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
+            self.coordinator.start(launcher)
+            self.coordinator.session(launcher).cancel()
+            thread.call_args.kwargs['target']()
+        self.assertEqual(self.deck.active_page.json_path, self.page.json_path)
+        self.assertEqual(list((root / 'temporary-pages').glob('*.json')), [])
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_both_scan_modes_share_status_and_new_page_reuses_observation(self):
+        launcher, root = self.temporary_setup()
+        update = self.action()
+        update.get_settings.return_value = {'group': 'HD2'}
+        session = self.coordinator.session(update)
+        token = session.begin({1: 'any'})
+        report = {'status': 'partial', 'rows': [{'id': 'A'}, {'id': None}]}
+        session.finish(token, report, self.plugin.stratagems)
+        self.assertIs(self.coordinator.session(launcher), session)
+        with patch.object(self.mod, 'run_scan') as scanner:
+            self.coordinator.start(launcher)
+            scanner.assert_not_called()
+        path = self.deck.active_page.json_path
+        self.assertNotEqual(path, self.page.json_path)
+        self.assertEqual(self.coordinator.sessions[(self.deck, path, 'HD2')].snapshot().unknown, 1)
+
+    def test_temporary_scan_updates_source_and_survives_back_and_restart(self):
+        launcher, root = self.temporary_setup()
+        self.plugin.stratagems['B'] = ['DOWN']
+        source = self.coordinator.session(launcher)
+        token = source.begin({1: 'any'})
+        source.finish(token, {'status': 'partial', 'rows': [{'id': 'A'}, {'id': None}]}, self.plugin.stratagems)
+        self.coordinator.start(launcher)
+        path = self.deck.active_page.json_path
+        scan = self.temporary_scan_action(path)
+        self.synchronous_scan(scan, {'status': 'matched', 'rows': [{'id': 'B'}]})
+        self.assertEqual(source.snapshot().assignments[1], 'B')
+        self.assertEqual(source.snapshot().unknown, 0)
+        back = self.action(); back.page = scan.page
+        back.get_settings.return_value = {'group': 'HD2'}
+        self.coordinator.back(back)
+        other = self.mod.ScanCoordinator(self.plugin, state_dir=root/'scan-state')
+        restored = other.session(launcher)
+        self.assertEqual(restored.snapshot().assignments[1], 'B')
+        self.assertEqual(restored.latest_report()['rows'], [{'id': 'B'}])
+
+    def test_shared_report_preserves_source_filters_and_group_isolation(self):
+        launcher, root = self.temporary_setup()
+        self.plugin.stratagems.update(B=['DOWN'], C=['LEFT'])
+        colors = {'A': 'red', 'B': 'blue', 'C': 'blue'}
+        source = self.coordinator.session(launcher)
+        token = source.begin({1: 'red', 2: 'blue'})
+        source.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]}, self.plugin.stratagems, colors)
+        unrelated = self.action(); unrelated.get_settings.return_value = {'group': 'other'}
+        separate = self.coordinator.session(unrelated)
+        before = separate.snapshot()
+        with patch.object(self.mod, 'catalog_colors', return_value=colors):
+            self.coordinator.start(launcher)
+            scan = self.temporary_scan_action(self.deck.active_page.json_path)
+            self.synchronous_scan(scan, {'status': 'matched', 'rows': [{'id': 'C'}]})
+        self.assertEqual(dict(source.snapshot().assignments), {1: 'A', 2: 'C'})
+        self.assertEqual(source.snapshot().unconfirmed_slots, frozenset({1}))
+        self.assertEqual(separate.snapshot(), before)
+
+    def test_new_page_hold_bypasses_saved_results(self):
+        launcher, root = self.temporary_setup()
+        source = self.coordinator.session(launcher)
+        token = source.begin([1])
+        source.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+        with patch.object(self.mod, 'Thread') as thread:
+            self.coordinator.start(launcher, replace=True)
+            thread.assert_called_once()
+        self.assertEqual(source.snapshot().status, 'scanning')
+        self.assertEqual(self.deck.active_page.json_path, self.page.json_path)
+        self.plugin.input_lock.release()
+
+    def test_open_status_row_is_not_retained_for_worker_or_tick_mutation(self):
+        action = self.rendering_action(self.mod.ScanStratagems)
+        session = self.coordinator.session(action)
+        token = session.begin([1])
+        session.finish(token, {'status': 'partial', 'rows': [{'id': None}]}, self.plugin.stratagems)
+        with patch.object(self.mod.Adw, 'ActionRow') as row:
+            action.get_config_rows()
+        self.assertNotIn('last_scan_row', action.__dict__)
+        self.assertEqual(row.call_args.kwargs['subtitle'], session.snapshot().message)
+
+    def test_disabled_ticks_reuse_static_artwork(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        self.plugin.get_settings = lambda: {}
+        action.render()
+        action.on_tick()
+        action.on_tick()
+        action.set_media.assert_called_once()
+
+    def test_restored_assignment_is_cleared_when_filter_changes(self):
+        with TemporaryDirectory() as directory:
+            self.coordinator = self.mod.ScanCoordinator(self.plugin, state_dir=directory)
+            self.deck = type('Deck', (), {'serial_number': lambda self: 'deck-one'})()
+            action = self.rendering_action(
+                self.mod.AutomaticStratagem, {'slot': 1, 'color_filter': 'red'})
+            self.coordinator.actions.add(action)
+            session = self.coordinator.session(action)
+            token = session.begin({1: 'red'})
+            session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                           self.plugin.stratagems, {'A': 'red'})
+            self.coordinator.persist(action, session)
+
+            restored = self.mod.ScanCoordinator(self.plugin, state_dir=directory)
+            self.plugin.scan_coordinator = restored
+            settings = {'slot': 1, 'color_filter': 'blue'}
+            action.get_settings = lambda: dict(settings)
+            action.set_settings = lambda value: settings.update(value)
+            action.render = Mock()
+            action.on_ready()
+            self.assertIsNone(restored.session(action).snapshot().assignments[1])
+            saved = json.loads(restored.store.path(restored.identity(action)).read_text())
+            self.assertIsNone(saved['slots']['1']['id'])
+            self.assertEqual(saved['slots']['1']['filter'], 'blue')
+
+    def test_first_restored_action_does_not_discard_later_saved_slots(self):
+        with TemporaryDirectory() as directory:
+            self.coordinator = self.mod.ScanCoordinator(self.plugin, state_dir=directory)
+            self.deck = type('Deck', (), {'serial_number': lambda self: 'deck-one'})()
+            first = self.rendering_action(
+                self.mod.AutomaticStratagem, {'slot': 1, 'color_filter': 'red'})
+            second = self.rendering_action(
+                self.mod.AutomaticStratagem, {'slot': 2, 'color_filter': 'blue'})
+            session = self.coordinator.session(first)
+            self.plugin.stratagems['B'] = ['DOWN']
+            token = session.begin({1: 'red', 2: 'blue'})
+            session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]},
+                           self.plugin.stratagems, {'A': 'red', 'B': 'blue'})
+            self.coordinator.persist(first, session)
+
+            restored = self.mod.ScanCoordinator(self.plugin, state_dir=directory)
+            self.plugin.scan_coordinator = restored
+            first.render = Mock()
+            first.on_ready()
+            self.assertEqual(dict(restored.session(first).snapshot().assignments),
+                             {1: 'A', 2: 'B'})
+            second.render = Mock()
+            second.on_ready()
+            self.assertEqual(dict(restored.session(second).snapshot().assignments),
+                             {1: 'A', 2: 'B'})
+
+    def test_page_setting_edit_is_reconciled_before_execution(self):
+        settings = {'slot': 1, 'color_filter': 'red'}
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.get_settings = lambda: dict(settings)
+        action.render = Mock()
+        self.coordinator.register_action(action)
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'red'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                       self.plugin.stratagems, {'A': 'red'})
+        action.displayed = (session.snapshot().revision, 1, 'A')
+        settings['color_filter'] = 'blue'
+        with patch.object(self.mod, 'execute_stratagem') as execute:
+            action.on_key_down()
+            action.on_key_short_up()
+        execute.assert_not_called()
+        self.assertIsNone(session.snapshot().assignments[1])
+
+    def test_slot_change_preserves_unrelated_assignment(self):
+        settings = {'slot': 1, 'color_filter': 'red'}
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.get_settings = lambda: dict(settings)
+        action.set_settings = lambda value: settings.update(value)
+        other = self.rendering_action(
+            self.mod.AutomaticStratagem, {'slot': 2, 'color_filter': 'blue'})
+        action.render = Mock()
+        other.render = Mock()
+        self.coordinator.actions.update((action, other))
+        self.plugin.stratagems['B'] = ['DOWN']
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'red', 2: 'blue'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]},
+                       self.plugin.stratagems, {'A': 'red', 'B': 'blue'})
+        action.configure('slot', 3)
+        self.assertEqual(dict(session.snapshot().assignments), {2: 'B', 3: None})
+
+    def test_shared_slot_removal_cancels_scan_and_preserves_other_binding(self):
+        self.plugin.stratagems['B'] = ['DOWN']
+        first = self.rendering_action(
+            self.mod.AutomaticStratagem, {'slot': 1, 'color_filter': 'any'})
+        second = self.rendering_action(
+            self.mod.AutomaticStratagem, {'slot': 2, 'color_filter': 'any'})
+        scanner = self.rendering_action(self.mod.ScanStratagems)
+        self.coordinator.actions.update((first, second, scanner))
+        session = self.coordinator.session(scanner)
+        token = session.begin({1: 'any', 2: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]},
+                       self.plugin.stratagems)
+        with patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod, 'run_scan', side_effect=self.mod.CancelledError):
+            self.coordinator.start(scanner, replace=True)
+            operation = self.coordinator.active_scans[self.coordinator.context(scanner)]
+            self.coordinator.remove_action(first)
+            self.assertTrue(operation['cancel'].is_set())
+            self.assertEqual(dict(session.snapshot().assignments), {2: 'B'})
+            thread.call_args.kwargs['target']()
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_deck_disconnect_preserves_other_deck_session(self):
+        first_deck = self.deck
+        first = self.action()
+        first_session = self.coordinator.session(first)
+        token = first_session.begin({1: 'any'})
+        first_session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                             self.plugin.stratagems)
+        second_deck = object()
+        second = self.action()
+        second.deck_controller = second_deck
+        second_session = self.coordinator.session(second)
+        token = second_session.begin({1: 'any'})
+        second_session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                              self.plugin.stratagems)
+        self.coordinator.deck_disconnected(first_deck)
+        self.assertNotIn(self.coordinator.context(first), self.coordinator.sessions)
+        self.assertEqual(second_session.snapshot().assignments[1], 'A')
+
+    def test_returning_to_group_restores_only_matching_binding(self):
+        with TemporaryDirectory() as directory:
+            self.coordinator = self.mod.ScanCoordinator(self.plugin, state_dir=directory)
+            self.deck = type('Deck', (), {'serial_number': lambda self: 'deck-one'})()
+            settings = {'slot': 1, 'color_filter': 'red', 'group': 'red-team'}
+            action = self.rendering_action(self.mod.AutomaticStratagem)
+            action.get_settings = lambda: dict(settings)
+            action.set_settings = lambda value: settings.update(value)
+            action.render = Mock()
+            self.coordinator.actions.add(action)
+            session = self.coordinator.session(action)
+            token = session.begin({1: 'red'})
+            session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                           self.plugin.stratagems, {'A': 'red'})
+            self.coordinator.persist(action, session)
+
+            action.configure('group', 'other')
+            action.configure('group', 'red-team')
+            self.assertEqual(self.coordinator.session(action).snapshot().assignments[1], 'A')
+
+            action.configure('group', 'other')
+            action.configure('color_filter', 'blue')
+            action.configure('group', 'red-team')
+            self.assertIsNone(self.coordinator.session(action).snapshot().assignments[1])
+
+    def test_cached_page_open_failure_preserves_source_assignments(self):
+        launcher, root = self.temporary_setup()
+        source = self.coordinator.session(launcher)
+        token = source.begin({1: 'any'})
+        source.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
+        with patch.object(self.coordinator.temporary_pages, 'show', side_effect=RuntimeError('load failed')):
+            self.coordinator.start(launcher)
+        self.assertEqual(dict(source.snapshot().assignments), {1: 'A'})
+        self.assertEqual(source.snapshot().status, 'failed')
+        self.assertFalse(self.plugin.input_lock.locked())
+        self.assertEqual(list((root/'temporary-pages').glob('*.json')), [])
+        restored = self.coordinator.store.load(self.coordinator.identity(launcher), self.plugin.stratagems)
+        self.assertEqual(dict(restored.snapshot().assignments), {1: 'A'})
+
+    def test_stale_temporary_session_does_not_break_sharing(self):
+        launcher, root = self.temporary_setup()
+        stale = self.deck, str(root/'temporary-pages'/'deleted.json'), 'HD2'
+        self.coordinator.sessions[stale] = self.mod.ScanSession()
+        context = self.coordinator.context(launcher)
+        self.coordinator.share_report(context, {'status': 'matched', 'rows': [{'id': 'A'}]}, {})
+        self.assertEqual(self.coordinator.sessions[stale].snapshot().status, 'idle')
