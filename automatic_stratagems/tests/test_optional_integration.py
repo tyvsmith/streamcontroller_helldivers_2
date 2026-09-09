@@ -270,8 +270,8 @@ class OptionalIntegrationTests(unittest.TestCase):
             coordinator_factory=self.coordinator_type())
         opener = plugin.action_holders['net_jslay_helldivers_2::AutoStratagems']
         scanner = plugin.action_holders['net_jslay_helldivers_2::ScanStratagems']
-        self.assertEqual(opener.action_name, 'Auto Stratagems')
-        self.assertEqual(scanner.action_name, 'Scan Stratagems')
+        self.assertEqual(opener.action_name, 'Automatic Stratagem Page')
+        self.assertEqual(scanner.action_name, 'Automatic Stratagem Scanner')
         self.assertIs(opener.action_base, module.AutoStratagems)
         self.assertIs(scanner.action_base, module.ScanStratagems)
 

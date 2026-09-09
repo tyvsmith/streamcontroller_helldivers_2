@@ -21,6 +21,6 @@ execute. Configuration changes invalidate affected bindings before reuse.
 Generated pages live in `temporary-pages/` under the plugin data directory, keyed
 by deck serial, source page and scan group. Back retains the page and its saved
 assignments; reopening it does not scan. The cache survives app restarts.
-Holding Auto Stratagems deletes only its generated page and associated scan state.
+Holding Automatic Stratagem Page deletes only its generated page and associated scan state.
 Deletion must return an active generated page to its source first. If the source
 is missing, keep the page recoverable rather than selecting another destination.

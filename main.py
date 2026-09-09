@@ -476,10 +476,10 @@ class HellDiversPlugin(PluginBase):
                              if automatic_initialized else
                              (UnavailableAutomaticAction,) * 4)
         for action, suffix, name, icon in (
-                (automatic_classes[0], "ScanStratagems", "Scan Stratagems", "automatic_stratagems/assets/icons/scan-update.png"),
-                (automatic_classes[1], "AutomaticStratagem", "Auto Stratagem", "automatic_stratagems/assets/icons/auto-any.png"),
+                (automatic_classes[0], "ScanStratagems", "Automatic Stratagem Scanner", "automatic_stratagems/assets/icons/scan-update.png"),
+                (automatic_classes[1], "AutomaticStratagem", "Automatic Stratagem", "automatic_stratagems/assets/icons/auto-any.png"),
                 (automatic_classes[2], "TemporaryScanBack", "Temporary Scan Back", "assets/icons/_stepbakcward.png"),
-                (automatic_classes[3], "AutoStratagems", "Auto Stratagems", "automatic_stratagems/assets/icons/scan-new-page.png")):
+                (automatic_classes[3], "AutoStratagems", "Automatic Stratagem Page", "automatic_stratagems/assets/icons/scan-new-page.png")):
             self.add_action_holder(ActionHolder(plugin_base=self, action_base=action,
                 action_id=f"net_jslay_helldivers_2::{suffix}", action_name=name,
                 icon=Gtk.Image.new_from_file(os.path.join(self.PATH, icon))))

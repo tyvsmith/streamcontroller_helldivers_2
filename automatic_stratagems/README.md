@@ -40,27 +40,27 @@ per-backend failures and may try the next backend.
 
 ## Buttons and recovery
 
-- tap **Auto Stratagems** to create, scan and open a generated page; subsequent taps
+- tap **Automatic Stratagem Page** to create, scan and open a generated page; subsequent taps
   reopen that same cached page without scanning
-- **+** on Auto Stratagems means no cached page; the plain page icon means one exists
+- **+** on Automatic Stratagem Page means no cached page; the plain page icon means one exists
 - **Back** returns to the source and retains the page, including across app restarts
-- hold **Auto Stratagems** to delete its generated page and saved page assignments;
+- hold **Automatic Stratagem Page** to delete its generated page and saved page assignments;
   source-page assignments remain
-- tap **Scan Stratagems** to replace the current group from a fresh scan; hold to clear
-- tap **Auto Stratagem** to execute its assignment, or scan its group when empty;
+- tap **Automatic Stratagem Scanner** to replace the current group from a fresh scan; hold to clear
+- tap **Automatic Stratagem** to execute its assignment, or scan its group when empty;
   hold to scan its group regardless of assignment
 - leave slot at **-1 (automatic)** to assign distinct numbers in page order, skipping
   explicit slot numbers; choose a positive number to pin a slot
 - configure Any/Red/Blue/Green/Yellow filters; groups isolate assignments by deck
   and page, with linked source/temporary pages sharing observations
-- existing scanner buttons configured for new-page mode behave as Auto Stratagems;
+- existing scanner buttons configured for new-page mode behave as Automatic Stratagem Page;
   add the separate actions from the chooser for new buttons
 - open the desired game menu yourself; scanning does not open it for you
 - keep unknown slots disabled; recognized IDs use existing catalog sequences
 - inspect **Last scan** for failures; Partial means unknown or unconfirmed results,
   not extra recognized stratagems beyond page capacity
 - only the pressed button animates during scanning or shows an error triangle;
-  Auto Stratagems and Scan Stratagems keep their center labels empty
+  Automatic Stratagem Page and Automatic Stratagem Scanner keep their center labels empty
 - a question mark on an empty Auto slot means a completed scan was partial
 - restored/unconfirmed badges are not cooldown indicators
 - disable scanning to preserve configured buttons and assignments while blocking scan actions
