@@ -1078,6 +1078,35 @@ class ActionTests(unittest.TestCase):
         self.assertEqual(action.set_bottom_label.call_args.args[0], 'Stratagems')
         self.assertEqual(action.set_center_label.call_args.args[0], '')
 
+    def test_scanning_video_wakes_cached_native_media_ticks(self):
+        action = self.rendering_action(self.mod.ScanStratagems)
+        wake = Mock()
+        media_player = types.SimpleNamespace(_cached_needs_ticks=False, _wake_event=wake)
+        action.deck_controller = types.SimpleNamespace(media_player=media_player)
+
+        action.artwork('automatic_stratagems/assets/icons/scanning.mp4',
+                       'Scan', '', 'Scanning')
+
+        self.assertIs(media_player._cached_needs_ticks, True)
+        wake.set.assert_called_once_with()
+
+    def test_static_artwork_and_missing_media_tick_api_are_unchanged(self):
+        action = self.rendering_action(self.mod.ScanStratagems)
+        wake = Mock()
+        media_player = types.SimpleNamespace(_cached_needs_ticks=False, _wake_event=wake)
+        action.deck_controller = types.SimpleNamespace(media_player=media_player)
+
+        action.artwork('automatic_stratagems/assets/icons/scan-update.png',
+                       'Scan', '', 'Stratagems')
+        self.assertIs(media_player._cached_needs_ticks, False)
+        wake.set.assert_not_called()
+
+        for media_player in (types.SimpleNamespace(),
+                             types.SimpleNamespace(_cached_needs_ticks='false')):
+            action.deck_controller = types.SimpleNamespace(media_player=media_player)
+            action.artwork('automatic_stratagems/assets/icons/scanning.mp4',
+                           'Scan', '', 'Scanning')
+
     def test_scan_completion_and_cancel_restore_static_artwork(self):
         for outcome in ('matched', 'partial', 'cancel'):
             with self.subTest(outcome=outcome):

@@ -667,6 +667,15 @@ class ScanActionBase(KeyAction):
     def artwork(self, filename, top, center, bottom, *, center_size=None):
         self.set_media(media_path=str(Path(self.plugin_base.PATH) / filename),
                        fps=30, loop=True)
+        if Path(filename).name == 'scanning.mp4':
+            media_player = getattr(self.deck_controller, 'media_player', None)
+            # beta.15 can retain its idle cache until after a short scan ends.
+            if isinstance(getattr(media_player, '_cached_needs_ticks', None), bool):
+                media_player._cached_needs_ticks = True
+                wake = getattr(media_player, '_wake_event', None)
+                wake_set = getattr(wake, 'set', None)
+                if callable(wake_set):
+                    wake_set()
         self.set_top_label(top)
         self.set_center_label(center, font_size=center_size)
         self.set_bottom_label(bottom)
