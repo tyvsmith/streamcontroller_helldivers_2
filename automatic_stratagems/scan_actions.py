@@ -20,8 +20,82 @@ from ..stratagem_execution import execute_stratagem
 
 CAPTURE_BACKENDS = ('auto', 'gamescope', 'steam', 'desktop')
 SCAN_MODES = ('update', 'new_page')
+AUTOMATIC_ACTION_ID = 'net_jslay_helldivers_2::AutomaticStratagem'
 SHUTDOWN_TIMEOUT_SECONDS = (FLATPAK_TERMINATE_GRACE_SECONDS
                             + TERMINATE_GRACE_SECONDS + 1)
+
+
+def _configured_slot(settings):
+    try:
+        value = int(settings.get('slot', -1))
+    except (ValueError, TypeError):
+        return -1
+    return min(value, 99) if value > 0 else -1
+
+
+def _scan_group(settings):
+    return str(settings.get('group', 'default')).strip() or 'default'
+
+
+def _automatic_layout(action):
+    """Return stable Auto action records from a beta.15 Page, if available."""
+    page = getattr(action, 'page', None)
+    data = getattr(page, 'dict', None)
+    objects = getattr(page, 'action_objects', None)
+    if not isinstance(data, dict) or not isinstance(objects, dict):
+        return None
+    records = []
+    for identifier, key in data.get('keys', {}).items():
+        try:
+            column, row = (int(value) for value in identifier.split('x', 1))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        states = key.get('states', {}) if isinstance(key, dict) else {}
+        for state_key, state_data in states.items():
+            try:
+                state = int(state_key)
+            except (TypeError, ValueError):
+                continue
+            actions = state_data.get('actions', []) if isinstance(state_data, dict) else []
+            if not isinstance(actions, list):
+                continue
+            for index, action_data in enumerate(actions):
+                if (not isinstance(action_data, dict)
+                        or action_data.get('id') != AUTOMATIC_ACTION_ID):
+                    continue
+                settings = action_data.get('settings', {})
+                if not isinstance(settings, dict):
+                    settings = {}
+                action_object = objects.get('keys', {}).get(identifier, {}).get(
+                    state, {}).get(index)
+                records.append(((row, column, state, index), settings, action_object))
+    return sorted(records, key=lambda record: record[0])
+
+
+def _resolved_layout(action, group=None):
+    records = _automatic_layout(action)
+    if records is None:
+        return None
+    group = _scan_group(action.get_settings()) if group is None else group
+    records = [record for record in records if _scan_group(record[1]) == group]
+    reserved = {_configured_slot(settings) for _, settings, _ in records}
+    reserved.discard(-1)
+    available = (slot for slot in range(1, 100) if slot not in reserved)
+    resolved = []
+    for position, settings, action_object in records:
+        slot = _configured_slot(settings)
+        if slot == -1:
+            try:
+                slot = next(available)
+            except StopIteration:
+                raise ValueError('No automatic slots remain') from None
+        resolved.append((position, settings, action_object, slot))
+    return resolved
+
+
+def _settings_color_filter(settings):
+    value = settings.get('color_filter', 'any')
+    return value if value in SLOT_COLORS else 'any'
 
 
 def scan_mode(action):
@@ -91,7 +165,7 @@ class ScanCoordinator:
         return dict(deck=serial, page=str(Path(page).absolute()), group=group)
 
     def context(self, action):
-        group = str(action.get_settings().get('group', 'default')).strip() or 'default'
+        group = _scan_group(action.get_settings())
         return action.deck_controller, action.page.json_path, group
 
     def session(self, action):
@@ -248,15 +322,21 @@ class ScanCoordinator:
         self.deck_disconnected(action.deck_controller)
 
     def remove_action(self, action):
-        context = self.context(action)
-        slot = action.slot() if isinstance(action, AutomaticStratagem) else None
+        context = getattr(action, '_scan_context', None)
+        if context is None:
+            context = self.context(action)
+        slot = (getattr(action, '_resolved_slot', None)
+                if isinstance(action, AutomaticStratagem) else None)
+        if isinstance(action, AutomaticStratagem) and slot is None:
+            slot = action.slot()
         self.actions.discard(action)
         operation = self.active_scans.get(context)
         if (operation is not None and operation['action']() is action) or slot is not None:
             self.cancel_context(context)
         if slot is not None and context in self.sessions:
             session = self.sessions[context]
-            if session.reconcile(self.configured_filters(context), affected={slot}):
+            filters, authoritative = self._configured_filters(context)
+            if session.reconcile(filters, affected=None if authoritative else {slot}):
                 self.persist_context(context, session)
                 self.redraw(context)
 
@@ -282,21 +362,32 @@ class ScanCoordinator:
             self.reconcile_action(action)
 
     def configured_filters(self, context):
-        return {candidate.slot(): candidate.color_filter()
-                for candidate in list(self.actions)
-                if isinstance(candidate, AutomaticStratagem)
-                and candidate.get_is_present() and self.context(candidate) == context}
+        filters, _ = self._configured_filters(context)
+        return filters
+
+    def _configured_filters(self, context):
+        candidates = [candidate for candidate in list(self.actions)
+                      if isinstance(candidate, AutomaticStratagem)
+                      and self.context(candidate) == context]
+        for candidate in candidates:
+            layout = _resolved_layout(candidate, context[2])
+            if layout is not None:
+                return ({slot: _settings_color_filter(settings)
+                         for _, settings, _, slot in layout}, True)
+        return ({candidate.slot(): candidate.color_filter()
+                 for candidate in candidates if candidate.get_is_present()}, False)
 
     def reconcile_action(self, action, *, old_context=None, old_slot=None):
         context = self.context(action)
+        action._scan_context = context
         session = self.session_for(context)
         affected = {action.slot()}
         if old_context == context and old_slot is not None:
             affected.add(old_slot)
-        filters = self.configured_filters(context)
+        filters, authoritative = self._configured_filters(context)
         filters[action.slot()] = action.color_filter()
         was_scanning = session.snapshot().status == 'scanning'
-        if session.reconcile(filters, affected=affected):
+        if session.reconcile(filters, affected=None if authoritative else affected):
             if was_scanning:
                 self.cancel_context(context)
             self.persist_context(context, session)
@@ -605,22 +696,51 @@ class ScanStratagems(ScanActionBase):
 
 
 class AutomaticStratagem(ScanActionBase):
+    def configured_slot(self):
+        return _configured_slot(self.get_settings())
+
     def slot(self):
-        try:
-            return max(1, min(99, int(self.get_settings().get('slot', 1))))
-        except (ValueError, TypeError):
-            return 1
+        configured = self.configured_slot()
+        if configured != -1:
+            self._resolved_slot = configured
+            return configured
+        layout = _resolved_layout(self)
+        if layout is not None:
+            for _, _, action_object, slot in layout:
+                if action_object is self:
+                    self._resolved_slot = slot
+                    return slot
+        # Preserve compatibility with incomplete Page implementations. Native
+        # beta.15 exposes both page.dict and page.action_objects.
+        self._resolved_slot = 1
+        return self._resolved_slot
 
     def color_filter(self):
-        value = self.get_settings().get('color_filter', 'any')
-        return value if value in SLOT_COLORS else 'any'
+        return _settings_color_filter(self.get_settings())
 
     def get_config_rows(self):
         rows = super().get_config_rows()
-        slot = Adw.SpinRow.new_with_range(1, 99, 1)
+        configured = self.configured_slot()
+        slot = Adw.SpinRow.new_with_range(-1, 99, 1)
         slot.set_title('Automatic slot')
-        slot.set_value(self.slot())
-        slot.connect('notify::value', lambda row, _: self.configure('slot', int(row.get_value())))
+        slot.set_subtitle('-1 assigns a slot from this button position')
+        slot.set_value(configured)
+        previous = [configured]
+        updating = [False]
+
+        def slot_changed(row, _):
+            if updating[0]:
+                return
+            value = int(row.get_value())
+            if value == 0:
+                value = 1 if previous[0] == -1 else -1
+                updating[0] = True
+                row.set_value(value)
+                updating[0] = False
+            previous[0] = value
+            self.configure('slot', value)
+
+        slot.connect('notify::value', slot_changed)
         rows.append(slot)
         color = Adw.ComboRow(title='Color filter', subtitle='Only fill vacancies with this icon color')
         color.set_model(Gtk.StringList.new(['Any', 'Red', 'Blue', 'Green', 'Yellow']))

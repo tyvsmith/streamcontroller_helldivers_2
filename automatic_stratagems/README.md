@@ -42,12 +42,16 @@ per-backend failures and may try the next backend.
 
 - tap **Auto Stratagem Scanner** to replace the group from a new scan; hold to clear
 - tap **Auto Stratagem** to execute its assignment; hold to scan its group
-- configure numbered slots and Any/Red/Blue/Green/Yellow filters; groups isolate
-  assignments by deck and page, with linked source/temporary pages sharing observations
+- leave slot at **-1 (automatic)** to assign distinct numbers in page order, skipping
+  explicit slot numbers; choose a positive number to pin a slot
+- configure Any/Red/Blue/Green/Yellow filters; groups isolate assignments by deck
+  and page, with linked source/temporary pages sharing observations
 - choose current-page or new-page scanning; temporary pages provide **Back** to the source
 - open the desired game menu yourself; scanning does not open it for you
 - keep unknown slots disabled; recognized IDs use existing catalog sequences
-- inspect **Last scan** for failures; restored/unconfirmed badges are not cooldown indicators
+- inspect **Last scan** for failures; Partial means unknown or unconfirmed results,
+  not extra recognized stratagems beyond page capacity
+- restored/unconfirmed badges are not cooldown indicators
 - disable scanning to preserve configured buttons and assignments while blocking scan actions
 
 All key actions are excluded while a scan owns the input lock. Cancellation must

@@ -496,6 +496,179 @@ class ActionTests(unittest.TestCase):
             setattr(action, name, Mock())
         return action
 
+    def page_automatic_action(self, coordinate, settings=None, *, state=0, index=0):
+        """Create an Auto action backed by the same topology as beta.15 Page."""
+        if not hasattr(self.page, 'dict'):
+            self.page.dict = {'keys': {}}
+            self.page.action_objects = {'keys': {}}
+        identifier = f'{coordinate[0]}x{coordinate[1]}'
+        key = self.page.dict['keys'].setdefault(identifier, {'states': {}})
+        state_data = key['states'].setdefault(str(state), {'actions': []})
+        while len(state_data['actions']) <= index:
+            state_data['actions'].append({'id': 'other::Action', 'settings': {}})
+        values = dict(settings or {})
+        state_data['actions'][index] = {
+            'id': 'net_jslay_helldivers_2::AutomaticStratagem',
+            'settings': values,
+        }
+        action = self.rendering_action(self.mod.AutomaticStratagem, values)
+        action.input_ident = types.SimpleNamespace(
+            input_type='keys', json_identifier=identifier, coords=coordinate)
+        action.state = state
+        action.action_id = 'net_jslay_helldivers_2::AutomaticStratagem'
+        objects = self.page.action_objects['keys'].setdefault(identifier, {})
+        objects.setdefault(state, {})[index] = action
+        action.get_settings = lambda: dict(values)
+
+        def set_settings(updated):
+            values.update(updated)
+            state_data['actions'][index]['settings'] = dict(values)
+
+        action.set_settings = set_settings
+        action.render = Mock()
+        return action
+
+    def test_two_default_auto_actions_scan_with_topology_allocated_slots(self):
+        later = self.page_automatic_action((3, 1))
+        earlier = self.page_automatic_action((4, 0))
+        self.coordinator.register_action(later)
+        self.coordinator.register_action(earlier)
+
+        self.assertEqual(earlier.slot(), 1)
+        self.assertEqual(later.slot(), 2)
+        with patch.object(self.mod, 'Thread') as thread:
+            self.coordinator.start(later, replace=True)
+        thread.assert_called_once()
+        self.assertEqual(
+            set(self.coordinator.session(later).snapshot().assignments), {1, 2})
+        self.plugin.input_lock.release()
+
+    def test_automatic_allocation_reserves_explicit_slots(self):
+        automatic_first = self.page_automatic_action((0, 0))
+        explicit_later = self.page_automatic_action((1, 0), {'slot': 1})
+        automatic_last = self.page_automatic_action((2, 0), {'slot': -1})
+
+        self.assertEqual(explicit_later.configured_slot(), 1)
+        self.assertEqual(explicit_later.slot(), 1)
+        self.assertEqual(automatic_first.slot(), 2)
+        self.assertEqual(automatic_last.slot(), 3)
+
+    def test_automatic_allocation_is_independent_of_registration_and_json_order(self):
+        bottom = self.page_automatic_action((3, 1))
+        top = self.page_automatic_action((4, 0))
+        self.page.dict['keys'] = dict(reversed(list(self.page.dict['keys'].items())))
+
+        self.coordinator.register_action(bottom)
+        self.coordinator.register_action(top)
+        first = top.slot(), bottom.slot()
+        self.coordinator.actions.clear()
+        self.coordinator.register_action(top)
+        self.coordinator.register_action(bottom)
+
+        self.assertEqual(first, (1, 2))
+        self.assertEqual((top.slot(), bottom.slot()), first)
+
+    def test_automatic_allocation_orders_states_then_action_indexes(self):
+        later_state = self.page_automatic_action((0, 0), state=1)
+        later_action = self.page_automatic_action((0, 0), state=0, index=1)
+        first_action = self.page_automatic_action((0, 0), state=0, index=0)
+
+        self.assertEqual((first_action.slot(), later_action.slot(), later_state.slot()),
+                         (1, 2, 3))
+
+    def test_automatic_allocation_reacts_to_group_and_slot_configuration(self):
+        first = self.page_automatic_action((0, 0), {'group': 'alpha'})
+        second = self.page_automatic_action((1, 0), {'group': 'alpha'})
+        other_group = self.page_automatic_action((2, 0), {'group': 'bravo'})
+        self.coordinator.actions.update((first, second, other_group))
+
+        self.assertEqual((first.slot(), second.slot(), other_group.slot()), (1, 2, 1))
+        second.configure('slot', 1)
+        self.assertEqual((first.slot(), second.slot()), (2, 1))
+        second.configure('slot', -1)
+        second.configure('group', 'bravo')
+        self.assertEqual((first.slot(), second.slot(), other_group.slot()), (1, 1, 2))
+
+    def test_slot_row_uses_minus_one_and_skips_zero(self):
+        action = self.page_automatic_action((0, 0))
+        action.configure = Mock()
+        row = Mock()
+        with patch.object(self.mod.Adw.SpinRow, 'new_with_range', return_value=row) as create:
+            action.get_config_rows()
+
+        create.assert_called_once_with(-1, 99, 1)
+        row.set_value.assert_called_once_with(-1)
+        callback = row.connect.call_args.args[1]
+        row.get_value.return_value = 0
+        callback(row, None)
+        row.set_value.assert_called_with(1)
+        action.configure.assert_called_with('slot', 1)
+        callback(row, None)
+        row.set_value.assert_called_with(-1)
+        action.configure.assert_called_with('slot', -1)
+
+    def test_reallocation_after_press_rejects_stale_execution(self):
+        first = self.page_automatic_action((0, 0))
+        second = self.page_automatic_action((1, 0))
+        self.coordinator.actions.update((first, second))
+        session = self.coordinator.session(first)
+        token = session.begin({1: 'any', 2: 'any'})
+        self.plugin.stratagems['B'] = ['DOWN']
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]},
+                       self.plugin.stratagems)
+        first.displayed = (session.snapshot().revision, 1, 'A')
+        first.on_key_down()
+        second.configure('slot', 1)
+
+        with patch.object(self.mod, 'execute_stratagem') as execute:
+            first.on_key_short_up()
+        execute.assert_not_called()
+
+    def test_added_and_removed_auto_actions_reconcile_shifted_slots(self):
+        later = self.page_automatic_action((1, 0))
+        self.coordinator.register_action(later)
+        session = self.coordinator.session(later)
+        token = session.begin({1: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                       self.plugin.stratagems)
+
+        earlier = self.page_automatic_action((0, 0))
+        self.coordinator.register_action(earlier)
+        self.assertEqual((earlier.slot(), later.slot()), (1, 2))
+        self.assertEqual(dict(session.snapshot().assignments), {1: 'A', 2: None})
+
+        del self.page.dict['keys']['0x0']
+        del self.page.action_objects['keys']['0x0']
+        self.coordinator.remove_action(earlier)
+        self.assertEqual(later.slot(), 1)
+        self.assertEqual(dict(session.snapshot().assignments), {1: 'A'})
+
+    def test_removed_explicit_action_uses_its_last_resolved_slot(self):
+        action = self.page_automatic_action((0, 0), {'slot': 7, 'group': 'squad'})
+        self.coordinator.register_action(action)
+        session = self.coordinator.session(action)
+        token = session.begin({7: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                       self.plugin.stratagems)
+
+        del self.page.dict['keys']['0x0']
+        del self.page.action_objects['keys']['0x0']
+        action.get_settings = lambda: {}
+        self.coordinator.remove_action(action)
+
+        self.assertEqual(dict(session.snapshot().assignments), {})
+
+    def test_cached_off_page_auto_actions_supply_report_slot_filters(self):
+        first = self.page_automatic_action((4, 0))
+        second = self.page_automatic_action((3, 1), {'color_filter': 'blue'})
+        first.get_is_present = lambda: False
+        second.get_is_present = lambda: False
+        self.coordinator.actions.update((second, first))
+        context = self.coordinator.context(first)
+
+        self.assertEqual(self.coordinator.slot_filters(
+            context, self.coordinator.session(first)), {1: 'any', 2: 'blue'})
+
     def test_auto_hold_scans_once_without_executing_even_when_empty(self):
         for assigned in (False, True):
             action = self.rendering_action(self.mod.AutomaticStratagem)
