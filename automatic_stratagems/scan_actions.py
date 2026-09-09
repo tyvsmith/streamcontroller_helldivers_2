@@ -127,12 +127,23 @@ class ScanCoordinator:
                 and self.compatibility_error is None
                 and self.plugin.get_settings().get('automatic_stratagems_enabled', False) is True)
 
+    def _attached_actions(self):
+        actions = list(self.actions)
+        attached = []
+        for action in actions:
+            # StreamController can detach a cached page without an action removal callback.
+            if getattr(action, 'page', None) is None:
+                self.actions.discard(action)
+            else:
+                attached.append(action)
+        return attached
+
     def disable_compatibility(self, message):
         if self.compatibility_error is None:
             self.compatibility_error = str(message)
             log.error(self.compatibility_error)
         self.cancel_all()
-        for action in list(self.actions):
+        for action in self._attached_actions():
             action._pressed = None
             if action.get_is_present():
                 action.show()
@@ -161,7 +172,7 @@ class ScanCoordinator:
     def settings_changed(self):
         if not self.enabled:
             self.cancel_all()
-        for action in list(self.actions):
+        for action in self._attached_actions():
             action._pressed = None
             if action.get_is_present():
                 action.show()
@@ -213,7 +224,7 @@ class ScanCoordinator:
         return context
 
     def slot_filters(self, context, session):
-        slots = [a for a in list(self.actions) if isinstance(a, AutomaticStratagem)
+        slots = [a for a in self._attached_actions() if isinstance(a, AutomaticStratagem)
                  and self.context(a) == context]
         if slots:
             return {a.slot(): a.color_filter() for a in slots}
@@ -400,7 +411,7 @@ class ScanCoordinator:
         return filters
 
     def _configured_filters(self, context):
-        candidates = [candidate for candidate in list(self.actions)
+        candidates = [candidate for candidate in self._attached_actions()
                       if isinstance(candidate, AutomaticStratagem)
                       and self.context(candidate) == context]
         for candidate in candidates:
@@ -428,7 +439,7 @@ class ScanCoordinator:
             self.redraw(context)
 
     def redraw(self, context):
-        for action in list(self.actions):
+        for action in self._attached_actions():
             if (getattr(action, 'on_ready_called', False) and action.get_is_present()
                     and self.context(action) == context):
                 try:
@@ -466,7 +477,7 @@ class ScanCoordinator:
             context = self.context(action)
             session = self.session(action)
             new_page = scan_mode(action) == 'new_page'
-            automatic = [a for a in list(self.actions)
+            automatic = [a for a in self._attached_actions()
                      if isinstance(a, AutomaticStratagem) and a.get_is_present()
                      and self.context(a) == context]
             slots = [a.slot() for a in automatic]

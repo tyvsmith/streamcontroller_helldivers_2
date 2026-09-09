@@ -1685,6 +1685,26 @@ class ActionTests(unittest.TestCase):
         self.assertFalse(self.coordinator.store.path(
             dict(deck='deck-one', page=path, group='HD2')).exists())
 
+    def test_deleted_page_actions_do_not_break_recreate_or_current_scan(self):
+        launcher, root = self.temporary_setup()
+        self.plugin.stratagems['B'] = ['DOWN']
+        self.synchronous_scan(launcher, {'status': 'matched', 'rows': [{'id': 'A'}]})
+        old_scan = self.temporary_scan_action(self.deck.active_page.json_path)
+        back = self.action(); back.page = old_scan.page
+        back.get_settings.return_value = {'group': 'HD2'}
+        self.coordinator.back(back)
+        stale = [action for action in self.page_actions if action.page is old_scan.page]
+        for action in stale:
+            action.page = None
+
+        self.assertTrue(self.coordinator.delete_cached_page(launcher))
+        self.synchronous_scan(launcher, {'status': 'matched', 'rows': [{'id': 'A'}]})
+        current = self.temporary_scan_action(self.deck.active_page.json_path)
+        self.synchronous_scan(current, {'status': 'matched', 'rows': [{'id': 'B'}]})
+
+        self.assertTrue(all(action not in self.coordinator.actions for action in stale))
+        self.assertEqual(self.coordinator.session(current).snapshot().assignments[2], 'B')
+
     def test_hold_delete_after_worker_finalize_rejects_queued_completion(self):
         launcher, root = self.temporary_setup()
         queued = []
