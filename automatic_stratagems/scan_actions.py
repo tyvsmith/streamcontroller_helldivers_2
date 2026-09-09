@@ -232,45 +232,15 @@ class ScanCoordinator:
             self.state_errors[context] = f'Unable to save scan state: {error}'
             log.warning(self.state_errors[context])
 
-    def share_report(self, context, report, colors, *, replace=False):
-        source = self.source_context(context)
-        self.session_for(source)
-        self._restore_cached_session(source)
-        for linked, session in list(self.sessions.items()):
-            if linked == context or linked[0] is not source[0] or linked[2] != source[2]:
-                continue
-            try:
-                if self.source_context(linked) != source:
-                    continue
-            except (OSError, ValueError):
-                # A removed cached page must not invalidate a current scan.
-                continue
-            token = session.begin(self.slot_filters(linked, session), replace=replace)
-            if token is not None:
-                session.finish(token, report, self.plugin.stratagems, colors)
-                self.persist_context(linked, session)
-                self.redraw(linked)
-
     def clear(self, action):
         if not self.enabled or not action.get_is_present():
             return
         context = self.context(action)
-        source = self.source_context(context)
-        self.session_for(context)
-        self.session_for(source)
-        self._restore_cached_session(source)
-        for linked, session in list(self.sessions.items()):
-            if linked[0] is not source[0] or linked[2] != source[2]:
-                continue
-            try:
-                if self.source_context(linked) != source:
-                    continue
-            except (OSError, ValueError):
-                continue
-            self.cancel_context(linked)
-            session.clear()
-            self.persist_context(linked, session)
-            self.redraw(linked)
+        self.cancel_context(context)
+        session = self.session_for(context)
+        session.clear()
+        self.persist_context(context, session)
+        self.redraw(context)
 
     def page_result(self, action, report, colors):
         rows, columns = self.temporary_pages.layout(action.deck_controller)
@@ -543,7 +513,6 @@ class ScanCoordinator:
                             self.persist(action, session)
                             result = session.snapshot()
                             if result.status in ('ready', 'partial'):
-                                self.share_report(context, report, colors, replace=replace)
                                 if new_page:
                                     self.page_result(action, report, colors)
                             elif result.status == 'failed':
@@ -769,7 +738,7 @@ class ScanStratagems(ScanActionBase):
                                       subtitle='Tap reopens the cached page, or scans to create it. Back retains it. Hold deletes the cached page.'))
         else:
             rows.append(Adw.ActionRow(title='Tap to scan · Hold to clear',
-                                      subtitle='Scan rebuilds this group. Clear resets its Auto selections on this page and linked cached pages; slot numbers and color filters stay.'))
+                                      subtitle='Scan and clear affect only this page and group; slot numbers and color filters stay.'))
         rows.append(Adw.ActionRow(title='Last scan',
                                   subtitle=self.coordinator.session(self).snapshot().message or 'No scan yet'))
         if self.coordinator.store and scan_mode(self) != 'new_page':

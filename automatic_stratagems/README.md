@@ -51,8 +51,10 @@ per-backend failures and may try the next backend.
   hold to scan its group regardless of assignment
 - leave slot at **-1 (automatic)** to assign distinct numbers in page order, skipping
   explicit slot numbers; choose a positive number to pin a slot
-- configure Any/Red/Blue/Green/Yellow filters; groups isolate assignments by deck
-  and page, with linked source/temporary pages sharing observations
+- configure Any/Red/Blue/Green/Yellow filters; assignments are shared only within
+  the same deck, page and group
+- the creation scan fills the source group and its new generated page; later scans
+  and clears affect only the current page/group, including after app restarts
 - existing scanner buttons configured for new-page mode behave as Automatic Stratagem Page;
   add the separate actions from the chooser for new buttons
 - open the desired game menu yourself; scanning does not open it for you

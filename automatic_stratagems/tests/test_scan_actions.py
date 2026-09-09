@@ -1009,11 +1009,14 @@ class ActionTests(unittest.TestCase):
             action.render()
         badge.assert_not_called()
 
-    def test_clear_resets_linked_pages_and_persists_without_touching_other_groups(self):
+    def test_cached_clear_preserves_source_and_other_group(self):
         launcher, root = self.temporary_setup()
+        source = self.coordinator.session(launcher)
+        token = source.begin([1])
+        source.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                      self.plugin.stratagems)
         self.synchronous_scan(launcher, {'status': 'matched', 'rows': [{'id': 'A'}]})
         scan = self.temporary_scan_action(self.deck.active_page.json_path)
-        source = self.coordinator.session(launcher)
         other = self.action()
         other.get_settings.return_value = {'group': 'other'}
         separate = self.coordinator.session(other)
@@ -1021,13 +1024,13 @@ class ActionTests(unittest.TestCase):
         separate.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
         before = separate.snapshot()
         self.coordinator.clear(scan)
-        self.assertFalse(any(source.snapshot().assignments.values()))
-        self.assertIsNone(source.latest_report())
+        self.assertEqual(source.snapshot().assignments[1], 'A')
+        self.assertIsNotNone(source.latest_report())
         self.assertFalse(any(self.coordinator.session(scan).snapshot().assignments.values()))
         self.assertEqual(separate.snapshot(), before)
         restored = self.mod.ScanCoordinator(self.plugin, state_dir=root / 'scan-state').session(launcher)
-        self.assertIsNone(restored.latest_report())
-        self.assertFalse(any(restored.snapshot().assignments.values()))
+        self.assertEqual(restored.snapshot().assignments[1], 'A')
+        self.assertIsNotNone(restored.latest_report())
 
     def test_scan_mode_selects_artwork_and_configuration_redraws(self):
         action = self.rendering_action(self.mod.ScanStratagems)
@@ -1203,12 +1206,12 @@ class ActionTests(unittest.TestCase):
         action.get_is_present.side_effect = lambda: self.deck.active_page.json_path == action.page.json_path
         return action, root
 
-    def synchronous_scan(self, action, report=None, error=None):
+    def synchronous_scan(self, action, report=None, error=None, *, replace=False):
         with patch.object(self.mod, 'Thread') as thread, \
              patch.object(self.mod, 'run_scan', return_value=report, side_effect=error), \
              patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
             thread.side_effect = lambda **kw: types.SimpleNamespace(start=kw['target'])
-            self.coordinator.start(action)
+            self.coordinator.start(action, replace=replace)
 
     def test_new_page_scans_without_source_slots_and_preserves_source_session(self):
         action, root = self.temporary_setup()
@@ -1382,7 +1385,7 @@ class ActionTests(unittest.TestCase):
         self.assertEqual(self.deck.active_page.json_path, self.page.json_path)
         self.plugin.input_lock.release()
 
-    def test_temporary_scan_updates_source_and_survives_back_and_restart(self):
+    def test_temporary_scan_stays_local_and_source_survives_restart(self):
         launcher, root = self.temporary_setup()
         self.plugin.stratagems['B'] = ['DOWN']
         source = self.coordinator.session(launcher)
@@ -1392,17 +1395,19 @@ class ActionTests(unittest.TestCase):
         path = self.deck.active_page.json_path
         scan = self.temporary_scan_action(path)
         self.synchronous_scan(scan, {'status': 'matched', 'rows': [{'id': 'B'}]})
-        self.assertEqual(source.snapshot().assignments[1], 'B')
-        self.assertEqual(source.snapshot().unknown, 0)
+        self.assertEqual(source.snapshot().assignments[1], 'A')
+        self.assertEqual(source.snapshot().unknown, 1)
+        self.assertEqual(dict(self.coordinator.session(scan).snapshot().assignments),
+                         {1: 'A', 2: 'B', **dict.fromkeys(range(3, 14))})
         back = self.action(); back.page = scan.page
         back.get_settings.return_value = {'group': 'HD2'}
         self.coordinator.back(back)
         other = self.mod.ScanCoordinator(self.plugin, state_dir=root/'scan-state')
         restored = other.session(launcher)
-        self.assertEqual(restored.snapshot().assignments[1], 'B')
-        self.assertEqual(restored.latest_report()['rows'], [{'id': 'B'}])
+        self.assertEqual(restored.snapshot().assignments[1], 'A')
+        self.assertEqual(restored.latest_report()['rows'], [{'id': 'A'}, {'id': None}])
 
-    def test_shared_report_preserves_source_filters_and_group_isolation(self):
+    def test_source_and_cached_scans_are_independent_in_both_directions(self):
         launcher, root = self.temporary_setup()
         self.plugin.stratagems.update(B=['DOWN'], C=['LEFT'])
         colors = {'A': 'red', 'B': 'blue', 'C': 'blue'}
@@ -1416,9 +1421,18 @@ class ActionTests(unittest.TestCase):
             self.synchronous_scan(launcher, {
                 'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]})
             scan = self.temporary_scan_action(self.deck.active_page.json_path)
-            self.synchronous_scan(scan, {'status': 'matched', 'rows': [{'id': 'C'}]})
-        self.assertEqual(dict(source.snapshot().assignments), {1: 'A', 2: 'C'})
-        self.assertEqual(source.snapshot().unconfirmed_slots, frozenset({1}))
+            self.synchronous_scan(scan, {'status': 'matched', 'rows': [{'id': 'C'}]},
+                                  replace=True)
+            cached_after_scan = self.coordinator.session(scan).snapshot()
+            self.assertEqual(cached_after_scan.assignments[1], 'C')
+            self.assertEqual(dict(source.snapshot().assignments), {1: 'A', 2: 'B'})
+            back = self.action(); back.page = scan.page
+            back.get_settings.return_value = {'group': 'HD2'}
+            self.coordinator.back(back)
+            self.synchronous_scan(launcher, {
+                'status': 'matched', 'rows': [{'id': 'B'}]}, replace=True)
+        self.assertEqual(source.snapshot().assignments[2], 'B')
+        self.assertEqual(self.coordinator.session(scan).snapshot(), cached_after_scan)
         self.assertEqual(separate.snapshot(), before)
 
     def test_new_page_hold_bypasses_saved_results(self):
@@ -1690,7 +1704,7 @@ class ActionTests(unittest.TestCase):
         self.assertEqual(list((root / 'temporary-pages').glob('*.json')), [])
         self.assertEqual(self.deck.active_page.json_path, self.page.json_path)
 
-    def test_restart_hydrates_cached_session_for_source_share_and_clear(self):
+    def test_unhydrated_cached_state_survives_source_clear_and_scan_after_restart(self):
         launcher, root = self.temporary_setup()
         self.plugin.stratagems['B'] = ['DOWN']
         self.synchronous_scan(launcher, {'status': 'matched', 'rows': [{'id': 'A'}]})
@@ -1700,19 +1714,23 @@ class ActionTests(unittest.TestCase):
         self.coordinator.back(back)
 
         manager = self.coordinator.temporary_pages.manager
+        cached_identity = dict(deck='deck-one', page=path, group='HD2')
+        cached_state_path = self.coordinator.store.path(cached_identity)
+        cached_before = cached_state_path.read_bytes()
         restarted = self.mod.ScanCoordinator(self.plugin, state_dir=root / 'scan-state')
         restarted.enable_temporary_pages(manager)
         self.coordinator = restarted
         self.plugin.scan_coordinator = restarted
-        context = restarted.context(launcher)
-        restarted.share_report(
-            context, {'status': 'matched', 'rows': [{'id': 'B'}]}, {}, replace=True)
-        cached = restarted.sessions[(self.deck, path, 'HD2')]
-        self.assertEqual(cached.snapshot().assignments[1], 'B')
-
         restarted.clear(launcher)
-        self.assertIsNone(cached.latest_report())
+        self.assertNotIn((self.deck, path, 'HD2'), restarted.sessions)
+        self.assertEqual(cached_state_path.read_bytes(), cached_before)
         self.assertIsNone(restarted.session(launcher).latest_report())
+
+        self.synchronous_scan(
+            launcher, {'status': 'matched', 'rows': [{'id': 'B'}]}, replace=True)
+        self.assertEqual(cached_state_path.read_bytes(), cached_before)
+        cached = restarted.sessions[(self.deck, path, 'HD2')]
+        self.assertEqual(cached.snapshot().assignments[1], 'A')
 
     def test_existing_cache_open_failure_does_not_replace_session_or_state(self):
         launcher, root = self.temporary_setup()
@@ -1737,10 +1755,17 @@ class ActionTests(unittest.TestCase):
         self.assertIs(self.coordinator.sessions[context], previous_session)
         self.assertEqual(state_path.read_bytes(), previous_state)
 
-    def test_stale_temporary_session_does_not_break_sharing(self):
+    def test_clear_does_not_cancel_inactive_page_scan_token(self):
         launcher, root = self.temporary_setup()
-        stale = self.deck, str(root/'temporary-pages'/'deleted.json'), 'HD2'
-        self.coordinator.sessions[stale] = self.mod.ScanSession()
-        context = self.coordinator.context(launcher)
-        self.coordinator.share_report(context, {'status': 'matched', 'rows': [{'id': 'A'}]}, {})
-        self.assertEqual(self.coordinator.sessions[stale].snapshot().status, 'idle')
+        self.synchronous_scan(launcher, {'status': 'matched', 'rows': [{'id': 'A'}]})
+        path = self.deck.active_page.json_path
+        scan = self.temporary_scan_action(path)
+        cached = self.coordinator.session(scan)
+        back = self.action(); back.page = scan.page
+        back.get_settings.return_value = {'group': 'HD2'}
+        self.coordinator.back(back)
+        token = cached.begin({1: 'any'}, replace=True)
+
+        self.coordinator.clear(launcher)
+
+        self.assertTrue(cached.is_active(token))
