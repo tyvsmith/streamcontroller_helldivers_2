@@ -84,6 +84,17 @@ class TemporaryScanPages:
             raise
         return str(path)
 
+    def find(self, controller, source_page, group):
+        identity = (controller.serial_number(), str(Path(source_page).absolute()), group)
+        for path in sorted(self.directory.glob('*.json')):
+            try:
+                meta = self.metadata(str(path))
+            except (ValueError, FileNotFoundError):
+                continue
+            if (meta['deck'], meta['source_page'], meta['group']) == identity:
+                return str(path)
+        return None
+
     def show(self, controller, path):
         page = self.manager.get_page(path, deck_controller=controller)
         if page is None:
@@ -139,4 +150,3 @@ class TemporaryScanPages:
         if meta['deck'] != controller.serial_number():
             raise ValueError('This temporary page belongs to another deck')
         self.show(controller, meta['source_page'])
-        self.discard(path)

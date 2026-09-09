@@ -19,13 +19,13 @@ from loguru import logger as log
 AUTOMATIC_IMPORT_ERROR = None
 try:
     from .automatic_stratagems.scan_actions import (
-        AutomaticStratagem, ScanCoordinator, ScanStratagems, TemporaryScanBack)
+        AutomaticStratagem, AutoStratagems, ScanCoordinator, ScanStratagems, TemporaryScanBack)
     from .automatic_stratagems.scan_runner import scan_workers
     from .automatic_stratagems.visibility import (
         ChooserCompatibilityError, update_visibility)
 except Exception as error:
     AUTOMATIC_IMPORT_ERROR = str(error)
-    ScanCoordinator = ScanStratagems = AutomaticStratagem = TemporaryScanBack = None
+    ScanCoordinator = ScanStratagems = AutomaticStratagem = AutoStratagems = TemporaryScanBack = None
 
     def scan_workers(value=2):
         return 2
@@ -472,13 +472,14 @@ class HellDiversPlugin(PluginBase):
                 self.scan_coordinator.disable_compatibility(
                     f'Automatic scanning lifecycle integration is unsupported: {error}')
 
-        automatic_classes = ((ScanStratagems, AutomaticStratagem, TemporaryScanBack)
+        automatic_classes = ((ScanStratagems, AutomaticStratagem, TemporaryScanBack, AutoStratagems)
                              if automatic_initialized else
-                             (UnavailableAutomaticAction,) * 3)
+                             (UnavailableAutomaticAction,) * 4)
         for action, suffix, name, icon in (
-                (automatic_classes[0], "ScanStratagems", "Auto Stratagem Scanner", "automatic_stratagems/assets/icons/scan.png"),
+                (automatic_classes[0], "ScanStratagems", "Scan Stratagems", "automatic_stratagems/assets/icons/scan-update.png"),
                 (automatic_classes[1], "AutomaticStratagem", "Auto Stratagem", "automatic_stratagems/assets/icons/auto-any.png"),
-                (automatic_classes[2], "TemporaryScanBack", "Temporary Scan Back", "assets/icons/_stepbakcward.png")):
+                (automatic_classes[2], "TemporaryScanBack", "Temporary Scan Back", "assets/icons/_stepbakcward.png"),
+                (automatic_classes[3], "AutoStratagems", "Auto Stratagems", "automatic_stratagems/assets/icons/scan-new-page.png")):
             self.add_action_holder(ActionHolder(plugin_base=self, action_base=action,
                 action_id=f"net_jslay_helldivers_2::{suffix}", action_name=name,
                 icon=Gtk.Image.new_from_file(os.path.join(self.PATH, icon))))

@@ -100,6 +100,7 @@ class OptionalIntegrationTests(unittest.TestCase):
             if coordinator_factory is not None:
                 module.ScanCoordinator = coordinator_factory
                 module.ScanStratagems = type('ScanStratagems', (), {})
+                module.AutoStratagems = type('AutoStratagems', (), {})
                 module.AutomaticStratagem = type('AutomaticStratagem', (), {})
                 module.TemporaryScanBack = type('TemporaryScanBack', (), {})
                 module.ChooserCompatibilityError = RuntimeError
@@ -264,10 +265,21 @@ class OptionalIntegrationTests(unittest.TestCase):
 
         return Coordinator
 
+    def test_page_opener_and_scanner_have_distinct_chooser_actions(self):
+        module, plugin = self.import_without_automatic_actions(
+            coordinator_factory=self.coordinator_type())
+        opener = plugin.action_holders['net_jslay_helldivers_2::AutoStratagems']
+        scanner = plugin.action_holders['net_jslay_helldivers_2::ScanStratagems']
+        self.assertEqual(opener.action_name, 'Auto Stratagems')
+        self.assertEqual(scanner.action_name, 'Scan Stratagems')
+        self.assertIs(opener.action_base, module.AutoStratagems)
+        self.assertIs(scanner.action_base, module.ScanStratagems)
+
     def test_missing_optional_import_preserves_static_and_saved_action_holders(self):
         module, plugin = self.import_without_automatic_actions()
         automatic_ids = {
             'net_jslay_helldivers_2::ScanStratagems',
+            'net_jslay_helldivers_2::AutoStratagems',
             'net_jslay_helldivers_2::AutomaticStratagem',
             'net_jslay_helldivers_2::TemporaryScanBack',
         }

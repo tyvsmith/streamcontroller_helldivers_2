@@ -68,16 +68,30 @@ class TemporaryPageTests(unittest.TestCase):
         self.assertEqual([a['settings']['slot'] for a in actions[2:]], list(range(1, 14)))
         self.assertEqual(self.deck.active_page.json_path, str(self.source))
 
-    def test_back_switches_before_deleting_and_clears_cache(self):
+    def test_back_switches_to_source_and_retains_cached_page(self):
         path = self.create()
         self.pages.show(self.deck, path)
         self.assertEqual(self.deck.active_page.json_path, path)
         self.pages.back(self.deck, path)
         self.assertEqual(self.deck.active_page.json_path, str(self.source))
-        self.assertFalse(Path(path).exists())
-        self.assertNotIn(path, self.manager.custom_pages)
-        self.assertNotIn(path, self.manager.pages[self.deck])
+        self.assertTrue(Path(path).exists())
+        self.assertIn(path, self.manager.custom_pages)
+        self.assertIn(path, self.manager.pages[self.deck])
         self.assertTrue(self.source.exists())
+
+    def test_find_returns_only_matching_deck_source_and_group_cache(self):
+        path = self.create()
+        self.assertEqual(self.pages.find(self.deck, str(self.source), 'HD2'), path)
+        self.assertIsNone(self.pages.find(self.deck, str(self.source), 'other'))
+        other_source = self.root / 'other.json'
+        other_source.write_text('{"keys": {}}')
+        self.assertIsNone(self.pages.find(self.deck, str(other_source), 'HD2'))
+
+    def test_unreadable_cache_is_reported_instead_of_treated_as_missing(self):
+        self.create()
+        with patch.object(Path, 'read_text', side_effect=PermissionError('unreadable')):
+            with self.assertRaises(PermissionError):
+                self.pages.find(self.deck, str(self.source), 'HD2')
 
     def test_missing_original_keeps_temporary_page(self):
         path = self.create()
@@ -95,7 +109,8 @@ class TemporaryPageTests(unittest.TestCase):
         self.assertIn(path, manager.custom_pages)
         pages.show(self.deck, path)
         pages.back(self.deck, path)
-        self.assertFalse(Path(path).exists())
+        self.assertTrue(Path(path).exists())
+        self.assertEqual(pages.find(self.deck, str(self.source), 'HD2'), path)
 
     def test_cannot_delete_arbitrary_page(self):
         with self.assertRaises(ValueError):

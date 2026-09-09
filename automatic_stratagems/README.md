@@ -40,13 +40,20 @@ per-backend failures and may try the next backend.
 
 ## Buttons and recovery
 
-- tap **Auto Stratagem Scanner** to replace the group from a new scan; hold to clear
+- tap **Auto Stratagems** to create, scan and open a generated page; subsequent taps
+  reopen that same cached page without scanning
+- **+** on Auto Stratagems means no cached page; the plain page icon means one exists
+- **Back** returns to the source and retains the page, including across app restarts
+- hold **Auto Stratagems** to delete its generated page and saved page assignments;
+  source-page assignments remain
+- tap **Scan Stratagems** to replace the current group from a fresh scan; hold to clear
 - tap **Auto Stratagem** to execute its assignment; hold to scan its group
 - leave slot at **-1 (automatic)** to assign distinct numbers in page order, skipping
   explicit slot numbers; choose a positive number to pin a slot
 - configure Any/Red/Blue/Green/Yellow filters; groups isolate assignments by deck
   and page, with linked source/temporary pages sharing observations
-- choose current-page or new-page scanning; temporary pages provide **Back** to the source
+- existing scanner buttons configured for new-page mode behave as Auto Stratagems;
+  add the separate actions from the chooser for new buttons
 - open the desired game menu yourself; scanning does not open it for you
 - keep unknown slots disabled; recognized IDs use existing catalog sequences
 - inspect **Last scan** for failures; Partial means unknown or unconfirmed results,
@@ -56,7 +63,7 @@ per-backend failures and may try the next backend.
 
 All key actions are excluded while a scan owns the input lock. Cancellation must
 stop host work before ordinary key actions resume. Back remains available with
-scanning disabled; a missing source page must leave the temporary page recoverable.
+scanning disabled; a missing source page must leave the generated page recoverable.
 See [process ownership](docs/contracts.md) and [saved state](docs/state.md).
 
 ## Support and evidence

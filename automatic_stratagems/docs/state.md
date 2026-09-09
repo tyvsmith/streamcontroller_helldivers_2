@@ -18,6 +18,9 @@ These are assignment snapshots, not live cooldown or game state. External
 readers must check timestamps and must not treat `scanning` as permission to
 execute. Configuration changes invalidate affected bindings before reuse.
 
-Owned temporary pages live in `temporary-pages/` under the plugin data directory.
-Back returns to the source before cleanup. If the source is missing, keep the
-page recoverable rather than deleting it or selecting an unrelated destination.
+Generated pages live in `temporary-pages/` under the plugin data directory, keyed
+by deck serial, source page and scan group. Back retains the page and its saved
+assignments; reopening it does not scan. The cache survives app restarts.
+Holding Auto Stratagems deletes only its generated page and associated scan state.
+Deletion must return an active generated page to its source first. If the source
+is missing, keep the page recoverable rather than selecting another destination.

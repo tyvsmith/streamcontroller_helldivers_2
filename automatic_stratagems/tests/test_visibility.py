@@ -8,6 +8,7 @@ class VisibilityTests(unittest.TestCase):
     def test_toggle_hides_only_this_plugins_automatic_actions(self):
         rows = []
         for action_id in ('net_jslay_helldivers_2::ScanStratagems',
+                          'net_jslay_helldivers_2::AutoStratagems',
                           'net_jslay_helldivers_2::AutomaticStratagem',
                           'net_jslay_helldivers_2::TemporaryScanBack',
                           'net_jslay_helldivers_2::Railgun', 'other::ScanStratagems'):
@@ -15,9 +16,9 @@ class VisibilityTests(unittest.TestCase):
         chooser = SimpleNamespace(plugin_group=SimpleNamespace(expander=[SimpleNamespace(get_rows=lambda: rows)]))
         for enabled in (False, True):
             update_visibility(chooser, enabled)
-            for row in rows[:3]:
+            for row in rows[:4]:
                 row.set_visible.assert_called_with(enabled)
-            for row in rows[3:]:
+            for row in rows[4:]:
                 row.set_visible.assert_not_called()
 
     def test_missing_private_chooser_shape_fails_without_partial_changes(self):

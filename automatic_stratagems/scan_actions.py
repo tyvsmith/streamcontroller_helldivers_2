@@ -19,7 +19,6 @@ from ..stratagem_execution import execute_stratagem
 
 
 CAPTURE_BACKENDS = ('auto', 'gamescope', 'steam', 'desktop')
-SCAN_MODES = ('update', 'new_page')
 AUTOMATIC_ACTION_ID = 'net_jslay_helldivers_2::AutomaticStratagem'
 SHUTDOWN_TIMEOUT_SECONDS = (FLATPAK_TERMINATE_GRACE_SECONDS
                             + TERMINATE_GRACE_SECONDS + 1)
@@ -99,7 +98,9 @@ def _settings_color_filter(settings):
 
 
 def scan_mode(action):
-    return 'new_page' if action.get_settings().get('scan_mode') == 'new_page' else 'update'
+    return ('new_page' if (getattr(action, 'new_page_action', False) is True
+                           or action.get_settings().get('scan_mode') == 'new_page')
+            else 'update')
 
 
 def capture_backend(action):
@@ -221,6 +222,7 @@ class ScanCoordinator:
     def share_report(self, context, report, colors, *, replace=False):
         source = self.source_context(context)
         self.session_for(source)
+        self._restore_cached_session(source)
         for linked, session in list(self.sessions.items()):
             if linked == context or linked[0] is not source[0] or linked[2] != source[2]:
                 continue
@@ -243,6 +245,7 @@ class ScanCoordinator:
         source = self.source_context(context)
         self.session_for(context)
         self.session_for(source)
+        self._restore_cached_session(source)
         for linked, session in list(self.sessions.items()):
             if linked[0] is not source[0] or linked[2] != source[2]:
                 continue
@@ -272,6 +275,11 @@ class ScanCoordinator:
 
     def open_temporary(self, action, session):
         deck, source, group = self.source_context(self.context(action))
+        path = self.temporary_pages.find(deck, source, group)
+        if path is not None:
+            self.session_for((deck, path, group))
+            self.temporary_pages.show(deck, path)
+            return
         path = self.temporary_pages.create(deck, source, group, capture_backend(action))
         context = deck, path, group
         try:
@@ -288,14 +296,57 @@ class ScanCoordinator:
         if not action.get_is_present():
             return
         try:
-            context = self.context(action)
             self.temporary_pages.back(action.deck_controller, action.page.json_path)
-            self.sessions.pop(context, None)
-            self.state_errors.pop(context, None)
+            action.back_error = None
         except Exception as error:
             log.exception('Unable to leave temporary scan page')
             action.back_error = str(error)
             action.render()
+
+    def cached_page(self, action):
+        if self.temporary_pages is None:
+            return None
+        deck, source, group = self.source_context(self.context(action))
+        path = self.temporary_pages.find(deck, source, group)
+        if path is not None:
+            self.session_for((deck, path, group))
+        return path
+
+    def _restore_cached_session(self, source):
+        if self.temporary_pages is None:
+            return None
+        deck, page, group = source
+        path = self.temporary_pages.find(deck, page, group)
+        if path is not None:
+            self.session_for((deck, path, group))
+        return path
+
+    def open_cached_page(self, action):
+        if self.closed or not self.enabled or not action.get_is_present():
+            return False
+        path = self.cached_page(action)
+        if path is None:
+            return False
+        self.temporary_pages.show(action.deck_controller, path)
+        return True
+
+    def delete_cached_page(self, action):
+        if self.closed or not self.enabled or not action.get_is_present():
+            return False
+        source = self.source_context(self.context(action))
+        self.cancel_context(source)
+        path = self._restore_cached_session(source)
+        if path is None:
+            return False
+        context = source[0], path, source[2]
+        self.cancel_context(context)
+        if getattr(action.deck_controller.active_page, 'json_path', None) == path:
+            self.temporary_pages.back(action.deck_controller, path)
+        self.temporary_pages.discard(path)
+        self.sessions.pop(context, None)
+        self.state_errors.pop(context, None)
+        self.redraw(source)
+        return True
 
     def cancel_context(self, context):
         operation = self.active_scans.get(context)
@@ -441,11 +492,6 @@ class ScanCoordinator:
                 if self.temporary_pages is None:
                     raise ValueError('Temporary pages are unavailable')
                 self.temporary_pages.layout(action.deck_controller)
-                latest = session.latest_report()
-                if latest and not replace and session.snapshot().status in ('ready', 'partial'):
-                    self.page_result(action, latest, catalog_colors(self.plugin.PATH, self.plugin.stratagems))
-                    finalize()
-                    return
                 filters = self.slot_filters(context, session)
             token = session.begin(filters, replace=replace)
             if token is None:
@@ -634,43 +680,63 @@ class ScanStratagems(ScanActionBase):
 
     def on_key_short_up(self, data=None):
         if not getattr(self, '_held', False):
+            if scan_mode(self) == 'new_page':
+                try:
+                    if self.coordinator.open_cached_page(self):
+                        return
+                except Exception:
+                    log.exception('Unable to open cached stratagem page')
+                    self.coordinator.show_action_error(self)
+                    return
             self.coordinator.start(self, replace=True)
 
     def on_key_hold_start(self, data=None):
         if not getattr(self, '_held', False):
             self._held = True
-            self.coordinator.clear(self)
+            if scan_mode(self) == 'new_page':
+                try:
+                    self.coordinator.delete_cached_page(self)
+                except Exception:
+                    log.exception('Unable to delete cached stratagem page')
+                    self.coordinator.show_action_error(self)
+            else:
+                self.coordinator.clear(self)
 
     def on_key_hold_stop(self, data=None):
         pass
 
     def render(self):
+        mode = scan_mode(self)
+        try:
+            cached = bool(self.coordinator.cached_page(self)) if mode == 'new_page' else False
+        except Exception:
+            cached = False
+            log.exception('Unable to inspect cached stratagem page')
+        top = 'Auto' if mode == 'new_page' else 'Scan'
         if not self.coordinator.enabled:
-            shown = 'disabled', scan_mode(self)
+            shown = 'disabled', mode, cached
             if self.displayed == shown:
                 return
-            self.artwork('automatic_stratagems/assets/icons/scan.png', 'Scan', '', 'Disabled')
+            filename = 'scan.png' if cached else ('scan-new-page.png' if mode == 'new_page'
+                                                  else 'scan-update.png')
+            self.artwork('automatic_stratagems/assets/icons/' + filename,
+                         top, '', 'Disabled')
             self.displayed = shown
             return
         snapshot = self.coordinator.session(self).snapshot()
-        if self.displayed == snapshot.revision:
+        shown = snapshot.revision, cached
+        if self.displayed == shown:
             return
-        mode = scan_mode(self)
-        filename = 'scan-new-page.png' if mode == 'new_page' else 'scan.png'
+        filename = ('scan.png' if cached else 'scan-new-page.png') if mode == 'new_page' else 'scan-update.png'
         if snapshot.status == 'scanning':
             filename = 'scanning.mp4'
         status = snapshot.status.title() if snapshot.status in ('failed', 'partial') else ''
-        self.artwork('automatic_stratagems/assets/icons/' + filename, 'Scan', status, 'Stratagems')
-        self.displayed = snapshot.revision
+        self.artwork('automatic_stratagems/assets/icons/' + filename,
+                     top, status, 'Stratagems')
+        self.displayed = shown
 
     def get_config_rows(self):
         rows = super().get_config_rows()
-        mode = Adw.ComboRow(title='Scan mode')
-        mode.set_model(Gtk.StringList.new(['Update current page', 'New page']))
-        mode.set_selected(SCAN_MODES.index(scan_mode(self)))
-        mode.connect('notify::selected', lambda row, _: self.configure(
-            'scan_mode', SCAN_MODES[row.get_selected()]))
-        rows.append(mode)
         backend = Adw.ComboRow(title='Capture backend',
                                subtitle='Auto tries Gamescope, Steam F12, then OS')
         backend.set_model(Gtk.StringList.new(['Auto', 'Gamescope', 'Steam', 'OS']))
@@ -679,10 +745,11 @@ class ScanStratagems(ScanActionBase):
             'capture_backend', CAPTURE_BACKENDS[row.get_selected()]))
         rows.append(backend)
         if scan_mode(self) == 'new_page':
-            rows.append(Adw.ActionRow(title='Scan into a temporary page',
-                                      subtitle='Tap scans afresh and opens a new page. Scans update both pages. Back deletes the temporary page.'))
-        rows.append(Adw.ActionRow(title='Tap to scan · Hold to clear',
-                                  subtitle='Scan rebuilds this group. Clear resets its Auto selections on this page and linked temporary pages; slot numbers and color filters stay.'))
+            rows.append(Adw.ActionRow(title='Tap to open or scan · Hold to delete',
+                                      subtitle='Tap reopens the cached page, or scans to create it. Back retains it. Hold deletes the cached page.'))
+        else:
+            rows.append(Adw.ActionRow(title='Tap to scan · Hold to clear',
+                                      subtitle='Scan rebuilds this group. Clear resets its Auto selections on this page and linked cached pages; slot numbers and color filters stay.'))
         rows.append(Adw.ActionRow(title='Last scan',
                                   subtitle=self.coordinator.session(self).snapshot().message or 'No scan yet'))
         if self.coordinator.store and scan_mode(self) != 'new_page':
@@ -693,6 +760,10 @@ class ScanStratagems(ScanActionBase):
                 location = str(identity_error)
             rows.append(Adw.ActionRow(title='Scan state file', subtitle=error or location))
         return rows
+
+
+class AutoStratagems(ScanStratagems):
+    new_page_action = True
 
 
 class AutomaticStratagem(ScanActionBase):

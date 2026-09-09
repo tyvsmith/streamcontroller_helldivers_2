@@ -1,7 +1,7 @@
 """Action chooser integration; retain holders so saved pages still load."""
 
 ACTION_IDS = frozenset(f'net_jslay_helldivers_2::{suffix}' for suffix in
-                       ('ScanStratagems', 'AutomaticStratagem', 'TemporaryScanBack'))
+                       ('ScanStratagems', 'AutoStratagems', 'AutomaticStratagem', 'TemporaryScanBack'))
 
 
 class ChooserCompatibilityError(RuntimeError):
