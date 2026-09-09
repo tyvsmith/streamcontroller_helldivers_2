@@ -45,8 +45,9 @@ per-backend failures and may try the next backend.
 - **+** on Automatic Stratagem Page means no cached page; the plain page icon means one exists
 - each page button has its own cached page, even when buttons share a scan group
 - **Back** returns to the source and retains the page, including across app restarts
-- hold **Automatic Stratagem Page** to delete its generated page and saved page assignments;
-  source-page assignments remain
+- hold **Automatic Stratagem Page** to replace its cached page with a fresh scan;
+  source-page assignments and other buttons' pages remain unchanged. A failed scan
+  leaves no replacement page; tap to retry
 - tap **Automatic Stratagem Scanner** to replace the current group from a fresh scan; hold to clear
 - tap **Automatic Stratagem** to execute its assignment, or scan its group when empty;
   hold to scan its group regardless of assignment

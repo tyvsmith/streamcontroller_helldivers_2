@@ -482,7 +482,7 @@ class ScanCoordinator:
                 self.cancel_context((deck, path, group))
                 self.sessions.pop((deck, path, group), None)
 
-    def start(self, action, *, replace=False):
+    def start(self, action, *, replace=False, regenerate=False):
         if (self.closed or not self.enabled or not action.get_is_present()
                 or not self.plugin.input_lock.acquire(blocking=False)):
             return
@@ -516,7 +516,21 @@ class ScanCoordinator:
                 if self.temporary_pages is None:
                     raise ValueError('Temporary pages are unavailable')
                 self.temporary_pages.layout(action.deck_controller)
+                _source_action_address(action)
                 filters = self.slot_filters(context, session)
+                if regenerate:
+                    if session.snapshot().status == 'scanning':
+                        presentation = getattr(
+                            action, '__dict__', {}).get('_scan_presentation')
+                        if (presentation is None or presentation[0] != context
+                                or presentation[1] is not session
+                                or not session.is_active(presentation[2])):
+                            finalize()
+                            return
+                        self.cancel_context(context)
+                    self.delete_cached_page(action)
+            elif regenerate:
+                raise ValueError('Only page openers can regenerate a cache')
             token = session.begin(filters, replace=replace, transient=new_page)
             if token is None:
                 finalize()
@@ -752,11 +766,7 @@ class ScanStratagems(ScanActionBase):
         if not getattr(self, '_held', False):
             self._held = True
             if scan_mode(self) == 'new_page':
-                try:
-                    self.coordinator.delete_cached_page(self)
-                except Exception:
-                    log.exception('Unable to delete cached stratagem page')
-                    self.coordinator.show_action_error(self)
+                self.coordinator.start(self, replace=True, regenerate=True)
             else:
                 self.coordinator.clear(self)
 
@@ -804,8 +814,8 @@ class ScanStratagems(ScanActionBase):
             'capture_backend', CAPTURE_BACKENDS[row.get_selected()]))
         rows.append(backend)
         if scan_mode(self) == 'new_page':
-            rows.append(Adw.ActionRow(title='Tap to open or scan · Hold to delete',
-                                      subtitle='Tap reopens the cached page, or scans to create it. Back retains it. Hold deletes the cached page.'))
+            rows.append(Adw.ActionRow(title='Tap to open or scan · Hold to regenerate',
+                                      subtitle='Tap reopens the cached page, or scans to create it. Back retains it. Hold replaces it with a fresh scan.'))
         else:
             rows.append(Adw.ActionRow(title='Tap to scan · Hold to clear',
                                       subtitle='Scan and clear affect only this page and group; slot numbers and color filters stay.'))

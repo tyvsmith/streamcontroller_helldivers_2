@@ -25,7 +25,9 @@ Back retains the page and its saved assignments; reopening it does not scan.
 The cache survives app restarts.
 The creation scan fills only the generated page. Source assignments remain
 unchanged; scans and clears update only their own page and group.
-Holding Automatic Stratagem Page deletes only its generated page and associated scan state.
+Holding Automatic Stratagem Page deletes its generated page and associated scan
+state, then scans to create and open a replacement. Other buttons' pages and
+source assignments remain unchanged. A failed scan leaves no replacement page.
 Version 2 page metadata records the source button address. Older shared pages
 remain registered for navigation and cleanup but are not assigned to a button.
 Deletion must return an active generated page to its source first. If the source
