@@ -19,10 +19,14 @@ readers must check timestamps and must not treat `scanning` as permission to
 execute. Configuration changes invalidate affected bindings before reuse.
 
 Generated pages live in `temporary-pages/` under the plugin data directory, keyed
-by deck serial, source page and scan group. Back retains the page and its saved
-assignments; reopening it does not scan. The cache survives app restarts.
+by deck serial, source page, scan group and source button address (input, state and
+action index). Moving a button to another address gives it a separate cached page.
+Back retains the page and its saved assignments; reopening it does not scan.
+The cache survives app restarts.
 The creation scan fills only the generated page. Source assignments remain
 unchanged; scans and clears update only their own page and group.
 Holding Automatic Stratagem Page deletes only its generated page and associated scan state.
+Version 2 page metadata records the source button address. Older shared pages
+remain registered for navigation and cleanup but are not assigned to a button.
 Deletion must return an active generated page to its source first. If the source
 is missing, keep the page recoverable rather than selecting another destination.

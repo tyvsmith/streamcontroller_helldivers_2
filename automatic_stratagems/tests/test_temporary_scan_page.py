@@ -52,9 +52,11 @@ class TemporaryPageTests(unittest.TestCase):
         self.deck = Deck(self.source)
         self.manager = PageManager()
         self.pages = TemporaryScanPages(self.root / 'temporary-pages', self.manager)
+        self.address = dict(input_type='keys', identifier='4x0', state=0, index=0)
 
-    def create(self):
-        return self.pages.create(self.deck, str(self.source), 'HD2', 'steam')
+    def create(self, address=None):
+        return self.pages.create(
+            self.deck, str(self.source), 'HD2', 'steam', address or self.address)
 
     def test_layout_reserves_back_and_scan_then_numbered_slots(self):
         path = self.create()
@@ -81,17 +83,17 @@ class TemporaryPageTests(unittest.TestCase):
 
     def test_find_returns_only_matching_deck_source_and_group_cache(self):
         path = self.create()
-        self.assertEqual(self.pages.find(self.deck, str(self.source), 'HD2'), path)
-        self.assertIsNone(self.pages.find(self.deck, str(self.source), 'other'))
+        self.assertEqual(self.pages.find(self.deck, str(self.source), 'HD2', self.address), path)
+        self.assertIsNone(self.pages.find(self.deck, str(self.source), 'other', self.address))
         other_source = self.root / 'other.json'
         other_source.write_text('{"keys": {}}')
-        self.assertIsNone(self.pages.find(self.deck, str(other_source), 'HD2'))
+        self.assertIsNone(self.pages.find(self.deck, str(other_source), 'HD2', self.address))
 
     def test_unreadable_cache_is_reported_instead_of_treated_as_missing(self):
         self.create()
         with patch.object(Path, 'read_text', side_effect=PermissionError('unreadable')):
             with self.assertRaises(PermissionError):
-                self.pages.find(self.deck, str(self.source), 'HD2')
+                self.pages.find(self.deck, str(self.source), 'HD2', self.address)
 
     def test_missing_original_keeps_temporary_page(self):
         path = self.create()
@@ -110,7 +112,45 @@ class TemporaryPageTests(unittest.TestCase):
         pages.show(self.deck, path)
         pages.back(self.deck, path)
         self.assertTrue(Path(path).exists())
-        self.assertEqual(pages.find(self.deck, str(self.source), 'HD2'), path)
+        self.assertEqual(pages.find(self.deck, str(self.source), 'HD2', self.address), path)
+
+    def test_same_source_group_uses_exact_source_action_address(self):
+        other = dict(input_type='keys', identifier='3x1', state=0, index=0)
+        first = self.create()
+        second = self.create(other)
+
+        self.assertEqual(self.pages.find(
+            self.deck, str(self.source), 'HD2', self.address), first)
+        self.assertEqual(self.pages.find(
+            self.deck, str(self.source), 'HD2', other), second)
+
+        restarted = TemporaryScanPages(self.pages.directory, PageManager())
+        self.assertEqual(restarted.find(
+            self.deck, str(self.source), 'HD2', self.address), first)
+        self.assertEqual(restarted.find(
+            self.deck, str(self.source), 'HD2', other), second)
+
+    def test_ownerless_v1_cache_is_retained_but_never_bound(self):
+        path = self.create()
+        data = json.loads(Path(path).read_text())
+        data['hd2_temporary_scan']['version'] = 1
+        data['hd2_temporary_scan'].pop('source_action')
+        Path(path).write_text(json.dumps(data))
+
+        restarted = TemporaryScanPages(self.pages.directory, PageManager())
+
+        self.assertTrue(Path(path).exists())
+        self.assertIsNone(restarted.find(
+            self.deck, str(self.source), 'HD2', self.address))
+
+    def test_malformed_v2_source_action_is_rejected(self):
+        path = self.create()
+        data = json.loads(Path(path).read_text())
+        data['hd2_temporary_scan']['source_action']['index'] = -1
+        Path(path).write_text(json.dumps(data))
+
+        with self.assertRaises(ValueError):
+            self.pages.metadata(path)
 
     def test_cannot_delete_arbitrary_page(self):
         with self.assertRaises(ValueError):
@@ -175,7 +215,8 @@ class TemporaryPageTests(unittest.TestCase):
     def test_plugin_owner_tracks_registration_and_release(self):
         owner = SimpleNamespace(registered_pages=[], register_page=Mock())
         pages = TemporaryScanPages(self.root / 'owned-pages', self.manager, owner=owner)
-        path = pages.create(self.deck, str(self.source), 'HD2', 'steam')
+        path = pages.create(
+            self.deck, str(self.source), 'HD2', 'steam', self.address)
         owner.register_page.assert_called_once_with(path)
         owner.registered_pages.append(path)
         pages.discard(path)

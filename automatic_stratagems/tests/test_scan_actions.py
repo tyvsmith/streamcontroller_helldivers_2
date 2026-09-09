@@ -1234,7 +1234,22 @@ class ActionTests(unittest.TestCase):
         action = self.action()
         action.get_settings.return_value = {'group': 'HD2', 'scan_mode': 'new_page', 'capture_backend': 'steam'}
         action.get_is_present.side_effect = lambda: self.deck.active_page.json_path == action.page.json_path
+        action.input_ident = types.SimpleNamespace(input_type='keys', json_identifier='4x0')
+        action.state = 0
+        self.page.action_objects = {'keys': {'4x0': {0: {0: action}}}}
         return action, root
+
+    def second_page_opener(self, identifier='3x1'):
+        action = self.action()
+        action.get_settings.return_value = {
+            'group': 'HD2', 'scan_mode': 'new_page', 'capture_backend': 'steam'}
+        action.get_is_present.side_effect = (
+            lambda: self.deck.active_page.json_path == action.page.json_path)
+        action.input_ident = types.SimpleNamespace(
+            input_type='keys', json_identifier=identifier)
+        action.state = 0
+        self.page.action_objects['keys'][identifier] = {0: {0: action}}
+        return action
 
     def synchronous_scan(self, action, report=None, error=None, *, replace=False):
         with patch.object(self.mod, 'Thread') as thread, \
@@ -1268,6 +1283,66 @@ class ActionTests(unittest.TestCase):
         identity = dict(deck='deck-one', page=path, group='HD2')
         self.assertTrue(self.coordinator.store.path(identity).exists())
         self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_page_openers_have_independent_caches_across_restart_and_delete(self):
+        first, root = self.temporary_setup()
+        second = self.second_page_opener()
+        self.plugin.stratagems['B'] = ['DOWN']
+        self.synchronous_scan(first, {'status': 'matched', 'rows': [{'id': 'A'}]})
+        first_path = self.deck.active_page.json_path
+        first_back = self.action(); first_back.page = types.SimpleNamespace(json_path=first_path)
+        first_back.get_settings.return_value = {'group': 'HD2'}
+        self.coordinator.back(first_back)
+        self.synchronous_scan(second, {'status': 'matched', 'rows': [{'id': 'B'}]})
+        second_path = self.deck.active_page.json_path
+        second_back = self.action(); second_back.page = types.SimpleNamespace(json_path=second_path)
+        second_back.get_settings.return_value = {'group': 'HD2'}
+        self.coordinator.back(second_back)
+
+        self.assertNotEqual(first_path, second_path)
+        self.assertEqual(self.coordinator.cached_page(first), first_path)
+        self.assertEqual(self.coordinator.cached_page(second), second_path)
+        manager = self.coordinator.temporary_pages.manager
+        restarted = self.mod.ScanCoordinator(self.plugin, state_dir=root / 'scan-state')
+        restarted.enable_temporary_pages(manager)
+        self.coordinator = restarted
+        self.plugin.scan_coordinator = restarted
+        self.assertEqual(restarted.cached_page(first), first_path)
+        self.assertEqual(restarted.cached_page(second), second_path)
+        self.assertTrue(restarted.delete_cached_page(first))
+        self.assertFalse(Path(first_path).exists())
+        self.assertEqual(restarted.cached_page(second), second_path)
+        self.assertTrue(Path(second_path).exists())
+
+    def test_deleting_one_cache_does_not_cancel_other_queued_creation(self):
+        first, root = self.temporary_setup()
+        second = self.second_page_opener()
+        self.plugin.stratagems['B'] = ['DOWN']
+        self.synchronous_scan(first, {'status': 'matched', 'rows': [{'id': 'A'}]})
+        first_path = self.deck.active_page.json_path
+        back = self.action(); back.page = types.SimpleNamespace(json_path=first_path)
+        back.get_settings.return_value = {'group': 'HD2'}
+        self.coordinator.back(back)
+        queued = []
+        with patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod, 'run_scan', return_value={
+                 'status': 'matched', 'rows': [{'id': 'B'}]}), \
+             patch.object(self.mod.GLib, 'idle_add',
+                          side_effect=lambda callback, *args: queued.append((callback, args)) or 1):
+            self.coordinator.start(second, replace=True)
+            thread.call_args.kwargs['target']()
+            self.assertNotIn(self.coordinator.context(second), self.coordinator.active_scans)
+            presentation = second._scan_presentation
+            self.assertTrue(presentation[1].is_active(presentation[2]))
+            self.assertTrue(self.coordinator.delete_cached_page(first))
+            self.assertTrue(presentation[1].is_active(presentation[2]))
+            callback, args = queued.pop()
+            callback(*args)
+
+        second_path = self.coordinator.cached_page(second)
+        self.assertFalse(Path(first_path).exists())
+        self.assertIsNotNone(second_path)
+        self.assertTrue(Path(second_path).exists())
 
     def test_failed_or_unknown_initial_scan_does_not_create_page(self):
         action, root = self.temporary_setup()
@@ -1684,13 +1759,17 @@ class ActionTests(unittest.TestCase):
     def test_auto_page_icon_tracks_cache_without_session_revision_change(self):
         launcher, root = self.temporary_setup()
         action = self.rendering_action(self.mod.AutoStratagems, {'group': 'HD2'})
+        action.input_ident = types.SimpleNamespace(input_type='keys', json_identifier='3x1')
+        action.state = 0
+        self.page.action_objects['keys']['3x1'] = {0: {0: action}}
         action.render()
         self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith(
             '/automatic_stratagems/assets/icons/scan-new-page.png'))
         revision = self.coordinator.session(action).snapshot().revision
 
         path = self.coordinator.temporary_pages.create(
-            self.deck, self.page.json_path, 'HD2', 'steam')
+            self.deck, self.page.json_path, 'HD2', 'steam',
+            self.mod._source_action_address(action))
         action.render()
         self.assertEqual(self.coordinator.session(action).snapshot().revision, revision)
         self.assertTrue(action.set_media.call_args.kwargs['media_path'].endswith(

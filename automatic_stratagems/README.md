@@ -43,6 +43,7 @@ per-backend failures and may try the next backend.
 - tap **Automatic Stratagem Page** to create, scan and open a generated page; subsequent taps
   reopen that same cached page without scanning
 - **+** on Automatic Stratagem Page means no cached page; the plain page icon means one exists
+- each page button has its own cached page, even when buttons share a scan group
 - **Back** returns to the source and retains the page, including across app restarts
 - hold **Automatic Stratagem Page** to delete its generated page and saved page assignments;
   source-page assignments remain
@@ -57,6 +58,8 @@ per-backend failures and may try the next backend.
   they were. Scans and clears remain local to each page/group after app restarts
 - existing scanner buttons configured for new-page mode behave as Automatic Stratagem Page;
   add the separate actions from the chooser for new buttons
+- older shared cached pages remain available in the app; each page button creates
+  its own page on next use
 - open the desired game menu yourself; scanning does not open it for you
 - keep unknown slots disabled; recognized IDs use existing catalog sequences
 - inspect **Last scan** for failures; Partial means unknown or unconfirmed results,

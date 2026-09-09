@@ -36,6 +36,33 @@ def _scan_group(settings):
     return str(settings.get('group', 'default')).strip() or 'default'
 
 
+def _source_action_address(action):
+    input_ident = getattr(action, 'input_ident', None)
+    input_type = getattr(input_ident, 'input_type', None)
+    identifier = getattr(input_ident, 'json_identifier', None)
+    state = getattr(action, 'state', None)
+    if (not isinstance(input_type, str) or not input_type
+            or not isinstance(identifier, str) or not identifier):
+        raise ValueError('Source action address unavailable')
+    if type(state) is not int or state < 0:
+        raise ValueError('Source action state unavailable')
+    index = None
+    objects = getattr(getattr(action, 'page', None), 'action_objects', None)
+    if isinstance(objects, dict):
+        state_actions = objects.get(input_type, {}).get(identifier, {}).get(state, {})
+        if isinstance(state_actions, dict):
+            index = next((candidate for candidate, value in state_actions.items()
+                          if type(candidate) is int and candidate >= 0 and value is action), None)
+    if index is None:
+        get_index = getattr(action, 'get_own_action_index', None)
+        candidate = get_index() if callable(get_index) else None
+        if type(candidate) is int and candidate >= 0:
+            index = candidate
+    if index is None:
+        raise ValueError('Source action index unavailable')
+    return dict(input_type=input_type, identifier=identifier, state=state, index=index)
+
+
 def _automatic_layout(action):
     """Return stable Auto action records from a beta.15 Page, if available."""
     page = getattr(action, 'page', None)
@@ -215,14 +242,6 @@ class ScanCoordinator:
             raise ValueError('Deck serial number unavailable')
         return dict(deck=serial, page=str(Path(page).absolute()), group=group)
 
-    def source_context(self, context):
-        deck, page, group = context
-        if self.temporary_pages and Path(page).resolve().parent == self.temporary_pages.directory:
-            meta = self.temporary_pages.metadata(page)
-            if meta['deck'] == deck.serial_number() and meta['group'] == group:
-                return deck, meta['source_page'], group
-        return context
-
     def slot_filters(self, context, session):
         slots = [a for a in self._attached_actions() if isinstance(a, AutomaticStratagem)
                  and self.context(a) == context]
@@ -269,13 +288,15 @@ class ScanCoordinator:
         self.store.save(identity, session, self.plugin.stratagems, colors, names)
 
     def open_temporary(self, action, session):
-        deck, source, group = self.source_context(self.context(action))
-        path = self.temporary_pages.find(deck, source, group)
+        deck, source, group = self.context(action)
+        source_action = _source_action_address(action)
+        path = self.temporary_pages.find(deck, source, group, source_action)
         if path is not None:
             self.session_for((deck, path, group))
             self.temporary_pages.show(deck, path)
             return
-        path = self.temporary_pages.create(deck, source, group, capture_backend(action))
+        path = self.temporary_pages.create(
+            deck, source, group, capture_backend(action), source_action)
         context = deck, path, group
         try:
             self.sessions[context] = session
@@ -301,17 +322,18 @@ class ScanCoordinator:
     def cached_page(self, action):
         if self.temporary_pages is None:
             return None
-        deck, source, group = self.source_context(self.context(action))
-        path = self.temporary_pages.find(deck, source, group)
+        deck, source, group = self.context(action)
+        path = self.temporary_pages.find(
+            deck, source, group, _source_action_address(action))
         if path is not None:
             self.session_for((deck, path, group))
         return path
 
-    def _restore_cached_session(self, source):
+    def _restore_cached_session(self, source, source_action):
         if self.temporary_pages is None:
             return None
         deck, page, group = source
-        path = self.temporary_pages.find(deck, page, group)
+        path = self.temporary_pages.find(deck, page, group, source_action)
         if path is not None:
             self.session_for((deck, path, group))
         return path
@@ -328,9 +350,13 @@ class ScanCoordinator:
     def delete_cached_page(self, action):
         if self.closed or not self.enabled or not action.get_is_present():
             return False
-        source = self.source_context(self.context(action))
-        self.cancel_context(source)
-        path = self._restore_cached_session(source)
+        source = self.context(action)
+        presentation = getattr(action, '__dict__', {}).get('_scan_presentation')
+        if (presentation is not None and presentation[0] == source
+                and presentation[1].is_active(presentation[2])):
+            self.cancel_context(source)
+        source_action = _source_action_address(action)
+        path = self._restore_cached_session(source, source_action)
         if path is None:
             return False
         context = source[0], path, source[2]
