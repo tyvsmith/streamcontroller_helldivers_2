@@ -260,6 +260,7 @@ class ScanCoordinator:
         result.finish(token, report, self.plugin.stratagems, colors)
         if result.snapshot().recognized:
             self.open_temporary(action, result)
+        return result.snapshot()
 
     def write_state(self, identity, session):
         colors = catalog_colors(self.plugin.PATH, self.plugin.stratagems)
@@ -348,8 +349,10 @@ class ScanCoordinator:
             operation['cancel'].set()
         session = self.sessions.get(context)
         if session is not None and session.snapshot().status == 'scanning':
+            transient = session.is_transient()
             session.cancel()
-            self.persist_context(context, session)
+            if not transient:
+                self.persist_context(context, session)
 
     def cancel_all(self):
         contexts = set(self.active_scans)
@@ -473,6 +476,7 @@ class ScanCoordinator:
                 self.plugin.input_lock.release()
 
         context = session = token = operation = None
+        new_page = False
         try:
             context = self.context(action)
             session = self.session(action)
@@ -487,7 +491,7 @@ class ScanCoordinator:
                     raise ValueError('Temporary pages are unavailable')
                 self.temporary_pages.layout(action.deck_controller)
                 filters = self.slot_filters(context, session)
-            token = session.begin(filters, replace=replace)
+            token = session.begin(filters, replace=replace, transient=new_page)
             if token is None:
                 finalize()
                 return
@@ -495,7 +499,8 @@ class ScanCoordinator:
             operation = {'cancel': Event(), 'setup_done': Event(), 'started': False,
                          'thread': None, 'action': ref(action)}
             self.active_scans[context] = operation
-            self.persist(action, session)
+            if not new_page:
+                self.persist(action, session)
             self.redraw(context)
             if not new_page and (not slots or len(slots) != len(set(slots))):
                 session.fail(token, 'Add uniquely numbered Automatic slots')
@@ -516,25 +521,34 @@ class ScanCoordinator:
                         session.cancel()
                     elif error:
                         if session.fail(token, error):
-                            self.persist(action, session)
+                            if not new_page:
+                                self.persist(action, session)
                         self.show_action_error(action)
                         log.warning('Stratagem scan failed: {}', error)
                     else:
-                        if session.finish(token, report, self.plugin.stratagems, colors):
-                            self.persist(action, session)
-                            result = session.snapshot()
-                            if result.status in ('ready', 'partial'):
-                                if new_page:
-                                    self.page_result(action, report, colors)
-                            elif result.status == 'failed':
+                        if new_page:
+                            accepted = session.finish_transient(token)
+                        else:
+                            accepted = session.finish(
+                                token, report, self.plugin.stratagems, colors)
+                        if accepted:
+                            result = (self.page_result(action, report, colors)
+                                      if new_page else session.snapshot())
+                            if not new_page:
+                                self.persist(action, session)
+                            if result.status == 'failed':
                                 self.show_action_error(action)
-                        log.info('Stratagem scan: {}', session.snapshot().message)
+                            log.info('Stratagem scan: {}', result.message)
                     self.redraw(context)
                 except Exception as error:
-                    failure = token if session.is_active(token) else session.begin(
-                        self.slot_filters(context, session))
-                    session.fail(failure, str(error))
-                    self.persist(action, session)
+                    if new_page:
+                        if session.is_active(token):
+                            session.fail(token, str(error))
+                    else:
+                        failure = token if session.is_active(token) else session.begin(
+                            self.slot_filters(context, session))
+                        session.fail(failure, str(error))
+                        self.persist(action, session)
                     self.show_action_error(action)
                     log.exception('Unable to finish stratagem scan')
                     self.redraw(context)
@@ -553,9 +567,13 @@ class ScanCoordinator:
                     else:
                         GLib.idle_add(finish, report, None, colors)
                 except Exception:
-                    session.cancel()
+                    active = session.is_active(token)
+                    transient = session.is_transient(token)
+                    if active:
+                        session.cancel()
                     try:
-                        self.persist_context(context, session)
+                        if active and not transient:
+                            self.persist_context(context, session)
                     except Exception:
                         log.exception('Unable to persist cancelled stratagem scan')
                     log.exception('Unable to queue stratagem scan result')
@@ -575,25 +593,31 @@ class ScanCoordinator:
                 operation['cancel'].set()
                 operation['setup_done'].set()
             if session is not None and token is not None and session.is_active(token):
+                transient = session.is_transient(token)
                 session.cancel()
-                self.persist_context(context, session)
+                if not transient:
+                    self.persist_context(context, session)
             finalize()
         except Exception as error:
             if operation is not None:
                 operation['cancel'].set()
                 operation['setup_done'].set()
             if session is not None:
-                if token is None and context is not None:
+                if new_page:
+                    if token is not None and session.is_active(token):
+                        session.fail(token, str(error))
+                else:
+                    if token is None and context is not None:
+                        try:
+                            token = session.begin(self.slot_filters(context, session))
+                        except Exception:
+                            log.exception('Unable to initialize failed stratagem scan state')
+                    if token is not None and session.is_active(token):
+                        session.fail(token, str(error))
                     try:
-                        token = session.begin(self.slot_filters(context, session))
+                        self.persist_context(context, session)
                     except Exception:
-                        log.exception('Unable to initialize failed stratagem scan state')
-                if token is not None and session.is_active(token):
-                    session.fail(token, str(error))
-                try:
-                    self.persist_context(context, session)
-                except Exception:
-                    log.exception('Unable to persist failed stratagem scan setup')
+                        log.exception('Unable to persist failed stratagem scan setup')
             log.exception('Unable to start stratagem scan')
             finalize()
             if context is not None:

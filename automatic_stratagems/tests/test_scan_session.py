@@ -127,6 +127,69 @@ class ScanSessionTests(unittest.TestCase):
             tokens = list(pool.map(lambda _: self.session.begin([1]), range(20)))
         self.assertEqual(sum(token is not None for token in tokens), 1)
 
+    def test_transient_scan_restores_state_with_monotonic_revision_and_token(self):
+        self.scan(['A', 'B'], slots=(1, 2, 3))
+        before = self.scan(['A', None], slots=(1, 2, 3))
+        report_before = self.session.latest_report()
+        checkpoint_before = self.session.checkpoint()
+        token = self.session.begin({1: 'any', 2: 'any'}, replace=True, transient=True)
+        self.assertEqual(self.session.snapshot().status, 'scanning')
+        self.assertEqual(self.session.checkpoint()['status'], before.status)
+
+        self.assertTrue(self.session.finish_transient(token))
+
+        after = self.session.snapshot()
+        self.assertEqual(dict(after.assignments), dict(before.assignments))
+        self.assertEqual(after.unknown_slots, before.unknown_slots)
+        self.assertEqual(after.unconfirmed_slots, before.unconfirmed_slots)
+        self.assertEqual((after.status, after.message, after.recognized, after.unknown,
+                          after.overflow, after.last_scan_at),
+                         (before.status, before.message, before.recognized, before.unknown,
+                          before.overflow, before.last_scan_at))
+        self.assertEqual(self.session.latest_report(), report_before)
+        self.assertGreater(after.revision, before.revision)
+        self.assertGreater(self.session.checkpoint()['scan_number'],
+                           checkpoint_before['scan_number'])
+
+    def test_noop_reconcile_keeps_transient_scan_active(self):
+        token = self.session.begin({1: 'red'})
+        self.session.finish(token, report('A'), CATALOG, {'A': 'red'})
+        token = self.session.begin({1: 'red'}, transient=True)
+
+        self.assertFalse(self.session.reconcile({1: 'red'}))
+        self.assertTrue(self.session.is_active(token))
+        with self.assertRaises(ValueError):
+            self.session.reconcile({1: 'invalid'})
+        self.assertTrue(self.session.is_active(token))
+        self.assertFalse(self.session.finish(token, report('A'), CATALOG))
+        self.assertTrue(self.session.is_active(token))
+        self.assertTrue(self.session.finish_transient(token))
+
+    def test_transient_fail_cancel_clear_and_reconcile_do_not_resurrect_state(self):
+        for ending in ('fail', 'cancel'):
+            with self.subTest(ending=ending):
+                session = ScanSession()
+                token = session.begin([1])
+                session.finish(token, report('A'), CATALOG)
+                before = session.snapshot()
+                token = session.begin([1], transient=True)
+                if ending == 'fail':
+                    self.assertTrue(session.fail(token, 'capture failed'))
+                else:
+                    session.cancel()
+                self.assertEqual(dict(session.snapshot().assignments),
+                                 dict(before.assignments))
+                self.assertEqual(session.snapshot().status, before.status)
+
+        token = self.session.begin([1])
+        self.session.finish(token, report('A'), CATALOG)
+        self.session.begin([1], transient=True)
+        self.session.clear()
+        self.assertIsNone(self.session.snapshot().assignments[1])
+        self.session.begin([1], transient=True)
+        self.session.reconcile({2: 'any'})
+        self.assertEqual(dict(self.session.snapshot().assignments), {2: None})
+
 
 if __name__ == '__main__':
     unittest.main()

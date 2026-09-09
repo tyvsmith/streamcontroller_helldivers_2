@@ -1015,6 +1015,7 @@ class ActionTests(unittest.TestCase):
         token = source.begin([1])
         source.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
                       self.plugin.stratagems)
+        self.coordinator.persist(launcher, source)
         self.synchronous_scan(launcher, {'status': 'matched', 'rows': [{'id': 'A'}]})
         scan = self.temporary_scan_action(self.deck.active_page.json_path)
         other = self.action()
@@ -1244,18 +1245,25 @@ class ActionTests(unittest.TestCase):
 
     def test_new_page_scans_without_source_slots_and_preserves_source_session(self):
         action, root = self.temporary_setup()
+        self.plugin.stratagems['B'] = ['DOWN']
         original = self.action()
         original.get_settings.return_value = {'group': 'HD2'}
         session = self.coordinator.session(original)
         token = session.begin([1])
         session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
-        before = session.snapshot()
-        self.synchronous_scan(action, {'status': 'matched', 'rows': [{'id': 'A'}]})
+        self.coordinator.persist(original, session)
+        before = session.checkpoint()
+        source_state = self.coordinator.store.path(self.coordinator.identity(original))
+        source_bytes = source_state.read_bytes()
+        self.synchronous_scan(action, {'status': 'matched', 'rows': [{'id': 'B'}]})
         path = self.deck.active_page.json_path
         self.assertNotEqual(path, self.page.json_path)
-        self.assertEqual(session.snapshot().assignments[1], 'A')
+        after = session.checkpoint()
+        before.pop('scan_number'); after.pop('scan_number')
+        self.assertEqual(after, before)
+        self.assertEqual(source_state.read_bytes(), source_bytes)
         loaded = self.coordinator.sessions[(self.deck, path, 'HD2')].snapshot()
-        self.assertEqual(loaded.assignments[1], 'A')
+        self.assertEqual(loaded.assignments[1], 'B')
         self.assertEqual(len(loaded.assignments), 13)
         identity = dict(deck='deck-one', page=path, group='HD2')
         self.assertTrue(self.coordinator.store.path(identity).exists())
@@ -1265,7 +1273,7 @@ class ActionTests(unittest.TestCase):
         action, root = self.temporary_setup()
         self.synchronous_scan(action, error=RuntimeError('capture failed'))
         self.assertEqual(self.deck.active_page.json_path, self.page.json_path)
-        self.assertEqual(self.coordinator.session(action).snapshot().status, 'failed')
+        self.assertEqual(self.coordinator.session(action).snapshot().status, 'idle')
         action.show_error.assert_called()
         self.synchronous_scan(action, {'status': 'partial', 'rows': [{'id': None}]})
         self.assertEqual(list((root / 'temporary-pages').glob('*.json')), [])
@@ -1281,15 +1289,15 @@ class ActionTests(unittest.TestCase):
         self.coordinator.back(back)
         self.assertEqual(self.deck.active_page.json_path, self.page.json_path)
         self.assertTrue(Path(path).exists())
-        self.assertEqual(len(list((root / 'scan-state').glob('*.json'))), 2)
+        self.assertEqual(len(list((root / 'scan-state').glob('*.json'))), 1)
         self.assertIn((self.deck, path, 'HD2'), self.coordinator.sessions)
 
     def test_page_open_failure_rolls_back_page_and_state(self):
         action, root = self.temporary_setup()
         with patch.object(self.coordinator.temporary_pages, 'show', side_effect=RuntimeError('load failed')):
             self.synchronous_scan(action, {'status': 'matched', 'rows': [{'id': 'A'}]})
-        self.assertEqual(self.coordinator.session(action).snapshot().status, 'failed')
-        self.assertEqual(len(list((root / 'scan-state').glob('*.json'))), 1)
+        self.assertEqual(self.coordinator.session(action).snapshot().status, 'idle')
+        self.assertEqual(len(list((root / 'scan-state').glob('*.json'))), 0)
         self.assertEqual(list((root / 'temporary-pages').glob('*.json')), [])
         self.assertFalse(self.plugin.input_lock.locked())
 
@@ -1363,7 +1371,7 @@ class ActionTests(unittest.TestCase):
             thread.call_args.kwargs['target']()
         self.assertFalse(self.plugin.input_lock.locked())
         self.assertTrue(Path(path).exists())
-        self.assertEqual(len(list((root / 'scan-state').glob('*.json'))), 2)
+        self.assertEqual(len(list((root / 'scan-state').glob('*.json'))), 1)
         saved_pages = {json.loads(saved.read_text())['context']['page']
                        for saved in (root / 'scan-state').glob('*.json')}
         self.assertIn(path, saved_pages)
@@ -1420,6 +1428,7 @@ class ActionTests(unittest.TestCase):
         source = self.coordinator.session(launcher)
         token = source.begin({1: 'any'})
         source.finish(token, {'status': 'partial', 'rows': [{'id': 'A'}, {'id': None}]}, self.plugin.stratagems)
+        self.coordinator.persist(launcher, source)
         self.synchronous_scan(launcher, {'status': 'partial', 'rows': [{'id': 'A'}, {'id': None}]})
         path = self.deck.active_page.json_path
         scan = self.temporary_scan_action(path)

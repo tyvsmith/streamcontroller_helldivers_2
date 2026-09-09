@@ -53,8 +53,8 @@ per-backend failures and may try the next backend.
   explicit slot numbers; choose a positive number to pin a slot
 - configure Any/Red/Blue/Green/Yellow filters; assignments are shared only within
   the same deck, page and group
-- the creation scan fills the source group and its new generated page; later scans
-  and clears affect only the current page/group, including after app restarts
+- creating a generated page fills only that page; the source assignments stay as
+  they were. Scans and clears remain local to each page/group after app restarts
 - existing scanner buttons configured for new-page mode behave as Automatic Stratagem Page;
   add the separate actions from the chooser for new buttons
 - open the desired game menu yourself; scanning does not open it for you

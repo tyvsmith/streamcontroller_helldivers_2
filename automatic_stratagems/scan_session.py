@@ -31,6 +31,7 @@ class ScanSession:
         self._unconfirmed_since = {}
         self._filters = {}
         self._last_report = None
+        self._transient = None
         self._snapshot = ScanSnapshot(MappingProxyType({}))
 
     def snapshot(self) -> ScanSnapshot:
@@ -40,6 +41,11 @@ class ScanSession:
     def is_active(self, token):
         with self._lock:
             return token is not None and token == self._active
+
+    def is_transient(self, token=None):
+        with self._lock:
+            return (self._transient is not None
+                    and (token is None or token == self._active))
 
     def _publish(self, **changes):
         self._snapshot = replace(
@@ -51,15 +57,19 @@ class ScanSession:
 
     def checkpoint(self):
         with self._lock:
-            s = self._snapshot
+            if self._transient is None:
+                s, report, filters, ages = (self._snapshot, self._last_report,
+                                             self._filters, self._unconfirmed_since)
+            else:
+                _, s, filters, report, ages = self._transient
             return dict(scan_number=self._serial, status=s.status, message=s.message,
-                        last_report=deepcopy(self._last_report),
+                        last_report=deepcopy(report),
                         last_scan_at=s.last_scan_at, recognized=s.recognized,
                         unknown=s.unknown, overflow=s.overflow,
-                        slots={str(slot): dict(id=key, filter=self._filters.get(slot, 'any'),
+                        slots={str(slot): dict(id=key, filter=filters.get(slot, 'any'),
                                unknown=slot in s.unknown_slots,
                                unconfirmed=slot in s.unconfirmed_slots,
-                               unconfirmed_since_scan=self._unconfirmed_since.get(slot))
+                               unconfirmed_since_scan=ages.get(slot))
                                for slot, key in s.assignments.items()})
 
     def restore(self, data, catalog):
@@ -91,6 +101,7 @@ class ScanSession:
             self._last_report = deepcopy(data.get('last_report'))
             self._serial = data['scan_number']
             self._active = None
+            self._transient = None
             self._filters, self._unconfirmed_since = filters, ages
             self._publish(assignments=MappingProxyType(assignments),
                           unknown_slots=frozenset(unknown), unconfirmed_slots=frozenset(unconfirmed),
@@ -98,21 +109,25 @@ class ScanSession:
                           recognized=data['recognized'], unknown=data['unknown'], overflow=data['overflow'],
                           last_scan_at=data['last_scan_at'])
 
-    def begin(self, slots, *, replace=False) -> int | None:
+    def begin(self, slots, *, replace=False, transient=False) -> int | None:
         with self._lock:
             if self._active is not None:
                 return None
             if any(type(slot) is not int or slot < 1 for slot in slots):
                 raise ValueError('Slot numbers must be positive integers')
-            self._filters = dict(slots) if isinstance(slots, Mapping) else dict.fromkeys(slots, 'any')
-            if any(color not in ('any', 'red', 'blue', 'green', 'yellow') for color in self._filters.values()):
+            filters = dict(slots) if isinstance(slots, Mapping) else dict.fromkeys(slots, 'any')
+            if any(color not in ('any', 'red', 'blue', 'green', 'yellow') for color in filters.values()):
                 raise ValueError('Invalid slot color')
+            preserved = ((self._snapshot, dict(self._filters), deepcopy(self._last_report),
+                          dict(self._unconfirmed_since)) if transient else None)
+            self._filters = filters
             assignments = {slot: self._snapshot.assignments.get(slot)
                            for slot in sorted(set(slots))}
             self._unconfirmed_since = {slot: age for slot, age in self._unconfirmed_since.items()
                                        if slot in assignments}
             self._serial += 1
             self._active = self._serial
+            self._transient = ((self._active,) + preserved) if preserved is not None else None
             self._publish(
                 assignments=MappingProxyType(assignments),
                 unknown_slots=self._snapshot.unknown_slots.intersection(assignments),
@@ -120,6 +135,24 @@ class ScanSession:
                 replacing=replace, status='scanning',
                 message='Replacing stratagems' if replace else 'Scanning stratagems')
             return self._active
+
+    def _restore_transient(self):
+        if self._transient is None or self._transient[0] != self._active:
+            return False
+        _, snapshot, filters, report, ages = self._transient
+        self._active = None
+        self._transient = None
+        self._filters = filters
+        self._last_report = report
+        self._unconfirmed_since = ages
+        self._snapshot = replace(snapshot, revision=self._snapshot.revision + 1)
+        return True
+
+    def finish_transient(self, token: int) -> bool:
+        with self._lock:
+            if token is None or token != self._active:
+                return False
+            return self._restore_transient()
 
     def reconcile(self, slots, *, affected=None) -> bool:
         """Keep only assignments whose current slot and filter still match."""
@@ -130,7 +163,12 @@ class ScanSession:
             if any(color not in ('any', 'red', 'blue', 'green', 'yellow')
                    for color in filters.values()):
                 raise ValueError('Invalid slot color')
-            affected = set(filters).union(self._filters) if affected is None else set(affected)
+            stable_filters = self._transient[2] if self._transient is not None else self._filters
+            affected = set(filters).union(stable_filters) if affected is None else set(affected)
+            if self._transient is not None:
+                if all(stable_filters.get(slot) == filters.get(slot) for slot in affected):
+                    return False
+                self._restore_transient()
             assignments = dict(self._snapshot.assignments)
             next_filters = dict(self._filters)
             unknown = set(self._snapshot.unknown_slots)
@@ -174,6 +212,8 @@ class ScanSession:
     def finish(self, token: int, report: Mapping, catalog: Mapping, colors: Mapping = None) -> bool:
         with self._lock:
             if self._active is None or token != self._active:
+                return False
+            if self._transient is not None:
                 return False
             status = report.get('status')
             rows = report.get('rows')
@@ -261,17 +301,23 @@ class ScanSession:
         with self._lock:
             if self._active is None or token != self._active:
                 return False
+            if self._restore_transient():
+                return True
             self._finish_failure(str(error))
             return True
 
     def cancel(self):
         with self._lock:
+            if self._restore_transient():
+                return
             self._active = None
             self._publish(status='idle', replacing=False, message='Scan cancelled')
 
     def clear(self):
         with self._lock:
+            self._restore_transient()
             self._active = None
+            self._transient = None
             self._last_report = None
             self._unconfirmed_since = {}
             self._publish(
