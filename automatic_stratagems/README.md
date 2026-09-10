@@ -143,6 +143,36 @@ Routine scans retain no diagnostic screenshots. Add
 `--debug-dir /private/path` for explicit troubleshooting artifacts; review raw
 captures before sharing and keep them out of Git.
 
+### Evaluate a screenshot collection
+
+Keep full-scene captures in a private directory. Prepare a manifest beside that
+capture directory, then fill in each case's provenance, split, detected mode,
+and ordered expected catalog IDs (`null` for an unknown row):
+
+```sh
+.venv/bin/python automatic_stratagems/tools/fixture-manifest prepare \
+  /private/evaluation/captures --output /private/evaluation/manifest.json
+# Edit the incomplete manifest before validation.
+.venv/bin/python automatic_stratagems/tools/fixture-manifest validate \
+  /private/evaluation/manifest.json
+.venv/bin/python automatic_stratagems/tools/evaluate-fixtures \
+  /private/evaluation/manifest.json --split heldout \
+  --output /private/evaluation/results.json
+```
+
+Use `calibration` for screenshots used to tune recognition. Reserve `heldout`
+for independently labeled captures never used for tuning. Evaluation checks
+hashes, dimensions, labels, provenance, and known overlap before running each
+selected image through the scanner without caching. Results compare detected
+mode and ordered IDs, including unknown rows; mismatches return a failing status.
+Hash checks cannot establish independence on their own.
+
+Tools leave source images untouched and refuse to overwrite output files. They
+neither capture the desktop nor add files to Git. Full scenes may contain private
+information; review and curate them separately before sharing. See the
+[manifest contract](docs/architecture.md#offline-fixture-evaluation) for required
+metadata and limits.
+
 Run the feature and ordinary key-mapping regressions with:
 
 ```sh
