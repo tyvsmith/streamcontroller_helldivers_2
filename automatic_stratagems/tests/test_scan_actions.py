@@ -101,11 +101,27 @@ class ActionTests(unittest.TestCase):
         self.assertFalse(s.finish(token,{'status':'matched','rows':[{'id':'A'}]},self.plugin.stratagems))
 
     def test_busy_input_does_not_launch_scanner(self):
-        a=self.action(); self.plugin.input_lock.acquire()
+        a=self.action(); other=self.action(); self.plugin.input_lock.acquire()
         with patch.object(self.mod,'Thread') as thread:
             self.coordinator.start(a)
             thread.assert_not_called()
+        a.show_error.assert_called_once_with(duration=3)
+        other.show_error.assert_not_called()
         self.plugin.input_lock.release()
+
+    def test_active_session_rejection_marks_only_initiator_busy(self):
+        action = self.action()
+        other = self.action()
+        session = self.coordinator.session(action)
+        session.begin({1: 'any'})
+
+        with patch.object(self.mod, 'Thread') as thread:
+            self.coordinator.start(action)
+
+        thread.assert_not_called()
+        action.show_error.assert_called_once_with(duration=3)
+        other.show_error.assert_not_called()
+        self.assertFalse(self.plugin.input_lock.locked())
 
     def test_setup_failures_release_input_and_allow_a_later_scan(self):
         action = self.action()
@@ -999,6 +1015,7 @@ class ActionTests(unittest.TestCase):
             with self.subTest(case=case):
                 settings = {'slot': 1, 'group': case, 'color_filter': 'any'}
                 action = self.rendering_action(self.mod.AutomaticStratagem)
+                action.show_error = Mock()
                 action.get_settings = lambda: dict(settings)
                 action.set_settings = lambda value: settings.update(value)
                 action.on_ready_called = True
@@ -1027,6 +1044,7 @@ class ActionTests(unittest.TestCase):
                     action.on_key_short_up()
                 scan.assert_not_called()
                 execute.assert_not_called()
+                action.show_error.assert_not_called()
                 self.plugin.get_settings = lambda: {
                     'automatic_stratagems_enabled': True}
 
@@ -2022,6 +2040,30 @@ class ActionTests(unittest.TestCase):
             action.get_config_rows()
         self.assertNotIn('last_scan_row', action.__dict__)
         self.assertEqual(row.call_args.kwargs['subtitle'], session.snapshot().message)
+
+    def test_automatic_config_explains_unconfirmed_assignment_and_last_scan(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem, {'slot': 1})
+        action.plugin_base.lm = Mock()
+        action.plugin_base.lm.get.return_value = 'Alpha Stratagem'
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                       self.plugin.stratagems)
+        token = session.begin({1: 'any'})
+        session.finish(token, {'status': 'partial', 'rows': [{'id': None}]},
+                       self.plugin.stratagems)
+        self.assertEqual(session.snapshot().unconfirmed_slots, frozenset({1}))
+
+        self.mod.Adw.ActionRow.reset_mock()
+        action.get_config_rows()
+
+        self.mod.Adw.ActionRow.assert_any_call(
+            title='Assignment status',
+            subtitle=('Alpha Stratagem is unconfirmed; tap still executes it; '
+                      'the latest scan did not see it'))
+        action.plugin_base.lm.get.assert_called_with('actions.A.name', 'A')
+        self.mod.Adw.ActionRow.assert_any_call(
+            title='Last scan', subtitle=session.snapshot().message)
 
     def test_disabled_ticks_reuse_static_artwork(self):
         action = self.rendering_action(self.mod.AutomaticStratagem)

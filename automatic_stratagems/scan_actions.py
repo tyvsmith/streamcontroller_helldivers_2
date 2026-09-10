@@ -577,8 +577,10 @@ class ScanCoordinator:
                 self.sessions.pop((deck, path, group), None)
 
     def start(self, action, *, replace=False, regenerate=False):
-        if (self.closed or not self.enabled or not action.get_is_present()
-                or not self.plugin.input_lock.acquire(blocking=False)):
+        if self.closed or not self.enabled or not action.get_is_present():
+            return
+        if not self.plugin.input_lock.acquire(blocking=False):
+            self.show_action_error(action)
             return
         finalizer_lock = Lock()
         finalized = False
@@ -610,6 +612,7 @@ class ScanCoordinator:
                              and session.is_active(presentation[2]))
                 if not regenerate or not owns_scan:
                     finalize()
+                    self.show_action_error(action)
                     return
             if new_page:
                 attempt_id = self.begin_page_attempt(action)
@@ -642,6 +645,7 @@ class ScanCoordinator:
                     self.finish_page_attempt(
                         action, attempt_id, 'cancelled', 'Scan already in progress')
                 finalize()
+                self.show_action_error(action)
                 return
             if new_page:
                 self.bind_page_attempt(action, attempt_id, session, token)
@@ -1069,6 +1073,27 @@ class AutomaticStratagem(ScanActionBase):
         rows.append(color)
         rows.append(Adw.ActionRow(title='Tap to execute or scan · Hold to rescan',
                                   subtitle='Tap an assigned slot to execute. Tap an empty slot or hold any Auto button to scan this group.'))
+        resolved = self.slot()
+        snapshot = self.coordinator.session(self).snapshot()
+        key = snapshot.assignments.get(resolved)
+        name = key
+        get_text = getattr(getattr(self.plugin_base, 'lm', None), 'get', None)
+        if key is not None and callable(get_text):
+            name = get_text(f'actions.{key}.name', key) or key
+        if resolved is None:
+            status = 'Automatic position unavailable; choose an explicit positive slot'
+        elif key is not None and resolved in snapshot.unconfirmed_slots:
+            status = (f'{name} is unconfirmed; tap still executes it; '
+                      'the latest scan did not see it')
+        elif key is not None:
+            status = f'{name} is assigned'
+        elif resolved in snapshot.unknown_slots:
+            status = 'Unknown result; rescan before use'
+        else:
+            status = 'Empty; no stratagem is assigned'
+        rows.append(Adw.ActionRow(title='Assignment status', subtitle=status))
+        rows.append(Adw.ActionRow(
+            title='Last scan', subtitle=snapshot.message or 'No scan yet'))
         return rows
 
     def controllable(self):
