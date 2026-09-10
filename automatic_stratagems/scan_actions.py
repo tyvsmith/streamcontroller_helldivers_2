@@ -1180,11 +1180,15 @@ class AutomaticStratagem(ScanActionBase):
         color_filter = self.color_filter()
         key = snapshot.assignments.get(slot)
         if (not self.get_is_present() or not self.controllable()
-                or snapshot.status not in ('idle', 'ready', 'partial', 'failed')
                 or self.displayed != (snapshot.revision, slot, key)):
             return
         context = self.coordinator.context(self)
         if pressed != (context, snapshot.revision, slot, color_filter, key):
+            return
+        if snapshot.status == 'scanning':
+            self.show_error(duration=3)
+            return
+        if snapshot.status not in ('idle', 'ready', 'partial', 'failed'):
             return
         if key is None:
             self.coordinator.start(self, replace=True)
@@ -1202,10 +1206,9 @@ class AutomaticStratagem(ScanActionBase):
                     and current.assignments.get(slot) == key
                     and self.displayed == (current.revision, slot, key))
 
-        busy = self.plugin_base.input_lock.locked()
         success = execute_stratagem(
             self.plugin_base, key, self.plugin_base.stratagems[key], guard=still_current)
-        if not success and not busy and still_current():
+        if not success and still_current():
             self.show_error(duration=3)
 
 

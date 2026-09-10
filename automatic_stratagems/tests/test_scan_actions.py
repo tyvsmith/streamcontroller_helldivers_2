@@ -1075,9 +1075,11 @@ class ActionTests(unittest.TestCase):
             action.on_key_short_up()
         action.show_error.assert_called_once_with(duration=3)
 
-    def test_busy_automatic_execution_does_not_show_failure(self):
+    def test_busy_automatic_execution_marks_only_pressed_action(self):
         action = self.rendering_action(self.mod.AutomaticStratagem)
+        other = self.rendering_action(self.mod.AutomaticStratagem)
         action.show_error = Mock()
+        other.show_error = Mock()
         session = self.coordinator.session(action)
         token = session.begin({1: 'any'})
         session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
@@ -1085,10 +1087,35 @@ class ActionTests(unittest.TestCase):
         action.displayed = (session.snapshot().revision, 1, 'A')
         action.on_key_down()
         self.plugin.input_lock.acquire()
-        with patch.object(self.mod, 'execute_stratagem', return_value=False):
+        with patch.object(self.mod, 'execute_stratagem', return_value=False) as execute:
             action.on_key_short_up()
         self.plugin.input_lock.release()
-        action.show_error.assert_not_called()
+        execute.assert_called_once()
+        action.show_error.assert_called_once_with(duration=3)
+        other.show_error.assert_not_called()
+
+    def test_current_automatic_press_during_scan_marks_only_pressed_action(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        other = self.rendering_action(self.mod.AutomaticStratagem)
+        action.show_error = Mock()
+        other.show_error = Mock()
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                       self.plugin.stratagems)
+        session.begin({1: 'any'}, replace=True)
+        snapshot = session.snapshot()
+        action.displayed = (snapshot.revision, 1, 'A')
+
+        action.on_key_down()
+        with patch.object(self.coordinator, 'start') as start, \
+             patch.object(self.mod, 'execute_stratagem') as execute:
+            action.on_key_short_up()
+
+        start.assert_not_called()
+        execute.assert_not_called()
+        action.show_error.assert_called_once_with(duration=3)
+        other.show_error.assert_not_called()
 
     def test_noninitiating_auto_keeps_assignment_during_scan(self):
         action = self.rendering_action(self.mod.AutomaticStratagem)
