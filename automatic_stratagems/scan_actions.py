@@ -19,7 +19,7 @@ from .temporary_scan_page import TemporaryScanPages
 from ..stratagem_execution import execute_stratagem
 
 
-CAPTURE_BACKENDS = ('auto', 'gamescope', 'steam', 'desktop')
+CAPTURE_BACKENDS = ('auto', 'gamescope', 'steam', 'desktop', 'portal', 'x11')
 AUTOMATIC_ACTION_ID = 'net_jslay_helldivers_2::AutomaticStratagem'
 SHUTDOWN_TIMEOUT_SECONDS = (FLATPAK_TERMINATE_GRACE_SECONDS
                             + TERMINATE_GRACE_SECONDS + 1)
@@ -949,8 +949,10 @@ class ScanStratagems(ScanActionBase):
         rows = super().get_config_rows()
         mode = scan_mode(self)
         backend = Adw.ComboRow(title='Capture backend',
-                               subtitle='Automatic tries Gamescope, Steam F12, then Hyprland desktop. Steam keeps a screenshot.')
-        backend.set_model(Gtk.StringList.new(['Automatic', 'Gamescope', 'Steam F12', 'Hyprland desktop']))
+                               subtitle='Automatic selects a route for your desktop. Portal asks for a window; Steam F12 saves a screenshot.')
+        backend.set_model(Gtk.StringList.new([
+            'Automatic', 'Gamescope', 'Steam F12', 'Hyprland desktop',
+            'Portal window', 'X11 window']))
         backend.set_selected(CAPTURE_BACKENDS.index(capture_backend(self)))
         backend.connect('notify::selected', lambda row, _: self.configure(
             'capture_backend', CAPTURE_BACKENDS[row.get_selected()]))

@@ -404,7 +404,7 @@ class ActionTests(unittest.TestCase):
         a=self.action()
         self.plugin.get_settings=lambda:{'capture_backend':'gamescope'}
         self.assertEqual(self.mod.capture_backend(a), 'gamescope')
-        for backend in ('auto','gamescope','steam','desktop'):
+        for backend in ('auto','gamescope','steam','desktop','portal','x11'):
             a.get_settings.return_value={'capture_backend':backend}
             self.assertEqual(self.mod.capture_backend(a), backend)
         a.get_settings.return_value={'capture_backend':'invalid'}

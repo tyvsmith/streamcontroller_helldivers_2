@@ -719,10 +719,12 @@ class HellDiversPlugin(PluginBase):
         return row
     
     def _create_capture_backend_row(self):
-        choices = ("auto", "gamescope", "steam", "desktop")
+        choices = ("auto", "gamescope", "steam", "desktop", "portal", "x11")
         row = Adw.ComboRow(title="Capture backend",
-                          subtitle="Automatic tries Gamescope, Steam F12, then Hyprland desktop. Steam keeps a screenshot.")
-        row.set_model(Gtk.StringList.new(["Automatic", "Gamescope", "Steam F12", "Hyprland desktop"]))
+                          subtitle="Automatic selects a route for your desktop. Portal asks for a window; Steam F12 saves a screenshot.")
+        row.set_model(Gtk.StringList.new([
+            "Automatic", "Gamescope", "Steam F12", "Hyprland desktop",
+            "Portal window", "X11 window"]))
         current = self.get_settings().get("capture_backend", "auto")
         row.set_selected(choices.index(current) if current in choices else 0)
         row.connect("notify::selected", lambda widget, _: self._save_setting(

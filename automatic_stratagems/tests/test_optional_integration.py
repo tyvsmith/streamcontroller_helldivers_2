@@ -109,6 +109,21 @@ class OptionalIntegrationTests(unittest.TestCase):
         self.addCleanup(sys.modules.pop, main_name, None)
         return module, plugin
 
+    def test_portable_backend_settings_round_trip(self):
+        module, plugin = self.import_without_automatic_actions()
+        for index, backend in ((4, 'portal'), (5, 'x11')):
+            with self.subTest(backend=backend):
+                plugin.get_settings = lambda: {'capture_backend': backend}
+                plugin._save_setting = Mock()
+                row = Mock()
+                with patch.object(module.Adw, 'ComboRow', return_value=row):
+                    plugin._create_capture_backend_row()
+                row.set_selected.assert_called_once_with(index)
+                callback = row.connect.call_args.args[1]
+                row.get_selected.return_value = index
+                callback(row, None)
+                plugin._save_setting.assert_called_once_with('capture_backend', backend)
+
     def test_coordinator_constructor_failure_preserves_ordinary_actions(self):
         class BrokenCoordinator:
             def __init__(self, *args, **kwargs):
