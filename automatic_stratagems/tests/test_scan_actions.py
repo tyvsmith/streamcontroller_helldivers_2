@@ -410,7 +410,38 @@ class ActionTests(unittest.TestCase):
         a.get_settings.return_value={'capture_backend':'invalid'}
         self.assertEqual(self.mod.capture_backend(a), 'auto')
 
-    def test_dropdown_saves_os_as_desktop_per_button(self):
+    def test_group_edit_commits_only_on_apply_or_focus_leave(self):
+        a=self.mod.ScanStratagems.__new__(self.mod.ScanStratagems)
+        settings = {'group': 'alpha'}
+        a.get_settings = lambda: dict(settings)
+        a.configure = Mock(side_effect=lambda key, value: settings.update({key: value}))
+        row = Mock()
+        focus = Mock()
+        self.mod.Adw.ActionRow.reset_mock()
+        with patch.object(self.mod.Adw, 'EntryRow', return_value=row), \
+             patch.object(self.mod.Gtk, 'EventControllerFocus', return_value=focus):
+            rows = self.mod.ScanActionBase.get_config_rows(a)
+
+        self.assertIn(row, rows)
+        row.set_show_apply_button.assert_called_once_with(True)
+        self.mod.Adw.ActionRow.assert_any_call(
+            title='Group scope',
+            subtitle='Shared only with the same group on this deck and page')
+        row.connect.assert_called_once()
+        self.assertEqual(row.connect.call_args.args[0], 'apply')
+        focus.connect.assert_called_once()
+        self.assertEqual(focus.connect.call_args.args[0], 'leave')
+        row.get_text.return_value = ' bravo '
+        row.connect.call_args.args[1](row)
+        focus.connect.call_args.args[1](focus)
+        a.configure.assert_called_once_with('group', 'bravo')
+
+        row.get_text.return_value = '   '
+        focus.connect.call_args.args[1](focus)
+        a.configure.assert_called_with('group', 'default')
+        row.set_text.assert_called_with('default')
+
+    def test_backend_dropdown_distinguishes_inherited_and_explicit_automatic(self):
         a=self.mod.ScanStratagems.__new__(self.mod.ScanStratagems)
         a.plugin_base=self.plugin
         self.plugin.scan_coordinator=self.coordinator
@@ -420,12 +451,65 @@ class ActionTests(unittest.TestCase):
         row = Mock()
         with patch.object(self.mod.Adw,'ComboRow', return_value=row):
             rows=a.get_config_rows()
-            row.set_selected.assert_called_once_with(2)
+            self.mod.Adw.ComboRow.assert_called_once_with(
+                title='Capture backend',
+                subtitle=ANY)
+            self.assertIn(
+                'Steam F12 saves a screenshot',
+                self.mod.Adw.ComboRow.call_args.kwargs['subtitle'])
+            row.set_selected.assert_called_once_with(3)
             self.assertIn(row, rows)
             callback=row.connect.call_args.args[1]
-            row.get_selected.return_value=3
+            row.get_selected.return_value=4
             callback(row,None)
             a.configure.assert_called_once_with('capture_backend','desktop')
+
+            a.configure.reset_mock()
+            row.get_selected.return_value=0
+            callback(row,None)
+            a.configure.assert_called_once_with(
+                'capture_backend', None, remove=True)
+
+            a.configure.reset_mock()
+            row.get_selected.return_value=1
+            callback(row,None)
+            a.configure.assert_called_once_with('capture_backend','auto')
+
+    def test_backend_configuration_removes_inherited_override_and_persists_explicit_auto(self):
+        settings = {'group': 'alpha', 'capture_backend': 'steam'}
+        action = self.rendering_action(self.mod.ScanStratagems, settings)
+
+        def replace_settings(updated):
+            settings.clear()
+            settings.update(updated)
+
+        action.get_settings = lambda: dict(settings)
+        action.set_settings = replace_settings
+        action.render = Mock()
+
+        action.configure('capture_backend', None, remove=True)
+        self.assertEqual(settings, {'group': 'alpha'})
+        action.configure('capture_backend', 'auto')
+        self.assertEqual(settings, {'group': 'alpha', 'capture_backend': 'auto'})
+
+    def test_inherited_backend_tracks_plugin_default_without_storing_override(self):
+        a=self.action()
+        a.get_settings.return_value = {}
+        self.plugin.get_settings = lambda: {'capture_backend': 'gamescope'}
+        self.assertEqual(self.mod.capture_backend(a), 'gamescope')
+        self.plugin.get_settings = lambda: {'capture_backend': 'portal'}
+        self.assertEqual(self.mod.capture_backend(a), 'portal')
+
+        action = self.mod.ScanStratagems.__new__(self.mod.ScanStratagems)
+        action.plugin_base = self.plugin
+        self.plugin.scan_coordinator = self.coordinator
+        action.deck_controller = self.deck; action.page = self.page
+        action.get_settings = lambda: {}
+        action.configure = Mock()
+        row = Mock()
+        with patch.object(self.mod.Adw, 'ComboRow', return_value=row):
+            action.get_config_rows()
+        row.set_selected.assert_called_once_with(0)
 
     def test_scan_tap_and_hold_are_mutually_exclusive(self):
         a=self.mod.ScanStratagems.__new__(self.mod.ScanStratagems)

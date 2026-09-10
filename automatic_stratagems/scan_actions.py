@@ -852,17 +852,36 @@ class ScanActionBase(KeyAction):
     def get_config_rows(self):
         group = Adw.EntryRow(title='Scan group')
         group.set_text(str(self.get_settings().get('group', 'default')))
-        group.connect('changed', lambda row: self.configure('group', row.get_text().strip() or 'default'))
-        return [group]
+        group.set_show_apply_button(True)
 
-    def configure(self, key, value):
+        def commit_group(*_):
+            value = group.get_text().strip() or 'default'
+            if group.get_text() != value:
+                group.set_text(value)
+            if value != _scan_group(self.get_settings()):
+                self.configure('group', value)
+
+        group.connect('apply', commit_group)
+        focus = Gtk.EventControllerFocus()
+        focus.connect('leave', commit_group)
+        group.add_controller(focus)
+        return [group, Adw.ActionRow(
+            title='Group scope',
+            subtitle='Shared only with the same group on this deck and page')]
+
+    def configure(self, key, value, *, remove=False):
         old_context = self.coordinator.context(self)
         old_slot = self.slot() if isinstance(self, AutomaticStratagem) else None
+        settings = self.get_settings()
+        if remove and key not in settings:
+            return
         session = self.coordinator.session(self)
         if session.snapshot().status == 'scanning':
             self.coordinator.cancel_context(old_context)
-        settings = self.get_settings()
-        settings[key] = value
+        if remove:
+            settings.pop(key)
+        else:
+            settings[key] = value
         self.set_settings(settings)
         if isinstance(self, AutomaticStratagem) and key in ('group', 'slot', 'color_filter'):
             self.coordinator.reconcile_action(self, old_context=old_context, old_slot=old_slot)
@@ -949,13 +968,25 @@ class ScanStratagems(ScanActionBase):
         rows = super().get_config_rows()
         mode = scan_mode(self)
         backend = Adw.ComboRow(title='Capture backend',
-                               subtitle='Automatic selects a route for your desktop. Portal asks for a window; Steam F12 saves a screenshot.')
+                               subtitle=('Use plugin default follows plugin settings. '
+                                         'Generated pages retain the effective setting used when created. '
+                                         'Steam F12 saves a screenshot.'))
         backend.set_model(Gtk.StringList.new([
-            'Automatic', 'Gamescope', 'Steam F12', 'Hyprland desktop',
+            'Use plugin default', 'Automatic', 'Gamescope', 'Steam F12', 'Hyprland desktop',
             'Portal window', 'X11 window']))
-        backend.set_selected(CAPTURE_BACKENDS.index(capture_backend(self)))
-        backend.connect('notify::selected', lambda row, _: self.configure(
-            'capture_backend', CAPTURE_BACKENDS[row.get_selected()]))
+        settings = self.get_settings()
+        backend.set_selected(
+            CAPTURE_BACKENDS.index(capture_backend(self)) + 1
+            if 'capture_backend' in settings else 0)
+
+        def backend_changed(row, _):
+            selected = row.get_selected()
+            if selected == 0:
+                self.configure('capture_backend', None, remove=True)
+            else:
+                self.configure('capture_backend', CAPTURE_BACKENDS[selected - 1])
+
+        backend.connect('notify::selected', backend_changed)
         rows.append(backend)
         if mode == 'new_page':
             rows.append(Adw.ActionRow(title='Tap to open or create · Hold to recreate',
