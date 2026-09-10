@@ -24,6 +24,8 @@ def key_action(suffix, settings):
 
 
 class TemporaryScanPages:
+    """Own registration, navigation, and deletion of versioned generated pages."""
+
     def __init__(self, directory, page_manager, state_store=None, owner=None):
         self.directory = Path(directory).resolve()
         self.manager = page_manager

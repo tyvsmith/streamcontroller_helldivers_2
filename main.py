@@ -689,7 +689,7 @@ class HellDiversPlugin(PluginBase):
         error = self.scan_coordinator.compatibility_error
         row = Adw.SwitchRow(title='Enable automatic stratagems',
                             subtitle=error or
-                            'Show Scan and Auto actions and allow screenshot scanning. Off by default.')
+                            'Show automatic scan actions in the action chooser and enable screenshot scanning. Off by default.')
         row.set_active(self.scan_coordinator.enabled)
         row.set_sensitive(error is None)
         row.connect('notify::active', self._on_automatic_stratagems_changed)
@@ -720,9 +720,9 @@ class HellDiversPlugin(PluginBase):
     
     def _create_capture_backend_row(self):
         choices = ("auto", "gamescope", "steam", "desktop")
-        row = Adw.ComboRow(title="Capture Backend",
-                          subtitle="Automatic tries Gamescope, Steam F12, then desktop. Steam keeps a screenshot.")
-        row.set_model(Gtk.StringList.new(["Automatic", "Gamescope", "Steam F12", "Desktop"]))
+        row = Adw.ComboRow(title="Capture backend",
+                          subtitle="Automatic tries Gamescope, Steam F12, then Hyprland desktop. Steam keeps a screenshot.")
+        row.set_model(Gtk.StringList.new(["Automatic", "Gamescope", "Steam F12", "Hyprland desktop"]))
         current = self.get_settings().get("capture_backend", "auto")
         row.set_selected(choices.index(current) if current in choices else 0)
         row.connect("notify::selected", lambda widget, _: self._save_setting(

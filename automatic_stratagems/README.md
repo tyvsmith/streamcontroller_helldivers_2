@@ -1,110 +1,135 @@
 # Automatic stratagems
 
-Scan the open Helldivers 2 selection screen or expanded mission menu into numbered
-Stream Deck slots. Enable **Settings → Plugins → HELLDIVERS 2 → Enable automatic
-stratagems** to use the feature. It defaults to off; ordinary buttons do not
-require scanner setup.
+Automatic stratagems scans the open Helldivers 2 selection screen or expanded
+mission menu and maps recognized stratagems to Stream Deck buttons. The feature
+is optional and off by default. Ordinary stratagem buttons continue to work
+without its dependencies.
 
-**Flatpak scanning is currently unavailable:** forced cancellation could leave host
-children running. The feature rejects Flatpak scans before launch. Native process
-cleanup is tested; fresh installed-app and live-game validation remain blocked.
+## Setup
 
-## Host setup
+**Platform limit:** saved-report page and action flows have been exercised with
+native StreamController 1.5.0-beta.15; other releases are unverified. Live
+capture currently targets Linux with Hyprland. Flatpak scans are rejected before
+launch because forced cleanup cannot guarantee termination of host descendants.
+GNOME, KDE, X11, and other desktop paths are not supported.
 
-From the installed plugin directory, create or reuse its single root environment:
+1. Open **Settings → Plugins → HELLDIVERS 2** and enable **Automatic
+   stratagems**.
+2. From the installed plugin directory, reuse its single root `.venv`. Create it
+   only when absent, using Python 3.12 or newer, then install the pinned scanner
+   dependencies:
+
+   ```sh
+   python -m venv .venv  # only when absent
+   .venv/bin/python -m pip install -r automatic_stratagems/requirements.txt
+   .venv/bin/python -m pip check
+   ```
+
+   The same environment can serve the asset updater. If it has no `pip`, run
+   `.venv/bin/python -m ensurepip --upgrade`; install the distribution's Python
+   `venv` package first if `ensurepip` is unavailable. Dependencies are never
+   installed during plugin startup. Store updates may replace the plugin
+   directory, so repeat this setup after an update when `.venv` is absent.
+3. Install the helpers required by the capture path:
+
+   - every live backend: `hyprctl`
+   - Hyprland desktop: `grim`
+   - Gamescope: `gamescopectl`
+   - Steam: `evdev`, access to `/dev/uinput`, and the Steam F12 screenshot binding
+   - optional mission-name fallback: Tesseract with English data
+
+## Actions
+
+For a generated layout, drag **Automatic Stratagem Page** onto the deck. To fill
+an existing page, add **Automatic Stratagem Scanner** and **Automatic Stratagem**
+buttons with the same group; leave slots at `-1` for automatic numbering. Open
+the supported game menu, then tap the page or scanner button.
+
+| Action | Tap | Hold |
+| --- | --- | --- |
+| **Automatic Stratagem Page** | Scan, create, and open a page when no cache exists; otherwise reopen it without scanning | Delete its cache, scan, and open a replacement |
+| **Automatic Stratagem Scanner** | Replace assignments for the current page and group | Clear assignments for the current page and group |
+| **Automatic Stratagem** | Execute an assignment, or scan its group when empty | Scan its group, assigned or empty |
+| **Back** | Return to the source and retain the generated page | — |
+
+A **+** on Automatic Stratagem Page marks a missing cache; the plain icon marks
+an existing cache. Back retains the cache across app restarts and remains
+available while automatic scanning is disabled.
+
+Open the desired game screen before scanning; the plugin does not open it. Only
+the button that starts a scan animates or shows a failure triangle. Page and
+scanner buttons keep the center label blank. A question-mark badge on an empty
+Automatic Stratagem slot means the latest completed scan was partial.
+Unconfirmed badges mean a previous assignment was not confirmed by the latest
+scan. Badges do not represent cooldown state. Check uncertain assignments before
+use and rescan the intended menu when needed.
+
+### Slots and groups
+
+Leave **Slot** at `-1 (automatic)` to allocate unique positive numbers in stable
+page order. Explicit positive slots are reserved first. Moving a button may
+change its automatic slot and gives an Automatic Stratagem Page button a new
+cache.
+
+Groups are independent. Assignments, scans, and clears apply only to the exact
+deck, page, and group. Creating a generated page seeds that page from the scan
+without changing the source page. Later scans and clears on either page do not
+change the other.
+
+Set each Automatic Stratagem button's color filter to Any, Red, Blue, Green, or
+Yellow. The scanner fills that slot only with an allowed icon color; it leaves
+uncertain matches empty.
+
+Each Automatic Stratagem Page button owns a separate cache, even when several
+buttons use the same group. Holding one page button leaves other page caches and
+source assignments unchanged. A failed regeneration leaves no replacement, so
+tap or hold again after correcting the error.
+
+Existing **Automatic Stratagem Scanner** buttons configured for the former
+new-page mode keep compatible page-opening behavior.
+
+## Troubleshooting
+
+- **Automatic actions are absent:** enable the feature, then reopen the action
+  chooser. If setup is incompatible, ordinary actions remain available.
+- **Scan fails immediately:** verify `.venv`, pinned dependencies, `hyprctl`, and
+  the helper for the selected backend. The initiating button shows the failure;
+  application logs retain setup details.
+- **Partial result:** one or more rows were unknown, unconfirmed, or reported as
+  partial. Check uncertain assignments and scan the intended game screen again.
+  Capacity overflow alone does not make a scan partial.
+- **Steam capture fails:** verify `/dev/uinput` access and the F12 binding. Steam
+  capture presses F12 and leaves the screenshot in Steam storage.
+- **Back cannot find its source:** the generated page remains recoverable rather
+  than switching to an unrelated page.
+- **Disabling the feature:** cancels scans and blocks automatic actions while
+  preserving configured buttons, caches, and assignments.
+
+The calibrated recognition profile is the English UI at 5120×2160. Included
+fixtures cover known screens and bounded geometry changes; they do not certify
+other resolutions, aspect ratios, HUD settings, HDR pipelines, multiplayer
+layouts, or gameplay conditions. Ambiguous observations remain unknown.
+Cold recognition can use several GiB of memory; low-memory hosts are not
+validated.
+
+## Replay, diagnostics, and tests
+
+Replay a saved image through the same recognizer used by the plugin:
 
 ```sh
-python -m venv .venv  # only when absent
-.venv/bin/python -m pip install -r automatic_stratagems/requirements.txt
-.venv/bin/python -m pip check
+.venv/bin/python -m automatic_stratagems.scanner \
+  --image /path/to/capture.png --json
 ```
 
-Use host Python 3.12 or newer. The same environment may serve the asset updater;
-install scanner requirements explicitly and resolve any dependency conflict before
-scanning. Dependencies are never installed at plugin startup. Store installs and
-updates replace the whole plugin directory, including `.venv`; repeat this setup
-afterward. Recreate an incompatible environment after a host
-Python update. Ordinary buttons remain usable without scanner setup.
+Routine scans retain no diagnostic screenshots. Add
+`--debug-dir /private/path` for explicit troubleshooting artifacts; review raw
+captures before sharing and keep them out of Git.
 
-The runner launches `.venv/bin/python -m automatic_stratagems.scanner` from the
-installed plugin root. No root shell launcher, separate scanner environment or
-development-checkout setting is required.
-
-Live capture currently requires Linux/Hyprland and `hyprctl` for game identity.
-Gamescope capture uses `gamescopectl`; desktop capture uses `grim`. Steam capture
-requires `evdev`, `/dev/uinput` access and the Steam F12 screenshot binding; it
-presses F12 and leaves Steam's screenshot in Steam storage. Optional name fallback
-uses Tesseract with English data. Preflight checks Python dependencies, `hyprctl`
-and helpers for an explicitly selected backend. Automatic capture reports
-per-backend failures and may try the next backend.
-
-## Buttons and recovery
-
-- tap **Automatic Stratagem Page** to create, scan and open a generated page; subsequent taps
-  reopen that same cached page without scanning
-- **+** on Automatic Stratagem Page means no cached page; the plain page icon means one exists
-- each page button has its own cached page, even when buttons share a scan group
-- **Back** returns to the source and retains the page, including across app restarts
-- hold **Automatic Stratagem Page** to replace its cached page with a fresh scan;
-  source-page assignments and other buttons' pages remain unchanged. A failed scan
-  leaves no replacement page; tap to retry
-- tap **Automatic Stratagem Scanner** to replace the current group from a fresh scan; hold to clear
-- tap **Automatic Stratagem** to execute its assignment, or scan its group when empty;
-  hold to scan its group regardless of assignment
-- leave slot at **-1 (automatic)** to assign distinct numbers in page order, skipping
-  explicit slot numbers; choose a positive number to pin a slot
-- configure Any/Red/Blue/Green/Yellow filters; assignments are shared only within
-  the same deck, page and group
-- creating a generated page fills only that page; the source assignments stay as
-  they were. Scans and clears remain local to each page/group after app restarts
-- existing scanner buttons configured for new-page mode behave as Automatic Stratagem Page;
-  add the separate actions from the chooser for new buttons
-- older shared cached pages remain available in the app; each page button creates
-  its own page on next use
-- open the desired game menu yourself; scanning does not open it for you
-- keep unknown slots disabled; recognized IDs use existing catalog sequences
-- inspect **Last scan** for failures; Partial means unknown or unconfirmed results,
-  not extra recognized stratagems beyond page capacity
-- only the pressed button animates during scanning or shows an error triangle;
-  Automatic Stratagem Page and Automatic Stratagem Scanner keep their center labels empty
-- a question mark on an empty Auto slot means a completed scan was partial
-- restored/unconfirmed badges are not cooldown indicators
-- disable scanning to preserve configured buttons and assignments while blocking scan actions
-
-All key actions are excluded while a scan owns the input lock. Cancellation must
-stop host work before ordinary key actions resume. Back remains available with
-scanning disabled; a missing source page must leave the generated page recoverable.
-See [process ownership](docs/contracts.md) and [saved state](docs/state.md).
-
-## Support and evidence
-
-The recognition regression profile is English UI at 5120×2160. Tests include
-calibration captures and synthetic geometry changes; they do not establish
-independent accuracy. The [fixture manifest](tests/fixtures/manifest.json) records
-known provenance, expectations and missing evidence. Other layouts, real
-multiplayer selection, aspect ratios, HUD settings and HDR pipelines remain
-unsupported until independently verified.
-Ambiguous observations must remain unknown. Cold recognition can use several GiB
-of RAM; low-memory hosts have not been validated.
-
-Fresh installed-app behavior, visible beta.15 chooser/page lifecycle, real-button
-input and live capture remain separate verification gates. Offline tests do not
-certify those combinations. Do not treat a successful helper launch as UI or
-hardware evidence. This feature remains experimental until those gates pass.
-
-## Validation and explicit diagnostics
+Run the feature and ordinary key-mapping regressions with:
 
 ```sh
 .venv/bin/python automatic_stratagems/tools/check
-.venv/bin/python -m automatic_stratagems.scanner --image /path/to/capture.png --json
 ```
 
-The normal check runs feature and ordinary key-mapping regressions without game
-input. Replay uses the same recognizer as StreamController. Routine scans retain
-no diagnostic screenshots. Explicit `--debug-dir /private/path` enables capture
-artifacts for troubleshooting; keep raw captures out of Git and review them before
-sharing. Steam screenshots are a separate capture side effect.
-
-`scan_runner.py` owns the process boundary; actions coordinate sessions and pages;
-`scanner/` owns capture/recognition; `tests/` owns regression fixtures. Source,
-requirements, tools, artwork and documentation for scanning stay in this folder.
+See [Architecture](docs/architecture.md) for component boundaries, persistence,
+process ownership, and extension points.

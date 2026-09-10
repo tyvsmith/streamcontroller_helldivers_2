@@ -137,6 +137,8 @@ def capture_backend(action):
 
 
 class ScanCoordinator:
+    """Coordinate page sessions and input exclusion; queue worker results for the UI."""
+
     def __init__(self, plugin, state_dir=None):
         self.plugin = plugin
         self.sessions = {}
@@ -666,6 +668,8 @@ class ScanCoordinator:
 
 
 class ScanActionBase(KeyAction):
+    """Connect StreamController action lifecycle and rendering to the coordinator."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.has_configuration = True
@@ -807,18 +811,18 @@ class ScanStratagems(ScanActionBase):
     def get_config_rows(self):
         rows = super().get_config_rows()
         backend = Adw.ComboRow(title='Capture backend',
-                               subtitle='Auto tries Gamescope, Steam F12, then OS')
-        backend.set_model(Gtk.StringList.new(['Auto', 'Gamescope', 'Steam', 'OS']))
+                               subtitle='Automatic tries Gamescope, Steam F12, then Hyprland desktop. Steam keeps a screenshot.')
+        backend.set_model(Gtk.StringList.new(['Automatic', 'Gamescope', 'Steam F12', 'Hyprland desktop']))
         backend.set_selected(CAPTURE_BACKENDS.index(capture_backend(self)))
         backend.connect('notify::selected', lambda row, _: self.configure(
             'capture_backend', CAPTURE_BACKENDS[row.get_selected()]))
         rows.append(backend)
         if scan_mode(self) == 'new_page':
-            rows.append(Adw.ActionRow(title='Tap to open or scan · Hold to regenerate',
-                                      subtitle='Tap reopens the cached page, or scans to create it. Back retains it. Hold replaces it with a fresh scan.'))
+            rows.append(Adw.ActionRow(title='Tap to open or create · Hold to recreate',
+                                      subtitle="Tap opens this button's saved page, or scans to create it. Back keeps it. Hold deletes it and scans a new page."))
         else:
             rows.append(Adw.ActionRow(title='Tap to scan · Hold to clear',
-                                      subtitle='Scan and clear affect only this page and group; slot numbers and color filters stay.'))
+                                      subtitle='Scan and clear change assignments only for this page and group. Slot and color settings stay.'))
         rows.append(Adw.ActionRow(title='Last scan',
                                   subtitle=self.coordinator.session(self).snapshot().message or 'No scan yet'))
         if self.coordinator.store and scan_mode(self) != 'new_page':
@@ -863,7 +867,7 @@ class AutomaticStratagem(ScanActionBase):
         configured = self.configured_slot()
         slot = Adw.SpinRow.new_with_range(-1, 99, 1)
         slot.set_title('Automatic slot')
-        slot.set_subtitle('-1 assigns a slot from this button position')
+        slot.set_subtitle('-1 chooses by button position; 1–99 pins the slot number')
         slot.set_value(configured)
         previous = [configured]
         updating = [False]
@@ -882,14 +886,14 @@ class AutomaticStratagem(ScanActionBase):
 
         slot.connect('notify::value', slot_changed)
         rows.append(slot)
-        color = Adw.ComboRow(title='Color filter', subtitle='Only fill vacancies with this icon color')
+        color = Adw.ComboRow(title='Color filter', subtitle='Only assign this icon color to this slot')
         color.set_model(Gtk.StringList.new(['Any', 'Red', 'Blue', 'Green', 'Yellow']))
         color.set_selected(SLOT_COLORS.index(self.color_filter()))
         color.connect('notify::selected', lambda row, _: self.configure(
             'color_filter', SLOT_COLORS[row.get_selected()]))
         rows.append(color)
-        rows.append(Adw.ActionRow(title='Tap to execute · Hold to scan',
-                                  subtitle='Hold any Auto button, including an empty slot, to rescan and update this group.'))
+        rows.append(Adw.ActionRow(title='Tap to execute or scan · Hold to rescan',
+                                  subtitle='Tap an assigned slot to execute. Tap an empty slot or hold any Auto button to scan this group.'))
         return rows
 
     def controllable(self):
@@ -1017,6 +1021,6 @@ class TemporaryScanBack(ScanActionBase):
         self.coordinator.back(self)
 
     def get_config_rows(self):
-        return [Adw.ActionRow(title='Return to previous page',
+        return [Adw.ActionRow(title='Return to source page',
                              subtitle=getattr(self, 'back_error', None) or
-                             'Return first, then delete this temporary page and its scan state.')]
+                             'Return to the source page. This temporary page and its scan state are kept.')]

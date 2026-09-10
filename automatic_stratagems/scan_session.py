@@ -24,6 +24,8 @@ class ScanSnapshot:
 
 
 class ScanSession:
+    """Guard assignments with scan tokens; transient scans preserve source state."""
+
     def __init__(self):
         self._lock = Lock()
         self._serial = 0
