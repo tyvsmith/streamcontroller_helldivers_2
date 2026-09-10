@@ -659,6 +659,24 @@ class ActionTests(unittest.TestCase):
                 self.assertIsNone(action.slot())
                 self.assertEqual(action.set_center_label.call_args.args[0], '?')
 
+    def test_malformed_topology_does_not_erase_saved_assignments(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem, {})
+        action.page = types.SimpleNamespace(
+            json_path='/tmp/HD2.json',
+            dict={'keys': []},
+            action_objects={'keys': {}},
+        )
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                       self.plugin.stratagems)
+        before = session.snapshot()
+
+        self.coordinator.register_action(action)
+
+        self.assertIsNone(action.slot())
+        self.assertEqual(session.snapshot(), before)
+
     def test_default_auto_rejects_noncanonical_state_even_with_matching_object(self):
         action = self.rendering_action(self.mod.AutomaticStratagem, {})
         action.page = types.SimpleNamespace(
