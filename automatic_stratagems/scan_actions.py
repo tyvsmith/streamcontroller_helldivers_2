@@ -866,6 +866,7 @@ class ScanActionBase(KeyAction):
                 self.configure('group', value)
 
         group.connect('apply', commit_group)
+        group.connect('entry-activated', commit_group)
         focus = Gtk.EventControllerFocus()
         focus.connect('leave', commit_group)
         group.add_controller(focus)

@@ -443,17 +443,18 @@ class ActionTests(unittest.TestCase):
         self.mod.Adw.ActionRow.assert_any_call(
             title='Group scope',
             subtitle='Shared only with the same group on this deck and page')
-        row.connect.assert_called_once()
-        self.assertEqual(row.connect.call_args.args[0], 'apply')
+        self.assertEqual(
+            [call.args[0] for call in row.connect.call_args_list],
+            ['apply', 'entry-activated'])
         focus.connect.assert_called_once()
         self.assertEqual(focus.connect.call_args.args[0], 'leave')
         row.get_text.return_value = ' bravo '
-        row.connect.call_args.args[1](row)
+        row.connect.call_args_list[1].args[1](row)
         focus.connect.call_args.args[1](focus)
         a.configure.assert_called_once_with('group', 'bravo')
 
         row.get_text.return_value = '   '
-        focus.connect.call_args.args[1](focus)
+        row.connect.call_args_list[0].args[1](row)
         a.configure.assert_called_with('group', 'default')
         row.set_text.assert_called_with('default')
 
