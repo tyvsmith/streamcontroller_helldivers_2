@@ -948,8 +948,10 @@ class ScanStratagems(ScanActionBase):
             rows.append(Adw.ActionRow(title='Tap to scan · Hold to clear',
                                       subtitle='Scan and clear change assignments only for this page and group. Slot and color settings stay.'))
         attempt = getattr(self, '__dict__', {}).get('_scan_attempt')
-        message = (attempt.message if mode == 'new_page' and isinstance(attempt, ScanAttempt)
-                   else self.coordinator.session(self).snapshot().message)
+        if mode == 'new_page':
+            message = attempt.message if isinstance(attempt, ScanAttempt) else ''
+        else:
+            message = self.coordinator.session(self).snapshot().message
         rows.append(Adw.ActionRow(title='Last scan', subtitle=message or 'No scan yet'))
         if self.coordinator.store and scan_mode(self) != 'new_page':
             error = self.coordinator.state_errors.get(self.coordinator.context(self))

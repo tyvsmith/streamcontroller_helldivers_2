@@ -1618,6 +1618,21 @@ class ActionTests(unittest.TestCase):
         self.mod.Adw.ActionRow.assert_any_call(
             title='Last scan', subtitle=second_attempt.message)
 
+    def test_fresh_page_opener_does_not_show_source_last_scan(self):
+        _, _ = self.temporary_setup()
+        first = self.real_page_opener()
+        source = self.coordinator.session(first)
+        token = source.begin({1: 'any'})
+        source.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                      self.plugin.stratagems)
+        fresh = self.real_page_opener('3x1')
+
+        self.mod.Adw.ActionRow.reset_mock()
+        fresh.get_config_rows()
+
+        self.mod.Adw.ActionRow.assert_any_call(
+            title='Last scan', subtitle='No scan yet')
+
     def test_page_opener_records_no_detections_and_setup_failure(self):
         action = self.rendering_action(
             self.mod.AutoStratagems,
