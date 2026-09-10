@@ -14,6 +14,8 @@ import threading
 import time
 import uuid
 
+from .scanner.capture_environment import session_kind
+
 
 SCHEMA_VERSION = 1
 SCAN_TIMEOUT_SECONDS = 120
@@ -408,12 +410,28 @@ def check_scan_setup(root, *, flatpak=None, backend="auto", cancel_event=None):
         raise ScanSetupError(
             f"Automatic scanning is not set up. Create {root / '.venv'} and install "
             f"{root / 'automatic_stratagems/requirements.txt'}.")
-    helpers = {"auto": ("hyprctl",),
-               "desktop": ("hyprctl", "grim"),
-               "gamescope": ("hyprctl", "gamescopectl"),
-               "steam": ("hyprctl",)}.get(backend, ())
+    platform = session_kind(os.environ)
+    x11 = platform == "x11"
+    portal = backend == "portal" or (backend == "auto" and
+                                      platform == "wayland")
+    if portal:
+        helpers = ("gst-launch-1.0",)
+    elif backend == "x11":
+        helpers = ("xprop", "import")
+    elif backend == "auto" and x11:
+        helpers = ("xprop",)
+    elif backend == "desktop":
+        helpers = ("hyprctl", "grim")
+    elif backend == "gamescope":
+        helpers = (("xprop", "gamescopectl") if x11 else
+                   ("hyprctl", "gamescopectl"))
+    elif backend == "steam":
+        helpers = ("xprop",) if x11 else ("hyprctl",)
+    else:
+        helpers = ("hyprctl",)
+    optional_import = ",dbus_next" if portal else ""
     script = (
-        "import cv2,numpy,PIL,evdev,shutil,sys;"
+        f"import cv2,numpy,PIL,evdev,shutil,sys{optional_import};"
         f"missing=[x for x in {helpers!r} if shutil.which(x) is None];"
         "sys.stderr.write('Missing capture helper: '+', '.join(missing) if missing else '');"
         "sys.exit(bool(missing))")

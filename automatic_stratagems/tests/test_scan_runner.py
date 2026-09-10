@@ -258,10 +258,53 @@ class RunnerTests(unittest.TestCase):
             interpreter = root / '.venv/bin/python'
             interpreter.parent.mkdir(parents=True)
             interpreter.touch()
-            with patch.object(scan_runner, '_run_owned', return_value=(0, b'', b'')) as run:
+            with patch.dict(os.environ, {
+                    'XDG_SESSION_TYPE': 'wayland',
+                    'XDG_CURRENT_DESKTOP': 'Hyprland',
+                    'WAYLAND_DISPLAY': 'wayland-0'}, clear=True), \
+                 patch.object(scan_runner, '_run_owned', return_value=(0, b'', b'')) as run:
                 scan_runner.check_scan_setup(root, flatpak=False, backend='auto')
             script = run.call_args.args[0][-1]
             self.assertIn("('hyprctl',)", script)
+
+    def test_wayland_auto_preflight_requires_portal_not_hyprland_helpers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            interpreter = root / '.venv/bin/python'
+            interpreter.parent.mkdir(parents=True)
+            interpreter.touch()
+            with patch.dict(os.environ, {
+                    'XDG_SESSION_TYPE': 'wayland',
+                    'XDG_CURRENT_DESKTOP': 'GNOME',
+                    'WAYLAND_DISPLAY': 'wayland-0'}, clear=True), \
+                 patch.object(scan_runner, '_run_owned', return_value=(0, b'', b'')) as run:
+                scan_runner.check_scan_setup(root, flatpak=False, backend='auto')
+            script = run.call_args.args[0][-1]
+            self.assertIn("('gst-launch-1.0',)", script)
+            self.assertIn('dbus_next', script)
+            self.assertNotIn('hyprctl', script)
+
+    def test_x11_preflight_requires_exact_capture_helpers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            interpreter = root / '.venv/bin/python'
+            interpreter.parent.mkdir(parents=True)
+            interpreter.touch()
+            with patch.object(scan_runner, '_run_owned', return_value=(0, b'', b'')) as run:
+                scan_runner.check_scan_setup(root, flatpak=False, backend='x11')
+            self.assertIn("('xprop', 'import')", run.call_args.args[0][-1])
+
+    def test_x11_auto_preflight_leaves_optional_capture_helpers_to_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            interpreter = root / '.venv/bin/python'
+            interpreter.parent.mkdir(parents=True)
+            interpreter.touch()
+            with patch.dict(os.environ, {
+                    'XDG_SESSION_TYPE': 'x11', 'DISPLAY': ':0'}, clear=True), \
+                 patch.object(scan_runner, '_run_owned', return_value=(0, b'', b'')) as run:
+                scan_runner.check_scan_setup(root, flatpak=False, backend='auto')
+            self.assertIn("('xprop',)", run.call_args.args[0][-1])
 
     def test_flatpak_scanning_fails_preflight_until_forced_teardown_is_safe(self):
         with patch.object(scan_runner.subprocess, 'Popen') as popen:

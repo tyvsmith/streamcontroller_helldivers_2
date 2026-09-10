@@ -10,8 +10,10 @@ from PIL import Image
 
 from .game_capture import (MAX_ENCODED_IMAGE_BYTES, ScanError, capture_game,
                            decode_image, query_active_window, window_geometry)
+from .platform_capture import (capture_x11, query_x11_window, same_window,
+                               session_kind, validate_game_window)
 
-BACKENDS = ('auto', 'gamescope', 'steam', 'desktop')
+BACKENDS = ('auto', 'gamescope', 'steam', 'desktop', 'portal', 'x11')
 
 
 class FocusChanged(ScanError):
@@ -19,6 +21,14 @@ class FocusChanged(ScanError):
 
 
 def check_focus(before):
+    if before is None:
+        return
+    if before.get('platform') == 'x11':
+        after = query_x11_window()
+        validate_game_window(after)
+        if not same_window(before, after):
+            raise FocusChanged('Game focus changed; scan discarded.')
+        return
     after = query_active_window()
     window_geometry(after)
     if any(before.get(k) != after.get(k) for k in ('address', 'pid', 'class', 'at', 'size')):
@@ -121,11 +131,16 @@ def steam_frame(before, paths):
         return wait_frame(paths, before)
 
 
-def capture(backend, before):
+def capture(backend, before, cancel_event=None):
     from .game_capture import run_command
     check_focus(before)
     if backend == 'desktop':
         im, info = capture_game()
+    elif backend == 'portal':
+        from .portal_capture import capture_portal
+        im, info = capture_portal(cancel_event=cancel_event)
+    elif backend == 'x11':
+        im, info = capture_x11(before, cancel_event=cancel_event)
     elif backend == 'gamescope':
         socket = gamescope_socket(before)
         with tempfile.TemporaryDirectory(prefix='hd2-gamescope-') as directory:
@@ -181,14 +196,32 @@ def _check_cancel(cancel_event):
 def scan_live(backend, recognize, save_attempt=None, prepare=lambda image: image,
               cancel_event=None):
     _check_cancel(cancel_event)
-    before = query_active_window()
-    window_geometry(before)
+    platform = session_kind(os.environ)
+    if backend == 'x11' and platform != 'x11':
+        raise ScanError('X11 capture requires a native X11 session.')
+    if backend == 'portal' or (backend == 'auto' and platform == 'wayland'):
+        before = None
+        names = ('portal',)
+    elif (backend == 'x11' or
+          (platform == 'x11' and backend in ('auto', 'gamescope', 'steam'))):
+        before = query_x11_window()
+        validate_game_window(before)
+        names = ('gamescope', 'steam', 'x11') if backend == 'auto' else (backend,)
+    else:
+        if backend == 'auto' and platform not in ('hyprland',):
+            raise ScanError('Cannot choose a capture backend for this desktop session.')
+        if (backend in ('gamescope', 'steam', 'desktop') and
+                platform == 'wayland'):
+            raise ScanError(f'{backend} capture is unsupported on this Wayland desktop.')
+        before = query_active_window()
+        window_geometry(before)
+        names = ('gamescope', 'steam', 'desktop') if backend == 'auto' else (backend,)
     attempts = []
-    for name in ('gamescope', 'steam', 'desktop') if backend == 'auto' else (backend,):
+    for name in names:
         _check_cancel(cancel_event)
         check_focus(before)
         try:
-            im, info = capture(name, before)
+            im, info = capture(name, before, cancel_event=cancel_event)
             im = prepare(im)
             issue = capture_issue(im, name)
             if issue:

@@ -5,6 +5,7 @@ import json
 import subprocess
 import threading
 import time
+from concurrent.futures import CancelledError
 
 from PIL import Image
 
@@ -45,12 +46,16 @@ def _stop(process):
     process.wait()
 
 
-def run_command(command, timeout=15, *, stdout_limit=None, stderr_limit=None):
+def run_command(command, timeout=15, *, stdout_limit=None, stderr_limit=None,
+                pass_fds=(), cancel_event=None):
     stdout_limit = MAX_COMMAND_STDOUT_BYTES if stdout_limit is None else stdout_limit
     stderr_limit = MAX_COMMAND_STDERR_BYTES if stderr_limit is None else stderr_limit
+    if cancel_event is not None and cancel_event.is_set():
+        raise CancelledError()
     try:
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   pass_fds=tuple(pass_fds))
     except FileNotFoundError as error:
         raise ScanError(f"Missing command: {command[0]}") from error
     stdout = bytearray()
@@ -67,11 +72,15 @@ def run_command(command, timeout=15, *, stdout_limit=None, stderr_limit=None):
     started = []
     deadline = time.monotonic() + timeout
     timed_out = False
+    cancelled = False
     try:
         for reader in readers:
             reader.start()
             started.append(reader)
         while process.poll() is None and not overflow and time.monotonic() < deadline:
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
             time.sleep(.01)
         timed_out = process.poll() is None and not overflow
         if process.poll() is None:
@@ -86,6 +95,8 @@ def run_command(command, timeout=15, *, stdout_limit=None, stderr_limit=None):
             reader.join(.5)
     if any(reader.is_alive() for reader in started):
         raise ScanError(f"{command[0]} did not close its output streams")
+    if cancelled:
+        raise CancelledError()
     if overflow:
         raise ScanError(f"{command[0]} {overflow[0]} exceeded its byte limit")
     if timed_out:
