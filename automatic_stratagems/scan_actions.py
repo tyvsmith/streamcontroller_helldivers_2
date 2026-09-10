@@ -70,17 +70,31 @@ def _automatic_layout(action):
     objects = getattr(page, 'action_objects', None)
     if not isinstance(data, dict) or not isinstance(objects, dict):
         return None
+    keys = data.get('keys')
+    object_keys = objects.get('keys')
+    if not isinstance(keys, dict) or not isinstance(object_keys, dict):
+        return None
     records = []
-    for identifier, key in data.get('keys', {}).items():
-        try:
-            column, row = (int(value) for value in identifier.split('x', 1))
-        except (AttributeError, TypeError, ValueError):
+    for identifier, key in keys.items():
+        parts = identifier.split('x', 1) if isinstance(identifier, str) else []
+        if (len(parts) != 2 or any(not value.isascii() or not value.isdecimal()
+                                   or str(int(value)) != value for value in parts)):
+            continue
+        column, row = map(int, parts)
+        if min(column, row) < 0:
             continue
         states = key.get('states', {}) if isinstance(key, dict) else {}
+        if not isinstance(states, dict):
+            continue
         for state_key, state_data in states.items():
-            try:
+            if type(state_key) is int:
+                state = state_key
+            elif (isinstance(state_key, str) and state_key.isascii()
+                  and state_key.isdecimal() and str(int(state_key)) == state_key):
                 state = int(state_key)
-            except (TypeError, ValueError):
+            else:
+                continue
+            if state < 0:
                 continue
             actions = state_data.get('actions', []) if isinstance(state_data, dict) else []
             if not isinstance(actions, list):
@@ -92,8 +106,11 @@ def _automatic_layout(action):
                 settings = action_data.get('settings', {})
                 if not isinstance(settings, dict):
                     settings = {}
-                action_object = objects.get('keys', {}).get(identifier, {}).get(
-                    state, {}).get(index)
+                input_objects = object_keys.get(identifier)
+                state_objects = (input_objects.get(state)
+                                 if isinstance(input_objects, dict) else None)
+                action_object = (state_objects.get(index)
+                                 if isinstance(state_objects, dict) else None)
                 records.append(((row, column, state, index), settings, action_object))
     return sorted(records, key=lambda record: record[0])
 
@@ -248,7 +265,8 @@ class ScanCoordinator:
         slots = [a for a in self._attached_actions() if isinstance(a, AutomaticStratagem)
                  and self.context(a) == context]
         if slots:
-            return {a.slot(): a.color_filter() for a in slots}
+            return {slot: action.color_filter() for action in slots
+                    if (slot := action.slot()) is not None}
         return {int(slot): row['filter'] for slot, row in session.checkpoint()['slots'].items()}
 
     def persist(self, action, session):
@@ -450,20 +468,26 @@ class ScanCoordinator:
             if layout is not None:
                 return ({slot: _settings_color_filter(settings)
                          for _, settings, _, slot in layout}, True)
-        return ({candidate.slot(): candidate.color_filter()
-                 for candidate in candidates if candidate.get_is_present()}, False)
+        return ({slot: candidate.color_filter() for candidate in candidates
+                 if candidate.get_is_present()
+                 and (slot := candidate.slot()) is not None}, False)
 
     def reconcile_action(self, action, *, old_context=None, old_slot=None):
         context = self.context(action)
         action._scan_context = context
         session = self.session_for(context)
-        affected = {action.slot()}
+        slot = action.slot()
+        if slot is None and old_slot is None:
+            return
+        affected = set() if slot is None else {slot}
         if old_context == context and old_slot is not None:
             affected.add(old_slot)
         filters, authoritative = self._configured_filters(context)
-        filters[action.slot()] = action.color_filter()
+        if slot is not None:
+            filters[slot] = action.color_filter()
         was_scanning = session.snapshot().status == 'scanning'
-        if session.reconcile(filters, affected=None if authoritative else affected):
+        reconcile_all = authoritative and slot is not None
+        if session.reconcile(filters, affected=None if reconcile_all else affected):
             if was_scanning:
                 self.cancel_context(context)
             self.persist_context(context, session)
@@ -513,7 +537,8 @@ class ScanCoordinator:
                      if isinstance(a, AutomaticStratagem) and a.get_is_present()
                      and self.context(a) == context]
             slots = [a.slot() for a in automatic]
-            filters = {a.slot(): a.color_filter() for a in automatic}
+            filters = {slot: a.color_filter() for a, slot in zip(automatic, slots)
+                       if slot is not None}
             if new_page:
                 if self.temporary_pages is None:
                     raise ValueError('Temporary pages are unavailable')
@@ -533,6 +558,11 @@ class ScanCoordinator:
                     self.delete_cached_page(action)
             elif regenerate:
                 raise ValueError('Only page openers can regenerate a cache')
+            if not new_page and any(slot is None for slot in slots):
+                log.warning('Automatic slot position unavailable; choose an explicit slot')
+                self.show_action_error(action)
+                finalize()
+                return
             token = session.begin(filters, replace=replace, transient=new_page)
             if token is None:
                 finalize()
@@ -848,16 +878,16 @@ class AutomaticStratagem(ScanActionBase):
         if configured != -1:
             self._resolved_slot = configured
             return configured
-        layout = _resolved_layout(self)
+        try:
+            layout = _resolved_layout(self)
+        except ValueError:
+            return None
         if layout is not None:
             for _, _, action_object, slot in layout:
                 if action_object is self:
                     self._resolved_slot = slot
                     return slot
-        # Preserve compatibility with incomplete Page implementations. Native
-        # beta.15 exposes both page.dict and page.action_objects.
-        self._resolved_slot = 1
-        return self._resolved_slot
+        return None
 
     def color_filter(self):
         return _settings_color_filter(self.get_settings())
@@ -901,24 +931,26 @@ class AutomaticStratagem(ScanActionBase):
                 and all(self.has_label_controls()))
 
     def render(self):
+        slot = self.slot()
+        slot_label = str(slot) if slot is not None else '?'
         if not self.coordinator.enabled:
-            shown = 'disabled', self.slot(), self.color_filter()
+            shown = 'disabled', slot, self.color_filter()
             if self.displayed == shown:
                 return
             self.artwork(f'automatic_stratagems/assets/icons/auto-{self.color_filter()}.png',
-                         'AUTO', str(self.slot()), 'Disabled', center_size=28)
+                         'AUTO', slot_label, 'Disabled', center_size=28)
             self.displayed = shown
             return
         session = self.coordinator.session(self)
         snapshot = session.snapshot()
-        slot = self.slot()
         key = snapshot.assignments.get(slot)
         shown = snapshot.revision, slot, key
         if self.displayed == shown:
             return
         self.displayed = None
         if self.coordinator.loading(self):
-            self.artwork('automatic_stratagems/assets/icons/scanning.mp4', f'AUTO {slot}', '', 'Scanning')
+            self.artwork('automatic_stratagems/assets/icons/scanning.mp4',
+                         f'AUTO {slot_label}', '', 'Scanning')
         elif key:
             path = str(Path(self.plugin_base.PATH) / 'assets/icons' / (key + '.png'))
             if slot in snapshot.unconfirmed_slots:
@@ -942,11 +974,11 @@ class AutomaticStratagem(ScanActionBase):
                 path = str(Path(self.plugin_base.PATH) / filename)
                 self.set_media(image=badged_icon(path).copy())
                 self.set_top_label('AUTO')
-                self.set_center_label(str(slot), font_size=28)
+                self.set_center_label(slot_label, font_size=28)
                 self.set_bottom_label(label)
                 self.set_background_color([26, 26, 26, 255])
             else:
-                self.artwork(filename, 'AUTO', str(slot), label, center_size=28)
+                self.artwork(filename, 'AUTO', slot_label, label, center_size=28)
         self.displayed = shown
 
     def on_key_down(self, data=None):

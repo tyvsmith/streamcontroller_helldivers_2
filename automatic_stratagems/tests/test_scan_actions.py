@@ -537,7 +537,9 @@ class ActionTests(unittest.TestCase):
         self.plugin.scan_coordinator = self.coordinator
         action.deck_controller = self.deck
         action.page = self.page
-        values = dict(settings or {})
+        values = dict({'slot': 1}
+                      if settings is None and action_type is self.mod.AutomaticStratagem
+                      else settings or {})
         action.get_settings = lambda: dict(values)
         action.set_settings = lambda updated: values.update(updated)
         action.get_is_present = lambda: True
@@ -595,6 +597,89 @@ class ActionTests(unittest.TestCase):
         thread.assert_called_once()
         self.assertEqual(
             set(self.coordinator.session(later).snapshot().assignments), {1, 2})
+        self.plugin.input_lock.release()
+
+    def test_default_auto_without_usable_topology_never_uses_slot_one(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem, {})
+        action.show_error = Mock()
+        action.on_ready_called = True
+        self.coordinator.actions.add(action)
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                       self.plugin.stratagems)
+
+        self.assertIsNone(action.slot())
+        action.render()
+        self.assertEqual(action.set_center_label.call_args.args[0], '?')
+        with patch.object(self.mod, 'execute_stratagem') as execute, \
+             patch.object(self.mod, 'Thread') as thread:
+            action.on_key_down()
+            action.on_key_short_up()
+
+        execute.assert_not_called()
+        thread.assert_not_called()
+        action.show_error.assert_called_once_with(duration=3)
+        self.assertEqual(session.snapshot().assignments[1], 'A')
+
+    def test_current_page_scan_rejects_present_unresolved_default_auto(self):
+        scanner = self.rendering_action(self.mod.ScanStratagems)
+        scanner.show_error = Mock()
+        unresolved = self.rendering_action(self.mod.AutomaticStratagem, {})
+        unresolved.show_error = Mock()
+        self.coordinator.actions.update((scanner, unresolved))
+
+        with patch.object(self.mod, 'Thread') as thread:
+            self.coordinator.start(scanner, replace=True)
+
+        thread.assert_not_called()
+        scanner.show_error.assert_called_once_with(duration=3)
+        unresolved.show_error.assert_not_called()
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_default_auto_malformed_topology_fails_closed_without_render_error(self):
+        malformed = (
+            ({'keys': []}, {'keys': {}}),
+            ({'keys': {'-1x0': {'states': {'0': {'actions': [
+                {'id': self.mod.AUTOMATIC_ACTION_ID, 'settings': {}}]}}}}},
+             {'keys': {'-1x0': {0: {0: None}}}}),
+            ({'keys': {'0x0': {'states': {'-1': {'actions': [
+                {'id': self.mod.AUTOMATIC_ACTION_ID, 'settings': {}}]}}}}},
+             {'keys': {'0x0': {-1: {0: None}}}}),
+            ({'keys': {'0x0': {'states': {'0': {'actions': [
+                {'id': self.mod.AUTOMATIC_ACTION_ID, 'settings': {}}]}}}}},
+             {'keys': []}),
+        )
+        for data, objects in malformed:
+            with self.subTest(data=data, objects=objects):
+                action = self.rendering_action(self.mod.AutomaticStratagem, {})
+                action.page = types.SimpleNamespace(
+                    json_path='/tmp/HD2.json', dict=data, action_objects=objects)
+                action.render()
+                self.assertIsNone(action.slot())
+                self.assertEqual(action.set_center_label.call_args.args[0], '?')
+
+    def test_default_auto_rejects_noncanonical_state_even_with_matching_object(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem, {})
+        action.page = types.SimpleNamespace(
+            json_path='/tmp/HD2.json',
+            dict={'keys': {'0x0': {'states': {True: {'actions': [
+                {'id': self.mod.AUTOMATIC_ACTION_ID, 'settings': {}}]}}}}},
+            action_objects={'keys': {'0x0': {1: {0: action}}}})
+
+        self.assertIsNone(action.slot())
+
+    def test_explicit_slot_works_without_page_topology(self):
+        action = self.rendering_action(self.mod.AutomaticStratagem, {'slot': 7})
+        action.show_error = Mock()
+        self.coordinator.actions.add(action)
+
+        self.assertEqual(action.slot(), 7)
+        with patch.object(self.mod, 'Thread') as thread:
+            self.coordinator.start(action, replace=True)
+
+        thread.assert_called_once()
+        self.assertEqual(set(self.coordinator.session(action).snapshot().assignments), {7})
         self.plugin.input_lock.release()
 
     def test_automatic_allocation_reserves_explicit_slots(self):
