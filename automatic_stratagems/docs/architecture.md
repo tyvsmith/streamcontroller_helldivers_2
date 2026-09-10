@@ -298,6 +298,45 @@ Portal and X11 protocol tests do not establish live GNOME/KDE/X11 behavior.
 Cold recognition can use several GiB of memory; low-memory hosts are not
 validated.
 
+### Offline fixture evaluation
+
+`fixture_evaluation.py` prepares manifests and runs serial offline evaluations;
+`tools/fixture-manifest` and `tools/evaluate-fixtures` are thin CLI entry points.
+The existing fixture manifest adds a per-image inventory of SHA-256, dimensions,
+label references, split, and known capture IDs. Calibration images remain
+calibration.
+
+External manifests use `schema_version: 1` and a `cases` array. Each case has:
+
+- `path`: PNG/JPEG path beneath the manifest directory, without symlinks
+- `sha256` and `dimensions`: exact content hash and `[width, height]`
+- `split`: `calibration` or `heldout`
+- `expected`: `mode` (`mission` or `selection`) and ordered `ids`; use `null`
+  for unknown rows and an empty list for no detections
+- `provenance`: `capture_id`, `source`, `captured_at`, `backend`, `platform`,
+  `desktop`, `resolution`, `hdr`, `language`, `game_build`, `player_count`,
+  `hud_scale`, and `safe_area`
+
+Preparation writes an incomplete template. Calibration may retain explicit
+`unknown` provenance; held-out cases require concrete metadata, a timestamp with
+a timezone, matching resolution, and one to four players. Optional `rights` and
+`privacy_reviewed` fields record curation without authorizing publication.
+
+Validation rejects changed images, unknown catalog IDs, duplicate paths, and
+known content or capture IDs shared across splits. Held-out hashes are also
+checked against the committed calibration inventory. These checks catch known
+leakage; independent capture and labeling remain a human evidence requirement.
+Mixed manifests require `--split`, while validation still covers every case.
+
+Evaluation uses the owned subprocess runner with `--image --mode auto --no-cache`
+and defaults to one recognition worker. Each case has a 120-second work deadline; cleanup waits for confirmed reaping.
+Discovery is limited to 4,096 entries and eight directory levels. Manifests are
+limited to 1 MiB and 256 cases; images to 64 MiB, 16,384 pixels per side, and
+40 million pixels. Outputs are private, atomic, and never overwrite an
+existing path. Results identify their split and record per-case mode, status,
+ordered IDs, timing, and errors. Keep source images outside the repository; tools do not copy or add
+them.
+
 ## Extension points
 
 - Add a capture backend in `scanner/capture_backends.py`, keep setup checks in
