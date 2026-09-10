@@ -1337,6 +1337,20 @@ class ActionTests(unittest.TestCase):
         self.page.action_objects['keys'][identifier] = {0: {0: action}}
         return action
 
+    def real_page_opener(self, identifier='4x0'):
+        action = self.rendering_action(
+            self.mod.AutoStratagems,
+            {'group': 'HD2', 'capture_backend': 'steam'})
+        action.show_error = Mock()
+        action.input_ident = types.SimpleNamespace(
+            input_type='keys', json_identifier=identifier)
+        action.state = 0
+        action.get_is_present = (
+            lambda: self.deck.active_page.json_path == action.page.json_path)
+        self.page.action_objects['keys'][identifier] = {0: {0: action}}
+        self.coordinator.actions.add(action)
+        return action
+
     def synchronous_scan(self, action, report=None, error=None, *, replace=False,
                          regenerate=False):
         with patch.object(self.mod, 'Thread') as thread, \
@@ -1547,6 +1561,101 @@ class ActionTests(unittest.TestCase):
         self.synchronous_scan(action, {'status': 'partial', 'rows': [{'id': None}]})
         self.assertEqual(list((root / 'temporary-pages').glob('*.json')), [])
         self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_page_opener_last_attempt_isolated_from_source_and_other_opener(self):
+        _, root = self.temporary_setup()
+        first = self.real_page_opener()
+        second = self.real_page_opener('3x1')
+        source = self.coordinator.session(first)
+        token = source.begin({1: 'any'})
+        source.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
+                      self.plugin.stratagems)
+        before = source.checkpoint()
+        before.pop('scan_number')
+
+        self.synchronous_scan(first, error=RuntimeError('capture failed'))
+        first_attempt = first._scan_attempt
+        self.assertEqual((first_attempt.status, first_attempt.message),
+                         ('failed', 'capture failed'))
+        first.show_error.assert_called_once_with(duration=3)
+        self.mod.Adw.ActionRow.reset_mock()
+        first.get_config_rows()
+        self.mod.Adw.ActionRow.assert_any_call(
+            title='Last scan', subtitle='capture failed')
+
+        self.synchronous_scan(second, {
+            'status': 'partial', 'rows': [{'id': None}]})
+        second_attempt = second._scan_attempt
+        self.assertEqual(second_attempt.status, 'partial')
+        self.assertIn('0 recognized', second_attempt.message)
+        self.assertEqual(first._scan_attempt, first_attempt)
+        second.show_error.assert_not_called()
+        after = source.checkpoint()
+        after.pop('scan_number')
+        self.assertEqual(after, before)
+        self.assertEqual(list((root / 'temporary-pages').glob('*.json')), [])
+
+        self.mod.Adw.ActionRow.reset_mock()
+        second.get_config_rows()
+        self.mod.Adw.ActionRow.assert_any_call(
+            title='Last scan', subtitle=second_attempt.message)
+
+    def test_page_opener_records_no_detections_and_setup_failure(self):
+        action = self.rendering_action(
+            self.mod.AutoStratagems,
+            {'group': 'HD2', 'capture_backend': 'steam'})
+        action.show_error = Mock()
+        with patch.object(self.mod, 'Thread') as thread:
+            self.coordinator.start(action, replace=True)
+        thread.assert_not_called()
+        self.assertEqual(action._scan_attempt.status, 'failed')
+        self.assertIn('Temporary pages are unavailable', action._scan_attempt.message)
+        action.show_error.assert_called_once_with(duration=3)
+
+        _, root = self.temporary_setup()
+        action = self.real_page_opener()
+        self.synchronous_scan(action, {'status': 'no_detections', 'rows': []})
+        self.assertEqual(action._scan_attempt.status, 'failed')
+        self.assertEqual(action._scan_attempt.message, 'No stratagems detected')
+        action.show_error.assert_called_once_with(duration=3)
+        self.assertEqual(list((root / 'temporary-pages').glob('*.json')), [])
+
+    def test_page_opener_cancelled_attempt_and_stale_completion_do_not_replace_latest(self):
+        _, _ = self.temporary_setup()
+        action = self.real_page_opener()
+        other = self.real_page_opener('3x1')
+        other._scan_attempt = self.mod.ScanAttempt(1, 'failed', 'other failed')
+        other_attempt = other._scan_attempt
+        queued = []
+        reports = [
+            {'status': 'matched', 'rows': [{'id': 'A'}]},
+            {'status': 'partial', 'rows': [{'id': None}]},
+        ]
+        with patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod, 'run_scan', side_effect=reports), \
+             patch.object(self.mod.GLib, 'idle_add',
+                          side_effect=lambda callback, *args:
+                          queued.append((callback, args)) or 1):
+            self.coordinator.start(action, replace=True)
+            thread.call_args.kwargs['target']()
+            stale_callback = queued.pop()
+            first_id = action._scan_attempt.id
+            self.coordinator.cancel_context(self.coordinator.context(action))
+            self.assertEqual(action._scan_attempt.status, 'cancelled')
+            self.assertEqual(other._scan_attempt, other_attempt)
+
+            self.coordinator.start(action, replace=True)
+            second_worker = thread.call_args.kwargs['target']
+            self.assertGreater(action._scan_attempt.id, first_id)
+            self.assertEqual(action._scan_attempt.status, 'scanning')
+            stale_callback[0](*stale_callback[1])
+            self.assertEqual(action._scan_attempt.status, 'scanning')
+            second_worker()
+            callback, args = queued.pop()
+            callback(*args)
+
+        self.assertEqual(action._scan_attempt.status, 'partial')
+        self.assertIn('0 recognized', action._scan_attempt.message)
 
     def test_back_retains_temporary_page_state_and_session(self):
         action, root = self.temporary_setup()

@@ -1,4 +1,5 @@
 """StreamController actions backed by persistent scan assignments."""
+from dataclasses import dataclass
 from pathlib import Path
 from concurrent.futures import CancelledError
 from threading import Event, Lock, Thread, current_thread
@@ -22,6 +23,15 @@ CAPTURE_BACKENDS = ('auto', 'gamescope', 'steam', 'desktop')
 AUTOMATIC_ACTION_ID = 'net_jslay_helldivers_2::AutomaticStratagem'
 SHUTDOWN_TIMEOUT_SECONDS = (FLATPAK_TERMINATE_GRACE_SECONDS
                             + TERMINATE_GRACE_SECONDS + 1)
+
+
+@dataclass(frozen=True)
+class ScanAttempt:
+    id: int
+    status: str
+    message: str
+    session: object = None
+    token: int | None = None
 
 
 def _configured_slot(settings):
@@ -215,6 +225,48 @@ class ScanCoordinator:
             action._scan_presentation = None
         return active
 
+    @staticmethod
+    def begin_page_attempt(action):
+        previous = getattr(action, '__dict__', {}).get('_scan_attempt')
+        attempt = ScanAttempt((previous.id if isinstance(previous, ScanAttempt) else 0) + 1,
+                              'scanning', 'Scanning')
+        action._scan_attempt = attempt
+        return attempt.id
+
+    @staticmethod
+    def bind_page_attempt(action, attempt_id, session, token):
+        attempt = getattr(action, '__dict__', {}).get('_scan_attempt')
+        if not isinstance(attempt, ScanAttempt) or attempt.id != attempt_id:
+            return False
+        action._scan_attempt = ScanAttempt(
+            attempt.id, attempt.status, attempt.message, session, token)
+        return True
+
+    @staticmethod
+    def finish_page_attempt(action, attempt_id, status, message,
+                            *, session=None, token=None):
+        attempt = getattr(action, '__dict__', {}).get('_scan_attempt')
+        if not isinstance(attempt, ScanAttempt) or attempt.id != attempt_id:
+            return False
+        if session is not None and (attempt.session is not session or attempt.token != token):
+            return False
+        action._scan_attempt = ScanAttempt(
+            attempt.id, status, str(message), attempt.session, attempt.token)
+        return True
+
+    def cancel_page_attempt(self, context, session):
+        for action in self._attached_actions():
+            attempt = getattr(action, '__dict__', {}).get('_scan_attempt')
+            presentation = getattr(action, '__dict__', {}).get('_scan_presentation')
+            if (isinstance(attempt, ScanAttempt) and attempt.status == 'scanning'
+                    and attempt.session is session and presentation is not None
+                    and presentation[:2] == (context, session)
+                    and attempt.token == presentation[2]
+                    and session.is_active(attempt.token)):
+                self.finish_page_attempt(
+                    action, attempt.id, 'cancelled', 'Scan cancelled',
+                    session=session, token=attempt.token)
+
     def settings_changed(self):
         if not self.enabled:
             self.cancel_all()
@@ -396,6 +448,8 @@ class ScanCoordinator:
         session = self.sessions.get(context)
         if session is not None and session.snapshot().status == 'scanning':
             transient = session.is_transient()
+            if transient:
+                self.cancel_page_attempt(context, session)
             session.cancel()
             if not transient:
                 self.persist_context(context, session)
@@ -528,11 +582,23 @@ class ScanCoordinator:
                 self.plugin.input_lock.release()
 
         context = session = token = operation = None
+        attempt_id = None
         new_page = False
         try:
             context = self.context(action)
             session = self.session(action)
             new_page = scan_mode(action) == 'new_page'
+            if new_page and session.snapshot().status == 'scanning':
+                presentation = getattr(
+                    action, '__dict__', {}).get('_scan_presentation')
+                owns_scan = (presentation is not None and presentation[0] == context
+                             and presentation[1] is session
+                             and session.is_active(presentation[2]))
+                if not regenerate or not owns_scan:
+                    finalize()
+                    return
+            if new_page:
+                attempt_id = self.begin_page_attempt(action)
             automatic = [a for a in self._attached_actions()
                      if isinstance(a, AutomaticStratagem) and a.get_is_present()
                      and self.context(a) == context]
@@ -547,13 +613,6 @@ class ScanCoordinator:
                 filters = self.slot_filters(context, session)
                 if regenerate:
                     if session.snapshot().status == 'scanning':
-                        presentation = getattr(
-                            action, '__dict__', {}).get('_scan_presentation')
-                        if (presentation is None or presentation[0] != context
-                                or presentation[1] is not session
-                                or not session.is_active(presentation[2])):
-                            finalize()
-                            return
                         self.cancel_context(context)
                     self.delete_cached_page(action)
             elif regenerate:
@@ -565,8 +624,13 @@ class ScanCoordinator:
                 return
             token = session.begin(filters, replace=replace, transient=new_page)
             if token is None:
+                if new_page:
+                    self.finish_page_attempt(
+                        action, attempt_id, 'cancelled', 'Scan already in progress')
                 finalize()
                 return
+            if new_page:
+                self.bind_page_attempt(action, attempt_id, session, token)
             action._scan_presentation = context, session, token
             operation = {'cancel': Event(), 'setup_done': Event(), 'started': False,
                          'thread': None, 'action': ref(action)}
@@ -590,11 +654,19 @@ class ScanCoordinator:
                     if self.closed or not session.is_active(token):
                         return False
                     if not self.enabled or not action.get_is_present() or self.context(action) != context:
+                        if new_page:
+                            self.finish_page_attempt(
+                                action, attempt_id, 'cancelled', 'Scan cancelled',
+                                session=session, token=token)
                         session.cancel()
                     elif error:
                         if session.fail(token, error):
                             if not new_page:
                                 self.persist(action, session)
+                            else:
+                                self.finish_page_attempt(
+                                    action, attempt_id, 'failed', error,
+                                    session=session, token=token)
                         self.show_action_error(action)
                         log.warning('Stratagem scan failed: {}', error)
                     else:
@@ -606,6 +678,10 @@ class ScanCoordinator:
                         if accepted:
                             result = (self.page_result(action, report, colors)
                                       if new_page else session.snapshot())
+                            if new_page:
+                                self.finish_page_attempt(
+                                    action, attempt_id, result.status, result.message,
+                                    session=session, token=token)
                             if not new_page:
                                 self.persist(action, session)
                             if result.status == 'failed':
@@ -616,6 +692,9 @@ class ScanCoordinator:
                     if new_page:
                         if session.is_active(token):
                             session.fail(token, str(error))
+                        self.finish_page_attempt(
+                            action, attempt_id, 'failed', error,
+                            session=session, token=token)
                     else:
                         failure = token if session.is_active(token) else session.begin(
                             self.slot_filters(context, session))
@@ -642,6 +721,11 @@ class ScanCoordinator:
                     active = session.is_active(token)
                     transient = session.is_transient(token)
                     if active:
+                        if transient:
+                            self.finish_page_attempt(
+                                action, attempt_id, 'failed',
+                                'Unable to queue scan result',
+                                session=session, token=token)
                         session.cancel()
                     try:
                         if active and not transient:
@@ -666,6 +750,10 @@ class ScanCoordinator:
                 operation['setup_done'].set()
             if session is not None and token is not None and session.is_active(token):
                 transient = session.is_transient(token)
+                if transient:
+                    self.finish_page_attempt(
+                        action, attempt_id, 'cancelled', 'Scan cancelled',
+                        session=session, token=token)
                 session.cancel()
                 if not transient:
                     self.persist_context(context, session)
@@ -678,6 +766,11 @@ class ScanCoordinator:
                 if new_page:
                     if token is not None and session.is_active(token):
                         session.fail(token, str(error))
+                    if attempt_id is not None:
+                        self.finish_page_attempt(
+                            action, attempt_id, 'failed', error,
+                            session=session if token is not None else None,
+                            token=token)
                 else:
                     if token is None and context is not None:
                         try:
@@ -840,6 +933,7 @@ class ScanStratagems(ScanActionBase):
 
     def get_config_rows(self):
         rows = super().get_config_rows()
+        mode = scan_mode(self)
         backend = Adw.ComboRow(title='Capture backend',
                                subtitle='Automatic tries Gamescope, Steam F12, then Hyprland desktop. Steam keeps a screenshot.')
         backend.set_model(Gtk.StringList.new(['Automatic', 'Gamescope', 'Steam F12', 'Hyprland desktop']))
@@ -847,14 +941,16 @@ class ScanStratagems(ScanActionBase):
         backend.connect('notify::selected', lambda row, _: self.configure(
             'capture_backend', CAPTURE_BACKENDS[row.get_selected()]))
         rows.append(backend)
-        if scan_mode(self) == 'new_page':
+        if mode == 'new_page':
             rows.append(Adw.ActionRow(title='Tap to open or create · Hold to recreate',
                                       subtitle="Tap opens this button's saved page, or scans to create it. Back keeps it. Hold deletes it and scans a new page."))
         else:
             rows.append(Adw.ActionRow(title='Tap to scan · Hold to clear',
                                       subtitle='Scan and clear change assignments only for this page and group. Slot and color settings stay.'))
-        rows.append(Adw.ActionRow(title='Last scan',
-                                  subtitle=self.coordinator.session(self).snapshot().message or 'No scan yet'))
+        attempt = getattr(self, '__dict__', {}).get('_scan_attempt')
+        message = (attempt.message if mode == 'new_page' and isinstance(attempt, ScanAttempt)
+                   else self.coordinator.session(self).snapshot().message)
+        rows.append(Adw.ActionRow(title='Last scan', subtitle=message or 'No scan yet'))
         if self.coordinator.store and scan_mode(self) != 'new_page':
             error = self.coordinator.state_errors.get(self.coordinator.context(self))
             try:
