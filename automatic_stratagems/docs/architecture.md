@@ -62,9 +62,9 @@ The implementation has four boundaries:
 7. A valid result updates only that page and group, saves its snapshot, and
    redraws affected actions.
 
-Only the initiating action owns loading and failure presentation. Other scanner,
-page, and slot actions retain their normal artwork while the shared result is
-applied.
+Only the initiating action owns scan loading and failure presentation. A busy
+rejection gives brief feedback on the pressed action without changing other
+buttons or weakening the press/release guards.
 
 ### Create or regenerate a page
 
@@ -85,8 +85,9 @@ the source assignments remain unchanged.
 
 An in-memory session context is `(deck controller object, action page path, scan
 group)`. Its persisted identity uses the deck serial, absolute page path, and
-group. Scans and clears never fan out to another context. Generated pages retain
-their source context only for navigation and cache identity.
+group. Group edits commit on Apply, Enter, or focus-out after normalization; unchanged
+values do not reconfigure or cancel work. Scans and clears never fan out to
+another context. Generated pages retain their source context only for navigation and cache identity.
 
 Slots may be explicit positive integers or `-1` for automatic allocation.
 Automatic allocation reserves explicit slots, then orders automatic actions by
@@ -185,6 +186,10 @@ forwarding is insufficient for the process ownership contract.
 `capture_environment.py` classifies the session for both setup and dispatch.
 `platform_capture.py` owns X11 identity/capture; `portal_capture.py` owns the
 window-sharing session. `capture_backends.py` selects and checks their output.
+An absent per-action backend inherits the plugin setting. An explicit `auto`
+value selects automatic dispatch independently of that setting. Generated pages
+retain the effective capture setting from creation.
+
 Capture dispatch depends on the desktop session:
 
 - Hyprland keeps `hyprctl` window identity and Gamescope → Steam F12 → `grim`

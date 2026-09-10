@@ -44,7 +44,9 @@ because forced cleanup cannot guarantee termination of host descendants.
 
 **Automatic** uses the existing Gamescope/Steam/desktop sequence on Hyprland,
 window sharing on other Wayland desktops, and Gamescope/Steam/X11 on X11.
-You can select a specific backend in plugin or button settings.
+Button settings default to **Use plugin default**, which follows later changes
+to the plugin setting. Choose **Automatic** or a specific backend to pin that
+button. Generated pages retain the effective capture setting from creation.
 
 For **Portal**, choose the Helldivers 2 window in the desktop's sharing dialog.
 The portal may remember your choice; revoked permissions or an unavailable window
@@ -68,15 +70,19 @@ the supported game menu, then tap the page or scanner button.
 
 A **+** on Automatic Stratagem Page marks a missing cache; the plain icon marks
 an existing cache. Back retains the cache across app restarts and remains
-available while automatic scanning is disabled.
+available while automatic scanning is disabled. Back is generated with the page
+and is hidden from the action chooser.
 
 Open the desired game screen before scanning; the plugin does not open it. Only
 the button that starts a scan animates or shows a failure triangle. Page and
 scanner buttons keep the center label blank. A question-mark badge on an empty
 Automatic Stratagem slot means the latest completed scan was partial.
 Unconfirmed badges mean a previous assignment was not confirmed by the latest
-scan. Badges do not represent cooldown state. Check uncertain assignments before
-use and rescan the intended menu when needed.
+scan; tapping still executes that previous assignment. Badges do not represent
+cooldown state. Check uncertain assignments before use and rescan the intended
+menu when needed. Button settings explain the
+current assignment and uncertainty in text. A tap rejected while input is busy
+gives brief feedback on that button only.
 
 ### Slots and groups
 
@@ -85,9 +91,10 @@ page order. Explicit positive slots are reserved first. Moving a button may
 change its automatic slot and gives an Automatic Stratagem Page button a new
 cache.
 
-Groups are independent. Assignments, scans, and clears apply only to the exact
-deck, page, and group. Creating a generated page seeds that page from the scan
-without changing the source page. Later scans and clears on either page do not
+Groups match exactly within the same deck and page. Finish a group edit with
+Apply, Enter, or leaving the field; typing alone does not change assignments or
+cancel a scan. Assignments, scans, and clears apply only to that context. Creating
+a generated page seeds that page from the scan without changing the source page. Later scans and clears on either page do not
 change the other.
 
 Set each Automatic Stratagem button's color filter to Any, Red, Blue, Green, or
