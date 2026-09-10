@@ -73,6 +73,19 @@ def _source_action_address(action):
     return dict(input_type=input_type, identifier=identifier, state=state, index=index)
 
 
+def _topology_index(value):
+    if type(value) is int:
+        return value if value >= 0 else None
+    if (not isinstance(value, str) or not value.isascii()
+            or not value.isdecimal()):
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    return parsed if str(parsed) == value else None
+
+
 def _automatic_layout(action):
     """Return stable Auto action records from a beta.15 Page, if available."""
     page = getattr(action, 'page', None)
@@ -87,38 +100,39 @@ def _automatic_layout(action):
     records = []
     for identifier, key in keys.items():
         parts = identifier.split('x', 1) if isinstance(identifier, str) else []
-        if (len(parts) != 2 or any(not value.isascii() or not value.isdecimal()
-                                   or str(int(value)) != value for value in parts)):
-            continue
-        column, row = map(int, parts)
-        if min(column, row) < 0:
-            continue
-        states = key.get('states', {}) if isinstance(key, dict) else {}
+        coordinates = [_topology_index(value) for value in parts]
+        if len(coordinates) != 2 or any(value is None for value in coordinates):
+            return None
+        column, row = coordinates
+        if not isinstance(key, dict):
+            return None
+        states = key.get('states', {})
         if not isinstance(states, dict):
-            continue
+            return None
         for state_key, state_data in states.items():
-            if type(state_key) is int:
-                state = state_key
-            elif (isinstance(state_key, str) and state_key.isascii()
-                  and state_key.isdecimal() and str(int(state_key)) == state_key):
-                state = int(state_key)
-            else:
-                continue
-            if state < 0:
-                continue
-            actions = state_data.get('actions', []) if isinstance(state_data, dict) else []
+            state = _topology_index(state_key)
+            if state is None:
+                return None
+            if not isinstance(state_data, dict):
+                return None
+            actions = state_data.get('actions', [])
             if not isinstance(actions, list):
-                continue
+                return None
             for index, action_data in enumerate(actions):
-                if (not isinstance(action_data, dict)
-                        or action_data.get('id') != AUTOMATIC_ACTION_ID):
+                if not isinstance(action_data, dict):
+                    return None
+                if action_data.get('id') != AUTOMATIC_ACTION_ID:
                     continue
                 settings = action_data.get('settings', {})
                 if not isinstance(settings, dict):
-                    settings = {}
+                    return None
                 input_objects = object_keys.get(identifier)
+                if input_objects is not None and not isinstance(input_objects, dict):
+                    return None
                 state_objects = (input_objects.get(state)
                                  if isinstance(input_objects, dict) else None)
+                if state_objects is not None and not isinstance(state_objects, dict):
+                    return None
                 action_object = (state_objects.get(index)
                                  if isinstance(state_objects, dict) else None)
                 records.append(((row, column, state, index), settings, action_object))

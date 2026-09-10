@@ -677,6 +677,39 @@ class ActionTests(unittest.TestCase):
         self.assertIsNone(action.slot())
         self.assertEqual(session.snapshot(), before)
 
+    def test_malformed_sibling_keeps_explicit_slot_reconcile_non_authoritative(self):
+        action = self.page_automatic_action((0, 0), {'slot': 1})
+        self.page.dict['keys']['invalid-coordinate'] = {'states': {'0': {'actions': [{
+            'id': self.mod.AUTOMATIC_ACTION_ID, 'settings': {'slot': 2}}]}}}
+        self.page.action_objects['keys']['invalid-coordinate'] = {0: {0: Mock()}}
+        self.plugin.stratagems['B'] = ['DOWN']
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'any', 2: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]},
+                       self.plugin.stratagems)
+
+        self.coordinator.register_action(action)
+
+        self.assertEqual(action.slot(), 1)
+        self.assertEqual(dict(session.snapshot().assignments), {1: 'A', 2: 'B'})
+
+    def test_oversized_topology_number_keeps_explicit_reconcile_non_authoritative(self):
+        action = self.page_automatic_action((0, 0), {'slot': 1})
+        identifier = f'{"9" * 5000}x0'
+        self.page.dict['keys'][identifier] = {'states': {'0': {'actions': [{
+            'id': self.mod.AUTOMATIC_ACTION_ID, 'settings': {'slot': 2}}]}}}
+        self.page.action_objects['keys'][identifier] = {0: {0: Mock()}}
+        self.plugin.stratagems['B'] = ['DOWN']
+        session = self.coordinator.session(action)
+        token = session.begin({1: 'any', 2: 'any'})
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]},
+                       self.plugin.stratagems)
+
+        self.coordinator.register_action(action)
+
+        self.assertEqual(action.slot(), 1)
+        self.assertEqual(dict(session.snapshot().assignments), {1: 'A', 2: 'B'})
+
     def test_default_auto_rejects_noncanonical_state_even_with_matching_object(self):
         action = self.rendering_action(self.mod.AutomaticStratagem, {})
         action.page = types.SimpleNamespace(
