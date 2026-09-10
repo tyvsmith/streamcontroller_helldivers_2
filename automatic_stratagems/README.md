@@ -8,10 +8,10 @@ without its dependencies.
 ## Setup
 
 **Platform limit:** saved-report page and action flows have been exercised with
-native StreamController 1.5.0-beta.15; other releases are unverified. Live
-capture currently targets Linux with Hyprland. Flatpak scans are rejected before
-launch because forced cleanup cannot guarantee termination of host descendants.
-GNOME, KDE, X11, and other desktop paths are not supported.
+native StreamController 1.5.0-beta.15; other releases are unverified. Capture
+routes cover Hyprland, window-sharing portals on Wayland, and X11. New desktop
+routes require live validation on your setup. Flatpak scans remain blocked
+because forced cleanup cannot guarantee termination of host descendants.
 
 1. Open **Settings → Plugins → HELLDIVERS 2** and enable **Automatic
    stratagems**.
@@ -32,11 +32,25 @@ GNOME, KDE, X11, and other desktop paths are not supported.
    directory, so repeat this setup after an update when `.venv` is absent.
 3. Install the helpers required by the capture path:
 
-   - every live backend: `hyprctl`
-   - Hyprland desktop: `grim`
+   - Hyprland: `hyprctl`; desktop capture also needs `grim`
+   - Wayland portal: a desktop portal offering window sharing, `gst-launch-1.0`,
+     and GStreamer's PipeWire, video conversion, and PNG plugins
+   - X11: `xprop` and ImageMagick's `import`
    - Gamescope: `gamescopectl`
    - Steam: `evdev`, access to `/dev/uinput`, and the Steam F12 screenshot binding
    - optional mission-name fallback: Tesseract with English data
+
+### Choose a capture route
+
+**Automatic** uses the existing Gamescope/Steam/desktop sequence on Hyprland,
+window sharing on other Wayland desktops, and Gamescope/Steam/X11 on X11.
+You can select a specific backend in plugin or button settings.
+
+For **Portal**, choose the Helldivers 2 window in the desktop's sharing dialog.
+The portal may remember your choice; revoked permissions or an unavailable window
+can require selection again. This route reads one frame from the selected window
+without pressing F12. It requires window sharing and does not fall back to
+capturing your whole monitor.
 
 ## Actions
 
@@ -92,9 +106,13 @@ new-page mode keep compatible page-opening behavior.
 
 - **Automatic actions are absent:** enable the feature, then reopen the action
   chooser. If setup is incompatible, ordinary actions remain available.
-- **Scan fails immediately:** verify `.venv`, pinned dependencies, `hyprctl`, and
-  the helper for the selected backend. The initiating button shows the failure;
-  application logs retain setup details.
+- **Scan fails immediately:** open the initiating button's settings and read
+  **Last scan**. Check `.venv`, pinned dependencies, and the selected backend's
+  helpers. A page button keeps its latest attempt separately from source-page
+  assignments; the attempt is not retained across app restarts.
+- **Automatic position unavailable:** the host page structure could not resolve
+  this button's position. Automatic slots stop rather than sharing slot 1;
+  explicit positive slots remain usable.
 - **Partial result:** one or more rows were unknown, unconfirmed, or reported as
   partial. Check uncertain assignments and scan the intended game screen again.
   Capacity overflow alone does not make a scan partial.

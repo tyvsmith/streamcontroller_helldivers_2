@@ -32,6 +32,7 @@ The implementation has four boundaries:
   assignments, uncertainty, scan tokens, and revisions. It has no process or UI
   dependencies.
 - `scan_state.py` validates and atomically persists session snapshots.
+  `bounded_json.py` caps file reads and JSON depth before restoration.
 - `temporary_scan_page.py` creates, finds, registers, opens, and deletes
   generated StreamController pages.
 - `scan_runner.py` validates setup and owns the scanner subprocess, stream caps,
@@ -91,8 +92,10 @@ Slots may be explicit positive integers or `-1` for automatic allocation.
 Automatic allocation reserves explicit slots, then orders automatic actions by
 row, column, state, and action index from the page topology. Allocation is
 recomputed from authoritative page data, so registration order does not assign
-different numbers. Release-time context, filter, revision, and displayed binding
-checks prevent a changed button from executing an earlier pressed assignment.
+different numbers. Unresolved automatic positions return no slot and cannot
+scan or execute an assignment; explicit positive slots remain usable. The last
+resolved slot is retained only for detached-action cleanup. Release-time context,
+filter, revision, and displayed binding checks reject changed assignments.
 
 Generated-page metadata version 2 keys a cache by deck, actual source page, scan
 group, and source button address. The address contains the input type and
@@ -129,6 +132,16 @@ catalog sequence rather than the saved sequence. Interrupted scans restore as
 non-running state and do not restart automatically. Invalid or unsupported files
 remain untouched until a later valid save replaces them. Persistence failures do
 not make in-memory action handling unsafe.
+
+State and temporary-page reads use a nonblocking, no-follow descriptor, require
+a regular file, and enforce a 1 MiB byte limit and depth limit of 64. Corrupt or
+unreadable entries are preserved; discovery skips them instead of blocking every
+page opener. Restore-time recursion errors become normal invalid-state errors.
+
+Page openers retain their latest attempt in memory independently of the source
+session. Attempt identity guards prevent cancelled or older callbacks from
+replacing newer status. This exposes capture errors and zero-recognized results
+without changing source assignments or persisting a new page-settings schema.
 
 Snapshots are assignments and recognition evidence, not live cooldown or game
 state. `unknown`, `overflow`, and `unconfirmed` remain explicit instead of being
@@ -169,16 +182,27 @@ forwarding is insufficient for the process ownership contract.
 
 ## Capture and recognition
 
-Every live backend requires `hyprctl` to identify a Helldivers window on
-Hyprland. The backend-specific paths are:
+`capture_environment.py` classifies the session for both setup and dispatch.
+`platform_capture.py` owns X11 identity/capture; `portal_capture.py` owns the
+window-sharing session. `capture_backends.py` selects and checks their output.
+Capture dispatch depends on the desktop session:
 
-- Gamescope: `gamescopectl`
-- Steam: F12 through `evdev` and `/dev/uinput`, then a Steam screenshot
-- Hyprland desktop: `grim` over the identified window geometry
+- Hyprland keeps `hyprctl` window identity and Gamescope → Steam F12 → `grim`
+- X11 uses active-window identity from `xprop` and Gamescope → Steam F12 →
+  ImageMagick window capture
+- other Wayland desktops use the ScreenCast portal's window-only source selection
 
-Automatic mode tries Gamescope, Steam F12, then the Hyprland desktop path until
-it obtains a usable frame. Recognition uncertainty does not cause capture
-fallback. Steam capture leaves the screenshot in Steam's storage.
+The [ScreenCast portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html)
+route binds capture to the user-selected window stream rather than a
+compositor-specific focus API. It reads one PNG frame through PipeWire/GStreamer,
+then closes the stream/session and descriptors. Permission restore tokens are
+private local state, never report fields. Selection can require a new permission
+dialog. Unsupported monitor-only portals are rejected.
+
+Portal selection has a shared 60-second deadline; frame reading has a separate
+10-second limit. Both are cancellable. The outer scanner process group still
+owns all helper work until it exits. Portal capture does not inject keys. Steam capture presses F12 and leaves a screenshot in Steam storage.
+Recognition uncertainty never triggers a second capture backend.
 
 Decoded input is limited to 64 MiB encoded data, a 16,384-pixel dimension, and
 40 million pixels. `scan_game.py` chooses the recognition mode and bounds the
@@ -214,9 +238,8 @@ multiplayer layouts, or live gameplay.
 cover the consumed pixels or derived features, matcher context, candidate set,
 and a fingerprint of matcher code, references, catalog data, and library
 versions. Entries are limited to 512 and 64 KiB each. Handled filesystem,
-SQLite, and parsing errors are treated as misses. Deeply nested JSON can still
-raise an uncaught recursion error; the cache is disposable rather than
-authoritative.
+SQLite, parsing, and recursion errors are treated as misses; the cache is
+disposable rather than authoritative.
 
 Routine scans retain no diagnostic screenshots. Direct CLI `--debug-dir` output
 is private user-owned data; runner-managed `--debug-dir` runs are pruned to at
@@ -226,10 +249,12 @@ preserved.
 ## Setup and testing
 
 The installed plugin root must contain `.venv/bin/python` with the pinned NumPy,
-OpenCV headless, Pillow, and evdev versions from
+OpenCV headless, Pillow, evdev, and dbus-next versions from
 `automatic_stratagems/requirements.txt`. The runner does not use a development
-checkout or install dependencies. User setup targets Python 3.12 or newer; the
-source does not enforce a version independently of the pinned packages and host.
+checkout or install dependencies. Portal D-Bus imports are lazy, so ordinary
+actions and offline replay do not need a running portal. User setup targets Python
+3.12 or newer; the source does not enforce a version independently of the pinned
+packages and host.
 
 Run all feature tests plus the root key-mapping regression:
 
@@ -255,9 +280,17 @@ The manifest's held-out capture list is empty: every committed screenshot is a
 calibration or regression input. Independent full-scene selection and mission
 captures are required before making wider accuracy claims.
 
-Oversized or deeply nested state documents, recursive cache JSON, and one
-end-to-end offline scanner-to-queued-page lifecycle are current regression-test
-gaps. Cold recognition can use several GiB of memory; low-memory hosts are not
+Regression tests cover malformed saved files/cache entries and a real offline
+scanner process through queued completion, generated-page persistence, and
+cancellation. Run the exact 33-panel, five-offset recognition matrix separately:
+
+```sh
+.venv/bin/python automatic_stratagems/tools/check-translations \
+  --output /tmp/hd2-translation-results.json
+```
+
+Portal and X11 protocol tests do not establish live GNOME/KDE/X11 behavior.
+Cold recognition can use several GiB of memory; low-memory hosts are not
 validated.
 
 ## Extension points
