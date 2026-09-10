@@ -105,6 +105,17 @@ class RecognitionCacheTests(unittest.TestCase):
             cache.put(key, {'id': 'x' * 100})
             self.assertIsNone(cache.get(key))
 
+    def test_recursively_nested_payload_is_a_miss(self):
+        with TemporaryDirectory() as directory:
+            cache = RecognitionCache(directory, 'v1')
+            key = cache.key(b'pixels', {})
+            payload = '{"id":"A","extra":' + '[' * 1200 + '0' + ']' * 1200 + '}'
+            with closing(sqlite3.connect(Path(directory) / 'recognition.sqlite3')) as connection, connection:
+                connection.execute('INSERT INTO entries (key, result) VALUES (?, ?)',
+                                   (key, payload))
+
+            self.assertIsNone(cache.get(key))
+
     def test_failed_eviction_rolls_back_the_whole_write(self):
         with TemporaryDirectory() as directory:
             cache = RecognitionCache(directory, 'v1', max_entries=1)

@@ -291,7 +291,7 @@ def restore_mission_result(saved, candidates):
                 restore(item)
     try:
         restore(saved)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
         return None
     return saved
 

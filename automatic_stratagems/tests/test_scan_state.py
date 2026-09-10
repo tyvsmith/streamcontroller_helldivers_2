@@ -1,6 +1,8 @@
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event, Thread
 import unittest
 from unittest.mock import patch
 
@@ -72,6 +74,80 @@ class StateTests(unittest.TestCase):
                 path.write_text(payload)
                 with self.assertRaises(ValueError):
                     self.store.load(CONTEXT, CATALOG)
+
+    def test_oversized_state_is_rejected_without_replacing_it(self):
+        self.scan('A')
+        path = self.save()
+        data = json.loads(path.read_text())
+        data['padding'] = 'x' * (1024 * 1024)
+        path.write_text(json.dumps(data))
+        before = path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, 'too large'):
+            self.store.load(CONTEXT, CATALOG)
+
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_deep_state_is_rejected_before_restore_recursion(self):
+        self.scan('A')
+        path = self.save()
+        data = json.loads(path.read_text())
+        nested = {}
+        for _ in range(500):
+            nested = {'next': nested}
+        data['last_report']['rows'][0]['extra'] = nested
+        path.write_text(json.dumps(data))
+
+        try:
+            self.store.load(CONTEXT, CATALOG)
+        except RecursionError:
+            self.fail('deep state escaped as RecursionError')
+        except ValueError as error:
+            self.assertIn('nested', str(error))
+        else:
+            self.fail('deep state was accepted')
+
+    def test_state_symlink_is_rejected_without_touching_target(self):
+        self.scan('A')
+        path = self.save()
+        target = path.with_name('unrelated.json')
+        target.write_bytes(path.read_bytes())
+        before = target.read_bytes()
+        path.unlink()
+        path.symlink_to(target)
+
+        with self.assertRaises(ValueError):
+            self.store.load(CONTEXT, CATALOG)
+
+        self.assertEqual(target.read_bytes(), before)
+
+    def test_state_fifo_is_rejected_without_blocking(self):
+        path = self.store.path(CONTEXT)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        os.mkfifo(path)
+        done = Event()
+        outcome = []
+
+        def load():
+            try:
+                self.store.load(CONTEXT, CATALOG)
+            except Exception as error:
+                outcome.append(error)
+            finally:
+                done.set()
+
+        thread = Thread(target=load, daemon=True)
+        thread.start()
+        completed_without_writer = done.wait(.2)
+        if not completed_without_writer:
+            writer = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+            os.write(writer, b'{}')
+            os.close(writer)
+            done.wait(1)
+        thread.join(1)
+
+        self.assertTrue(completed_without_writer, 'state load blocked opening a FIFO')
+        self.assertIsInstance(outcome[0], ValueError)
 
     def test_removed_catalog_id_is_not_restored_or_executed(self):
         self.scan('A', 'B')

@@ -9,6 +9,20 @@ from automatic_stratagems.scanner import stratagem_detection as detection
 
 
 class MatchCacheTests(unittest.TestCase):
+
+    def test_recursive_mission_cache_result_is_a_miss(self):
+        saved = {'id': 'A', 'method': 'mission-icon', 'extra': {}}
+        nested = saved['extra']
+        for _ in range(1200):
+            nested['next'] = {}
+            nested = nested['next']
+
+        try:
+            restored = detection.restore_mission_result(saved, {'A': {}})
+        except RecursionError:
+            self.fail('recursive mission cache escaped as RecursionError')
+        self.assertIsNone(restored)
+
     def test_new_scanner_reuses_exact_features_but_not_changed_pixels_or_candidates(self):
         with TemporaryDirectory() as directory:
             def bank():

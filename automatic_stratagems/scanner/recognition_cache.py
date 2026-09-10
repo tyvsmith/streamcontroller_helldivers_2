@@ -7,6 +7,8 @@ from pathlib import Path
 import sqlite3
 from threading import RLock
 
+from ..bounded_json import loads_bounded_json
+
 
 class RecognitionCache:
     """Callers provide a matcher/catalog fingerprint and cache only trusted results."""
@@ -62,11 +64,11 @@ class RecognitionCache:
         try:
             with self.lock, closing(self._connect()) as connection:
                 row = connection.execute('SELECT result FROM entries WHERE key = ?', (key,)).fetchone()
-            if row is None or len(row[0].encode()) > self.max_entry_bytes:
+            if row is None:
                 return None
-            result = json.loads(row[0])
+            result = loads_bounded_json(row[0], max_bytes=self.max_entry_bytes)
             return result if isinstance(result, dict) else None
-        except (OSError, sqlite3.Error, ValueError, TypeError, AttributeError):
+        except (OSError, sqlite3.Error, ValueError, TypeError, AttributeError, RecursionError):
             return None
 
     def put(self, key, result):
@@ -82,7 +84,7 @@ class RecognitionCache:
                 connection.execute('''DELETE FROM entries WHERE sequence NOT IN (
                     SELECT sequence FROM entries ORDER BY sequence DESC LIMIT ?)''',
                                    (self.max_entries,))
-        except (OSError, sqlite3.Error, ValueError, TypeError):
+        except (OSError, sqlite3.Error, ValueError, TypeError, RecursionError):
             pass
 
 

@@ -1,6 +1,8 @@
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event, Thread
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -89,11 +91,12 @@ class TemporaryPageTests(unittest.TestCase):
         other_source.write_text('{"keys": {}}')
         self.assertIsNone(self.pages.find(self.deck, str(other_source), 'HD2', self.address))
 
-    def test_unreadable_cache_is_reported_instead_of_treated_as_missing(self):
-        self.create()
-        with patch.object(Path, 'read_text', side_effect=PermissionError('unreadable')):
+    def test_direct_metadata_reports_unreadable_cache(self):
+        path = self.create()
+        with patch('automatic_stratagems.temporary_scan_page.read_bounded_json',
+                   side_effect=PermissionError('unreadable')):
             with self.assertRaises(PermissionError):
-                self.pages.find(self.deck, str(self.source), 'HD2', self.address)
+                self.pages.metadata(path)
 
     def test_missing_original_keeps_temporary_page(self):
         path = self.create()
@@ -151,6 +154,86 @@ class TemporaryPageTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             self.pages.metadata(path)
+
+    def test_oversized_owned_page_is_rejected_and_preserved(self):
+        path = Path(self.create())
+        data = json.loads(path.read_text())
+        data['padding'] = 'x' * (1024 * 1024)
+        path.write_text(json.dumps(data))
+        before = path.read_bytes()
+
+        with self.assertRaisesRegex(ValueError, 'too large'):
+            self.pages.metadata(path)
+
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_deep_owned_page_is_rejected_and_preserved(self):
+        path = Path(self.create())
+        data = json.loads(path.read_text())
+        nested = {}
+        for _ in range(500):
+            nested = {'next': nested}
+        data['extra'] = nested
+        path.write_text(json.dumps(data))
+
+        with self.assertRaisesRegex(ValueError, 'nested'):
+            self.pages.metadata(path)
+        self.assertTrue(path.exists())
+
+    def test_owned_page_symlink_is_rejected_without_touching_target(self):
+        target = Path(self.create())
+        alias = target.with_name('alias.json')
+        before = target.read_bytes()
+        alias.symlink_to(target)
+
+        with self.assertRaises(ValueError):
+            self.pages.metadata(alias)
+
+        self.assertEqual(target.read_bytes(), before)
+
+    def test_owned_page_fifo_is_rejected_without_blocking(self):
+        path = self.pages.directory / 'pipe.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        os.mkfifo(path)
+        done = Event()
+        outcome = []
+
+        def metadata():
+            try:
+                self.pages.metadata(path)
+            except Exception as error:
+                outcome.append(error)
+            finally:
+                done.set()
+
+        thread = Thread(target=metadata, daemon=True)
+        thread.start()
+        completed_without_writer = done.wait(.2)
+        if not completed_without_writer:
+            writer = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+            os.write(writer, b'{}')
+            os.close(writer)
+            done.wait(1)
+        thread.join(1)
+
+        self.assertTrue(completed_without_writer, 'metadata blocked opening a FIFO')
+        self.assertIsInstance(outcome[0], ValueError)
+
+    def test_find_skips_unreadable_entry_without_deleting_it(self):
+        unreadable = self.pages.directory / '000-unreadable.json'
+        unreadable.parent.mkdir(parents=True, exist_ok=True)
+        unreadable.write_text('{}')
+        unreadable.chmod(0)
+        try:
+            try:
+                found = self.pages.find(
+                    self.deck, str(self.source), 'HD2', self.address)
+            except PermissionError:
+                self.fail('one unreadable entry aborted cache discovery')
+            self.assertIsNone(found)
+            self.assertTrue(unreadable.exists())
+        finally:
+            unreadable.chmod(0o600)
 
     def test_cannot_delete_arbitrary_page(self):
         with self.assertRaises(ValueError):

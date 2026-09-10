@@ -5,8 +5,11 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
+from .bounded_json import read_bounded_json
+
 PLUGIN_ID = 'net_jslay_helldivers_2'
 MARKER = 'hd2_temporary_scan'
+MAX_PAGE_BYTES = 1024 * 1024
 
 
 def valid_source_action(value):
@@ -55,9 +58,9 @@ class TemporaryScanPages:
 
     def metadata(self, path):
         file = Path(path)
-        if file.resolve().parent != self.directory:
+        if file.parent.resolve() != self.directory:
             raise ValueError('Not an owned temporary scan page')
-        data = json.loads(file.read_text())
+        data = read_bounded_json(file, max_bytes=MAX_PAGE_BYTES)
         meta = data.get(MARKER) if isinstance(data, dict) else None
         if (not isinstance(meta, dict) or meta.get('owner') != PLUGIN_ID
                 or meta.get('version') not in (1, 2)
@@ -108,7 +111,7 @@ class TemporaryScanPages:
         for path in sorted(self.directory.glob('*.json')):
             try:
                 meta = self.metadata(str(path))
-            except (ValueError, FileNotFoundError):
+            except (OSError, ValueError):
                 continue
             if (meta['version'] == 2
                     and (meta['deck'], meta['source_page'], meta['group'],

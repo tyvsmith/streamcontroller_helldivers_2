@@ -7,7 +7,11 @@ import os
 from pathlib import Path
 import tempfile
 
+from .bounded_json import read_bounded_json
 from .scan_session import ScanSession
+
+
+MAX_STATE_BYTES = 1024 * 1024
 
 
 class ScanStateStore:
@@ -45,11 +49,14 @@ class ScanStateStore:
     def load(self, context, catalog):
         session = ScanSession()
         try:
-            data = json.loads(self.path(context).read_text())
+            data = read_bounded_json(self.path(context), max_bytes=MAX_STATE_BYTES)
         except FileNotFoundError:
             return session
         self._validate(data, context)
-        session.restore(data, catalog)
+        try:
+            session.restore(data, catalog)
+        except RecursionError as error:
+            raise ValueError('Invalid or unsupported scan state') from error
         return session
 
     @staticmethod
