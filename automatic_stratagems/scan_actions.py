@@ -577,8 +577,10 @@ class ScanCoordinator:
                 self.sessions.pop((deck, path, group), None)
 
     def start(self, action, *, replace=False, regenerate=False):
-        if (self.closed or not self.enabled or not action.get_is_present()
-                or not self.plugin.input_lock.acquire(blocking=False)):
+        if self.closed or not self.enabled or not action.get_is_present():
+            return
+        if not self.plugin.input_lock.acquire(blocking=False):
+            self.show_action_error(action)
             return
         finalizer_lock = Lock()
         finalized = False
@@ -610,6 +612,7 @@ class ScanCoordinator:
                              and session.is_active(presentation[2]))
                 if not regenerate or not owns_scan:
                     finalize()
+                    self.show_action_error(action)
                     return
             if new_page:
                 attempt_id = self.begin_page_attempt(action)
@@ -642,6 +645,7 @@ class ScanCoordinator:
                     self.finish_page_attempt(
                         action, attempt_id, 'cancelled', 'Scan already in progress')
                 finalize()
+                self.show_action_error(action)
                 return
             if new_page:
                 self.bind_page_attempt(action, attempt_id, session, token)
@@ -852,17 +856,37 @@ class ScanActionBase(KeyAction):
     def get_config_rows(self):
         group = Adw.EntryRow(title='Scan group')
         group.set_text(str(self.get_settings().get('group', 'default')))
-        group.connect('changed', lambda row: self.configure('group', row.get_text().strip() or 'default'))
-        return [group]
+        group.set_show_apply_button(True)
 
-    def configure(self, key, value):
+        def commit_group(*_):
+            value = group.get_text().strip() or 'default'
+            if group.get_text() != value:
+                group.set_text(value)
+            if value != _scan_group(self.get_settings()):
+                self.configure('group', value)
+
+        group.connect('apply', commit_group)
+        group.connect('entry-activated', commit_group)
+        focus = Gtk.EventControllerFocus()
+        focus.connect('leave', commit_group)
+        group.add_controller(focus)
+        return [group, Adw.ActionRow(
+            title='Group scope',
+            subtitle='Shared only with the same group on this deck and page')]
+
+    def configure(self, key, value, *, remove=False):
         old_context = self.coordinator.context(self)
         old_slot = self.slot() if isinstance(self, AutomaticStratagem) else None
+        settings = self.get_settings()
+        if remove and key not in settings:
+            return
         session = self.coordinator.session(self)
         if session.snapshot().status == 'scanning':
             self.coordinator.cancel_context(old_context)
-        settings = self.get_settings()
-        settings[key] = value
+        if remove:
+            settings.pop(key)
+        else:
+            settings[key] = value
         self.set_settings(settings)
         if isinstance(self, AutomaticStratagem) and key in ('group', 'slot', 'color_filter'):
             self.coordinator.reconcile_action(self, old_context=old_context, old_slot=old_slot)
@@ -949,13 +973,25 @@ class ScanStratagems(ScanActionBase):
         rows = super().get_config_rows()
         mode = scan_mode(self)
         backend = Adw.ComboRow(title='Capture backend',
-                               subtitle='Automatic selects a route for your desktop. Portal asks for a window; Steam F12 saves a screenshot.')
+                               subtitle=('Use plugin default follows plugin settings. '
+                                         'Generated pages retain the effective setting used when created. '
+                                         'Steam F12 saves a screenshot.'))
         backend.set_model(Gtk.StringList.new([
-            'Automatic', 'Gamescope', 'Steam F12', 'Hyprland desktop',
+            'Use plugin default', 'Automatic', 'Gamescope', 'Steam F12', 'Hyprland desktop',
             'Portal window', 'X11 window']))
-        backend.set_selected(CAPTURE_BACKENDS.index(capture_backend(self)))
-        backend.connect('notify::selected', lambda row, _: self.configure(
-            'capture_backend', CAPTURE_BACKENDS[row.get_selected()]))
+        settings = self.get_settings()
+        backend.set_selected(
+            CAPTURE_BACKENDS.index(capture_backend(self)) + 1
+            if 'capture_backend' in settings else 0)
+
+        def backend_changed(row, _):
+            selected = row.get_selected()
+            if selected == 0:
+                self.configure('capture_backend', None, remove=True)
+            else:
+                self.configure('capture_backend', CAPTURE_BACKENDS[selected - 1])
+
+        backend.connect('notify::selected', backend_changed)
         rows.append(backend)
         if mode == 'new_page':
             rows.append(Adw.ActionRow(title='Tap to open or create · Hold to recreate',
@@ -1038,6 +1074,27 @@ class AutomaticStratagem(ScanActionBase):
         rows.append(color)
         rows.append(Adw.ActionRow(title='Tap to execute or scan · Hold to rescan',
                                   subtitle='Tap an assigned slot to execute. Tap an empty slot or hold any Auto button to scan this group.'))
+        resolved = self.slot()
+        snapshot = self.coordinator.session(self).snapshot()
+        key = snapshot.assignments.get(resolved)
+        name = key
+        get_text = getattr(getattr(self.plugin_base, 'lm', None), 'get', None)
+        if key is not None and callable(get_text):
+            name = get_text(f'actions.{key}.name', key) or key
+        if resolved is None:
+            status = 'Automatic position unavailable; choose an explicit positive slot'
+        elif key is not None and resolved in snapshot.unconfirmed_slots:
+            status = (f'{name} is unconfirmed; tap still executes it; '
+                      'the latest scan did not see it')
+        elif key is not None:
+            status = f'{name} is assigned'
+        elif resolved in snapshot.unknown_slots:
+            status = 'Unknown result; rescan before use'
+        else:
+            status = 'Empty; no stratagem is assigned'
+        rows.append(Adw.ActionRow(title='Assignment status', subtitle=status))
+        rows.append(Adw.ActionRow(
+            title='Last scan', subtitle=snapshot.message or 'No scan yet'))
         return rows
 
     def controllable(self):
@@ -1124,11 +1181,15 @@ class AutomaticStratagem(ScanActionBase):
         color_filter = self.color_filter()
         key = snapshot.assignments.get(slot)
         if (not self.get_is_present() or not self.controllable()
-                or snapshot.status not in ('idle', 'ready', 'partial', 'failed')
                 or self.displayed != (snapshot.revision, slot, key)):
             return
         context = self.coordinator.context(self)
         if pressed != (context, snapshot.revision, slot, color_filter, key):
+            return
+        if snapshot.status == 'scanning':
+            self.show_error(duration=3)
+            return
+        if snapshot.status not in ('idle', 'ready', 'partial', 'failed'):
             return
         if key is None:
             self.coordinator.start(self, replace=True)
@@ -1146,10 +1207,9 @@ class AutomaticStratagem(ScanActionBase):
                     and current.assignments.get(slot) == key
                     and self.displayed == (current.revision, slot, key))
 
-        busy = self.plugin_base.input_lock.locked()
         success = execute_stratagem(
             self.plugin_base, key, self.plugin_base.stratagems[key], guard=still_current)
-        if not success and not busy and still_current():
+        if not success and still_current():
             self.show_error(duration=3)
 
 

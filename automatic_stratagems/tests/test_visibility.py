@@ -16,8 +16,9 @@ class VisibilityTests(unittest.TestCase):
         chooser = SimpleNamespace(plugin_group=SimpleNamespace(expander=[SimpleNamespace(get_rows=lambda: rows)]))
         for enabled in (False, True):
             update_visibility(chooser, enabled)
-            for row in rows[:4]:
+            for row in rows[:3]:
                 row.set_visible.assert_called_with(enabled)
+            rows[3].set_visible.assert_called_with(False)
             for row in rows[4:]:
                 row.set_visible.assert_not_called()
 
