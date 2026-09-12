@@ -17,8 +17,8 @@ import uuid
 
 from .capture_source import MAX_SOURCE_STRING, source_arguments
 from .host_commands import (create_host_job, host_job_environment)
-from .scanner_runtime import (ScanSetupError, resolve_scanner_runtime,
-                              scanner_preflight_command)
+from .provision.scanner_runtime import (ScanSetupError, resolve_scanner_runtime,
+                                         scanner_preflight_command)
 from .shared.fs import read_bounded_stream, write_all
 
 

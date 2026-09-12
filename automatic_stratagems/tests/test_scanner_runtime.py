@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from automatic_stratagems import runtime_profile, scanner_runtime
+from automatic_stratagems.provision import runtime_profile, scanner_runtime
 
 
 PROFILE = "gnome-50-x86_64-cpython-313"
@@ -61,7 +61,7 @@ class ScannerRuntimeTests(unittest.TestCase):
 
     def test_runtime_profile_api_is_dependency_light(self):
         source = (
-            "import sys; import automatic_stratagems.runtime_profile; "
+            "import sys; import automatic_stratagems.provision.runtime_profile; "
             "names=('numpy','cv2','PIL','evdev','dbus_next','gi'); "
             "print(','.join(name for name in names if name in sys.modules))"
         )
@@ -200,7 +200,7 @@ class ScannerRuntimeTests(unittest.TestCase):
         )
         command = scanner_runtime.scanner_preflight_command(Path("/plugin"), runtime)
         self.assertEqual(command[:3], (
-            "/usr/bin/python3", "-m", "automatic_stratagems.scanner_runtime"
+            "/usr/bin/python3", "-m", "automatic_stratagems.provision.scanner_runtime"
         ))
         self.assertEqual(command[-4:], (
             "--preflight", "--root", "/plugin", "--profile=" + PROFILE
@@ -208,7 +208,7 @@ class ScannerRuntimeTests(unittest.TestCase):
 
     def test_parent_import_does_not_load_scanner_dependencies(self):
         source = (
-            "import sys; import automatic_stratagems.scanner_runtime; "
+            "import sys; import automatic_stratagems.provision.scanner_runtime; "
             "import automatic_stratagems.scanner.screenshot_capture; "
             "names=('numpy','cv2','PIL','evdev','dbus_next','gi'); "
             "print(','.join(name for name in names if name in sys.modules))"
@@ -391,7 +391,7 @@ class ScannerRuntimeTests(unittest.TestCase):
 
 class RuntimeSetupTests(unittest.TestCase):
     def test_offline_setup_builds_a_hash_verified_profile_and_reuses_it(self):
-        from automatic_stratagems import build
+        from automatic_stratagems.provision import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
@@ -436,7 +436,7 @@ class RuntimeSetupTests(unittest.TestCase):
             self.assertEqual(observed[1], profile_root)
 
     def test_failed_update_keeps_the_previous_activation_and_removes_stage(self):
-        from automatic_stratagems import build
+        from automatic_stratagems.provision import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
@@ -471,7 +471,7 @@ class RuntimeSetupTests(unittest.TestCase):
             self.assertEqual(list(staging.iterdir()), [])
 
     def test_preflight_cannot_mutate_the_immutable_payload_before_activation(self):
-        from automatic_stratagems import build
+        from automatic_stratagems.provision import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
@@ -495,7 +495,7 @@ class RuntimeSetupTests(unittest.TestCase):
             )
 
     def test_rollback_atomically_selects_the_previous_verified_profile(self):
-        from automatic_stratagems import build
+        from automatic_stratagems.provision import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
@@ -527,7 +527,7 @@ class RuntimeSetupTests(unittest.TestCase):
             )
 
     def test_offline_setup_rejects_wrong_source_hash_and_archive_symlink(self):
-        from automatic_stratagems import build
+        from automatic_stratagems.provision import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
@@ -554,7 +554,7 @@ class RuntimeSetupTests(unittest.TestCase):
                 )
 
     def test_check_revalidates_the_active_profile_before_child_preflight(self):
-        from automatic_stratagems import verify
+        from automatic_stratagems.provision import verify
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -575,7 +575,7 @@ class RuntimeSetupTests(unittest.TestCase):
             self.assertEqual(observed, [(profile_root, PROFILE)])
 
     def test_check_rejects_a_profile_mutated_by_child_preflight(self):
-        from automatic_stratagems import verify
+        from automatic_stratagems.provision import verify
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -598,7 +598,7 @@ class RuntimeSetupTests(unittest.TestCase):
                     )
 
     def test_update_rejects_a_corrupt_existing_activation(self):
-        from automatic_stratagems import build
+        from automatic_stratagems.provision import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
@@ -620,7 +620,7 @@ class RuntimeSetupTests(unittest.TestCase):
                 )
 
     def test_atomic_activation_handles_short_writes_and_cleans_failed_temps(self):
-        from automatic_stratagems import runtime_profile
+        from automatic_stratagems.provision import runtime_profile
         from automatic_stratagems.shared import fs
 
         with tempfile.TemporaryDirectory() as directory:
@@ -647,7 +647,7 @@ class RuntimeSetupTests(unittest.TestCase):
             self.assertEqual([p.name for p in path.parent.iterdir()], ["active.json"])
 
     def test_rollback_reuses_the_bounded_validated_manifest(self):
-        from automatic_stratagems import build
+        from automatic_stratagems.provision import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
@@ -676,7 +676,7 @@ class RuntimeSetupTests(unittest.TestCase):
                 build.rollback_runtime(root, preflight=lambda *_: None)
 
     def test_rollback_rejects_a_profile_mutated_by_child_preflight(self):
-        from automatic_stratagems import build
+        from automatic_stratagems.provision import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"

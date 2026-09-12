@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 
 def main() -> int:
     try:
-        from automatic_stratagems.runtime_install import (
+        from automatic_stratagems.provision.runtime_install import (
             ensure_scanner_runtime, installed_plugin_settings,
         )
         status = ensure_scanner_runtime(ROOT, installed_plugin_settings(ROOT))

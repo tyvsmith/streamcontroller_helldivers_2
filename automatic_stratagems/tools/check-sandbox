@@ -328,7 +328,7 @@ def _inner_runtime_exec(root, command):
     if not (os.environ.get("FLATPAK_ID") or Path("/.flatpak-info").exists()):
         raise RuntimeError("inner runtime command must run inside Flatpak")
     sys.path.insert(0, str(root))
-    from automatic_stratagems.scanner_runtime import resolve_scanner_runtime
+    from automatic_stratagems.provision.scanner_runtime import resolve_scanner_runtime
 
     runtime = resolve_scanner_runtime(root, flatpak=True)
     os.chdir(root)

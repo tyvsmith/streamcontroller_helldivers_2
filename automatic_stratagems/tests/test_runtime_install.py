@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from automatic_stratagems import runtime_install
-from automatic_stratagems.runtime_profile import ScanSetupError
+from automatic_stratagems.provision import runtime_install
+from automatic_stratagems.provision.runtime_profile import ScanSetupError
 
 
 ENABLED = {runtime_install.FEATURE_SETTING: True}
@@ -249,7 +249,7 @@ class InstallHookTests(unittest.TestCase):
                 runtime_install.installed_plugin_settings(plugin_root), {})
 
     def test_the_install_hook_records_the_disabled_feature_and_exits_zero(self):
-        feature = Path(runtime_install.__file__).resolve().parent
+        feature = Path(runtime_install.__file__).resolve().parents[1]
         hook = feature.parent / '__install__.py'
         with tempfile.TemporaryDirectory() as directory:
             plugin_root = self.installed_tree(
@@ -267,36 +267,36 @@ class InstallHookTests(unittest.TestCase):
 
     def test_the_install_hook_module_avoids_the_scanner_dependencies(self):
         script = ('import sys\n'
-                  'import automatic_stratagems.runtime_install\n'
+                  'import automatic_stratagems.provision.runtime_install\n'
                   "print(sorted(name for name in sys.modules"
                   " if name in {'numpy', 'cv2', 'PIL', 'evdev', 'gi'}))\n")
         result = subprocess.run(
             [sys.executable, '-c', script], capture_output=True, text=True,
-            cwd=str(Path(runtime_install.__file__).resolve().parents[1]),
+            cwd=str(Path(runtime_install.__file__).resolve().parents[2]),
             timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), '[]')
 
     def test_importing_runtime_install_avoids_the_build_only_modules(self):
         script = ('import sys\n'
-                  'import automatic_stratagems.runtime_install\n'
+                  'import automatic_stratagems.provision.runtime_install\n'
                   "print(sorted(name for name in ('urllib.request', 'tarfile', 'zipfile')"
                   " if name in sys.modules))\n")
         result = subprocess.run(
             [sys.executable, '-c', script], capture_output=True, text=True,
-            cwd=str(Path(runtime_install.__file__).resolve().parents[1]),
+            cwd=str(Path(runtime_install.__file__).resolve().parents[2]),
             timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), '[]')
 
     def test_importing_verify_avoids_the_build_only_modules(self):
         script = ('import sys\n'
-                  'import automatic_stratagems.verify\n'
+                  'import automatic_stratagems.provision.verify\n'
                   "print(sorted(name for name in ('urllib.request', 'tarfile', 'zipfile')"
                   " if name in sys.modules))\n")
         result = subprocess.run(
             [sys.executable, '-c', script], capture_output=True, text=True,
-            cwd=str(Path(runtime_install.__file__).resolve().parents[1]),
+            cwd=str(Path(runtime_install.__file__).resolve().parents[2]),
             timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), '[]')

@@ -9,7 +9,7 @@ from loguru import logger as log
 from src.backend.PluginManager.ActionHolder import ActionHolder
 from src.backend.PluginManager.InputBases import KeyAction
 
-from .runtime_install import (
+from .provision.runtime_install import (
     FEATURE_SETTING, ensure_scanner_runtime, read_status,
 )
 

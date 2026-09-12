@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import hashlib
 import io
 import json
@@ -26,15 +25,14 @@ from .runtime_profile import (
     validate_activation_pointer,
     validate_profile,
 )
-from .shared.fs import canonical_json, fsync_directory, write_all
-from .verify import _default_preflight, _require_profile_unchanged
+from ..shared.fs import canonical_json, fsync_directory, write_all
+from .verify import Preflight, _default_preflight, _require_profile_unchanged
 
 
-DEFAULT_LOCK = Path(__file__).with_name("runtime_profiles") / f"{FLATPAK_PROFILE}.json"
+DEFAULT_LOCK = Path(__file__).resolve().parents[1] / "runtime_profiles" / f"{FLATPAK_PROFILE}.json"
 MAX_LOCK_BYTES = 256 * 1024
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
 _HASH = re.compile(r"[0-9a-f]{64}")
-Preflight = Callable[[Path, dict], None]
 
 
 def _sha256(data: bytes) -> str:

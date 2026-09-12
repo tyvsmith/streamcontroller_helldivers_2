@@ -13,8 +13,8 @@ import sys
 from types import MappingProxyType
 from typing import Mapping
 
-from .shared.fs import atomic_json as _atomic_json
-from .shared.fs import read_capped
+from ..shared.fs import atomic_json as _atomic_json
+from ..shared.fs import read_capped
 
 
 FLATPAK_INFO = Path("/.flatpak-info")

@@ -15,7 +15,7 @@ from .capture_source import (
     CAPTURE_BACKENDS, normalize_capture_backend,
     operation_source, page_source_settings, source_identity, source_settings,
 )
-from .runtime_install import ensure_scanner_runtime, feature_enabled
+from .provision.runtime_install import ensure_scanner_runtime, feature_enabled
 from .scan_runner import (FLATPAK_TERMINATE_GRACE_SECONDS,
                           TERMINATE_GRACE_SECONDS, ScanSetupError,
                           check_scan_setup, run_scan, scan_workers,

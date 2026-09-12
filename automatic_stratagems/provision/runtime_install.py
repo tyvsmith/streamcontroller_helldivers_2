@@ -10,7 +10,7 @@ import venv
 
 from .runtime_profile import FLATPAK_INFO, SCANNER_VENV, ScanSetupError, atomic_json
 from .scanner_runtime import run_captured
-from .shared.bounded_json import read_bounded_json
+from ..shared.bounded_json import read_bounded_json
 from .verify import check_runtime
 
 

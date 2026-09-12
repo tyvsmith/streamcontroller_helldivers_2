@@ -113,7 +113,7 @@ def scanner_preflight_command(
     return (
         str(runtime.interpreter),
         "-m",
-        "automatic_stratagems.scanner_runtime",
+        "automatic_stratagems.provision.scanner_runtime",
         "--preflight",
         "--root",
         str(Path(root)),

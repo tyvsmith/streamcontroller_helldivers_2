@@ -242,5 +242,19 @@ class CheckImportsSubprocessTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
 
+class CheckImportsRealRepositoryTests(unittest.TestCase):
+    """Runs the tool against the actual repository tree, not a temp fixture.
+
+    Every stdlib-only scope declared in check-imports' RULES must actually
+    hold in this repository, not just in synthetic fixtures.
+    """
+
+    def test_real_repository_passes_every_scope(self):
+        result = subprocess.run(
+            [sys.executable, str(TOOL)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

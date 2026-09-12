@@ -16,7 +16,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from automatic_stratagems import scan_runner
-from automatic_stratagems.scanner_runtime import ScannerRuntime
+from automatic_stratagems.provision.scanner_runtime import ScannerRuntime
 from automatic_stratagems.scanner import scan_game
 
 
