@@ -13,9 +13,10 @@ from unittest.mock import patch
 from PIL import Image
 
 from automatic_stratagems import host_commands as hc
-from automatic_stratagems.scanner import gamescope_flatpak as gf
+from automatic_stratagems.hostexec import gamescope_flatpak as gf
+from automatic_stratagems.scanner.capture.gamescope import capture_into_shared_path
 from automatic_stratagems.scanner.game_capture import ScanError
-from automatic_stratagems.scanner.host_metadata import FlatpakGamescopeTarget
+from automatic_stratagems.shared.gamescope_target import FlatpakGamescopeTarget
 
 
 class FlatpakGamescopeTests(unittest.TestCase):
@@ -207,7 +208,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                 with patch.dict(os.environ, hc.host_job_environment(job)), \
                      patch('automatic_stratagems.scanner.game_capture.run_command',
                            return_value=b'') as run:
-                    gf.capture_into_shared_path(
+                    capture_into_shared_path(
                         target, output, timeout=1.25, deadline=123.5,
                         cancel_event=cancel)
             capture = run.call_args_list[0]
@@ -235,7 +236,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                      patch('automatic_stratagems.scanner.game_capture.run_command',
                            return_value=b'') as run, \
                      patch.object(gf.time, 'monotonic', return_value=100):
-                    gf.capture_into_shared_path(
+                    capture_into_shared_path(
                         target, output, timeout=1.25, deadline=None)
             capture_argv = run.call_args_list[0].args[0]
             self.assertEqual(capture_argv[capture_argv.index('--deadline') + 1],
@@ -254,7 +255,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                      patch('automatic_stratagems.scanner.game_capture.run_command',
                            side_effect=[CancelledError(), b'']) as run, \
                      self.assertRaises(CancelledError):
-                    gf.capture_into_shared_path(
+                    capture_into_shared_path(
                         target, output, timeout=1, deadline=123.5,
                         cancel_event=object())
             self.assertEqual(run.call_count, 2)
@@ -276,7 +277,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                            side_effect=hc.HostCleanupUnconfirmed(
                                'cleanup unconfirmed')) as run, \
                      self.assertRaises(hc.HostCleanupUnconfirmed):
-                    gf.capture_into_shared_path(
+                    capture_into_shared_path(
                         target, output, timeout=1, deadline=123.5)
             self.assertEqual(run.call_count, 1)
 
@@ -294,7 +295,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                      patch('automatic_stratagems.scanner.game_capture.run_command',
                            side_effect=[CancelledError(), cleanup]), \
                      self.assertRaises(hc.HostCleanupUnconfirmed) as raised:
-                    gf.capture_into_shared_path(
+                    capture_into_shared_path(
                         target, output, timeout=1, deadline=123.5)
             self.assertIsInstance(raised.exception.__cause__, CancelledError)
 
@@ -312,7 +313,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                            side_effect=[CancelledError(),
                                         ScanError('cleanup failed')]), \
                      self.assertRaises(hc.HostCommandError) as raised:
-                    gf.capture_into_shared_path(
+                    capture_into_shared_path(
                         target, output, timeout=1, deadline=123.5)
             self.assertIn(str(output.parent / gf.RECORD_NAME),
                           str(raised.exception))
@@ -374,9 +375,9 @@ class FlatpakGamescopeTests(unittest.TestCase):
 import json
 from pathlib import Path
 import time
-from automatic_stratagems.scanner import gamescope_flatpak as gf
-from automatic_stratagems.scanner.host_metadata import FlatpakGamescopeTarget
-from automatic_stratagems.host_commands import HostJob
+from automatic_stratagems.hostexec import gamescope_flatpak as gf
+from automatic_stratagems.shared.gamescope_target import FlatpakGamescopeTarget
+from automatic_stratagems.shared.host_job import HostJob
 target = FlatpakGamescopeTarget.from_dict(json.loads(__import__('sys').argv[1]))
 job = HostJob(Path(__import__('sys').argv[2]), __import__('sys').argv[3], int(__import__('sys').argv[4]))
 gf.validate_flatpak_gamescope_target = lambda value, **kwargs: value

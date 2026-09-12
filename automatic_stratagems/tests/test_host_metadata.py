@@ -5,7 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from automatic_stratagems.scanner import host_metadata as hm
+from automatic_stratagems.hostexec import host_metadata as hm
+from automatic_stratagems.scanner.capture import gamescope as sandbox_capture
 
 
 class HostMetadataTests(unittest.TestCase):
@@ -304,7 +305,7 @@ class HostMetadataTests(unittest.TestCase):
                    return_value=b'[]'), \
              self.assertRaisesRegex(hm.HostMetadataError,
                                          'response is invalid'):
-            hm.resolve_gamescope_capture_target()
+            sandbox_capture.resolve_gamescope_capture_target()
 
     def test_metadata_cli_preserves_capture_target_route(self):
         target = {'kind': 'native', 'socket': '/run/user/1000/gamescope-2'}

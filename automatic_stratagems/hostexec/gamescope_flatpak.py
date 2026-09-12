@@ -13,17 +13,15 @@ import threading
 import time
 import uuid
 
-if __package__:
-    from .host_metadata import (FlatpakGamescopeTarget, HostMetadataError,
-                                validate_flatpak_gamescope_target)
-else:
-    sys.path[:0] = [str(Path(__file__).resolve().parent),
-                    str(Path(__file__).resolve().parents[2])]
-    from host_metadata import (FlatpakGamescopeTarget, HostMetadataError,
-                               validate_flatpak_gamescope_target)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from automatic_stratagems.hostexec.host_metadata import (
+    validate_flatpak_gamescope_target)
+from automatic_stratagems.shared.gamescope_target import (
+    FlatpakGamescopeTarget, HostMetadataError, RECORD_NAME)
+from automatic_stratagems.shared.host_job import HostJob, validate_job
 
 MAX_ENCODED_IMAGE_BYTES = 64 * 1024 * 1024
-RECORD_NAME = 'steam-capture.json'
 RECORD_LIMIT = 4096
 
 
@@ -72,8 +70,7 @@ def _validate_capture_directory(target, directory, proc_root):
 
 
 def _validate_job_output(job, output):
-    from automatic_stratagems.host_commands import _validate_job
-    _validate_job(job)
+    validate_job(job)
     output = Path(output)
     if output.name != 'capture.png' or output.parent.parent != job.path:
         raise FlatpakGamescopeError('Gamescope output is outside its host job.')
@@ -232,8 +229,7 @@ def _copy_frame(source, output, expected):
 
 
 def _remove_recorded_directory(record, job):
-    from automatic_stratagems.host_commands import _validate_job
-    _validate_job(job)
+    validate_job(job)
     record = Path(record)
     if record.name != RECORD_NAME or record.parent.parent != job.path:
         raise FlatpakGamescopeError('Gamescope cleanup record path is unsafe.')
@@ -355,54 +351,7 @@ def capture_on_host(target, output, *, deadline, job, proc_root=Path('/proc')):
             signal.signal(number, handler)
 
 
-def capture_into_shared_path(target, output, *, timeout, deadline,
-                             cancel_event=None):
-    from automatic_stratagems.host_commands import (HostArtifactCleanupError,
-                                                    HostCleanupUnconfirmed,
-                                                    _job_from_environment)
-    from .game_capture import run_command
-    job = _job_from_environment()
-    if deadline is None:
-        deadline = time.monotonic() + timeout
-    job_args = [str(job.path), job.nonce, str(job.hard_deadline)]
-    capture = ['/usr/bin/python3', str(Path(__file__).resolve()), '--capture',
-               json.dumps(target.to_dict(), separators=(',', ':')), str(output),
-               '--deadline', repr(deadline), '--job', *job_args]
-    primary = None
-    result = None
-    try:
-        result = run_command(
-            capture, timeout=timeout, stdout_limit=1024,
-            stderr_limit=16 * 1024, host=True,
-            operation='gamescope-flatpak-capture', cancel_event=cancel_event)
-    except HostCleanupUnconfirmed:
-        raise
-    except BaseException as error:
-        primary = error
-    cleanup = ['/usr/bin/python3', str(Path(__file__).resolve()), '--cleanup',
-               str(Path(output).parent / RECORD_NAME), '--job', *job_args]
-    try:
-        run_command(cleanup, timeout=2, stdout_limit=1024,
-                    stderr_limit=16 * 1024, host=True,
-                    operation='gamescope-flatpak-cleanup')
-    except HostCleanupUnconfirmed as cleanup_error:
-        if primary is not None:
-            raise cleanup_error from primary
-        raise
-    except BaseException as cleanup_error:
-        artifact_error = HostArtifactCleanupError(
-                f'Gamescope artifact cleanup failed; record retained at '
-                f'{Path(output).parent / RECORD_NAME}')
-        if primary is not None:
-            cleanup_error.__cause__ = primary
-        raise artifact_error from cleanup_error
-    if primary is not None:
-        raise primary
-    return result
-
-
 def _job_from_args(values):
-    from automatic_stratagems.host_commands import HostJob
     if len(values) != 3:
         raise FlatpakGamescopeError('Invalid host job arguments.')
     return HostJob(Path(values[0]), values[1], int(values[2]))

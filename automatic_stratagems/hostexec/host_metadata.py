@@ -1,7 +1,6 @@
 """Bounded host lookup for Helldivers' uniquely associated Gamescope socket."""
 
 import configparser
-from dataclasses import asdict, dataclass
 import io
 import json
 import os
@@ -9,6 +8,11 @@ from pathlib import Path, PureWindowsPath
 import re
 import stat
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from automatic_stratagems.shared.gamescope_target import (
+    FlatpakGamescopeTarget, GAMESCOPECTL_PATH, HostMetadataError)
 
 
 STEAM_APP_ID = b'553850'
@@ -21,57 +25,7 @@ MAX_FDS_PER_PROCESS = 16_384
 MAX_UNIX_SOCKET_BYTES = 4 * 1024 * 1024
 MAX_FLATPAK_INFO_BYTES = 64 * 1024
 STEAM_FLATPAK_ID = 'com.valvesoftware.Steam'
-GAMESCOPECTL_PATH = ('/usr/lib/extensions/vulkan/gamescope/bin/'
-                     'gamescopectl')
 GAMESCOPE_LIBRARY_PATH = '/usr/lib/extensions/vulkan/gamescope/lib'
-
-
-class HostMetadataError(RuntimeError):
-    pass
-
-
-@dataclass(frozen=True)
-class FlatpakGamescopeTarget:
-    game_pid: int
-    game_start_time: str
-    sandbox_pid: int
-    sandbox_start_time: str
-    instance_id: str
-    socket: str
-    socket_dev: int
-    socket_ino: int
-    host_cache: str
-    sandbox_cache: str
-    cache_dev: int
-    cache_ino: int
-    gamescopectl: str
-
-    def to_dict(self):
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, value):
-        if not isinstance(value, dict) or set(value) != set(cls.__annotations__):
-            raise HostMetadataError('Host Gamescope target response is invalid.')
-        if (any(type(value.get(name)) is not int or value[name] <= 1
-                for name in ('game_pid', 'sandbox_pid')) or
-                any(type(value.get(name)) is not int or value[name] < 0
-                    for name in ('socket_dev', 'socket_ino',
-                                 'cache_dev', 'cache_ino')) or
-                any(not isinstance(value.get(name), str) or
-                    not value[name] or '\0' in value[name]
-                    for name in ('game_start_time', 'sandbox_start_time',
-                                 'instance_id', 'socket',
-                                 'host_cache', 'sandbox_cache',
-                                 'gamescopectl'))):
-            raise HostMetadataError('Host Gamescope target response is invalid.')
-        if (not value['game_start_time'].isdigit() or
-                not value['sandbox_start_time'].isdigit() or
-                not re.fullmatch(r'[A-Za-z0-9._-]{1,128}',
-                                 value['instance_id']) or
-                value['gamescopectl'] != GAMESCOPECTL_PATH):
-            raise HostMetadataError('Host Gamescope target response is invalid.')
-        return cls(**value)
 
 
 def _read_bounded(path, limit):
@@ -415,42 +369,6 @@ def validate_flatpak_gamescope_target(target, *, proc_root=Path('/proc')):
     if actual != target:
         raise HostMetadataError('Helldivers Steam Flatpak target changed.')
     return target
-
-
-def resolve_gamescope_capture_target(timeout=5, cancel_event=None):
-    """Classify the host-native or Steam-Flatpak Gamescope capture target."""
-    from automatic_stratagems.host_commands import HostCleanupUnconfirmed
-    from .game_capture import ScanError, run_command
-    command = ['/usr/bin/python3', str(Path(__file__).resolve()),
-               '--capture-target']
-    try:
-        output = run_command(
-            command, timeout=timeout, stdout_limit=4096, stderr_limit=16 * 1024,
-            host=True, operation='gamescope-capture-target',
-            cancel_event=cancel_event)
-        value = json.loads(output.decode())
-        if not isinstance(value, dict):
-            raise HostMetadataError(
-                'Host Gamescope capture target response is invalid.')
-        if value.get('kind') == 'native' and set(value) == {'kind', 'socket'}:
-            socket = value['socket']
-            if (not isinstance(socket, str) or '\0' in socket or
-                    not re.fullmatch(r'/run/user/\d+/gamescope-\d+', socket)):
-                raise HostMetadataError(
-                    'Host Gamescope capture target response is invalid.')
-            return value
-        if (value.get('kind') == 'steam-flatpak' and
-                set(value) == {'kind', 'target'}):
-            return {'kind': 'steam-flatpak',
-                    'target': FlatpakGamescopeTarget.from_dict(value['target'])}
-        raise HostMetadataError(
-            'Host Gamescope capture target response is invalid.')
-    except HostCleanupUnconfirmed:
-        raise
-    except (OSError, UnicodeError, ValueError, RuntimeError, ScanError,
-            HostMetadataError) as error:
-        raise HostMetadataError(
-            f'Cannot inspect host Gamescope capture target: {error}') from error
 
 
 def main(argv=None):

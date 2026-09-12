@@ -74,7 +74,7 @@ def wait_frame(paths, timeout=5, cancel_event=None, deadline=None):
 
 
 def gamescope_capture_target(deadline=None, cancel_event=None):
-    from .host_metadata import HostMetadataError, resolve_gamescope_capture_target
+    from .capture.gamescope import HostMetadataError, resolve_gamescope_capture_target
     try:
         return resolve_gamescope_capture_target(
             timeout=remaining_timeout(deadline, 5), cancel_event=cancel_event)
@@ -96,7 +96,7 @@ def capture_gamescope(cancel_event=None, deadline=None):
     with shared_host_directory(prefix='gamescope-', **directory_options) as directory:
         path = Path(directory) / 'capture.png'
         if target['kind'] == 'steam-flatpak':
-            from .gamescope_flatpak import capture_into_shared_path
+            from .capture.gamescope import capture_into_shared_path
             capture_into_shared_path(
                 target['target'], path, timeout=remaining_timeout(deadline, 5),
                 deadline=deadline, cancel_event=cancel_event)

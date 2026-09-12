@@ -11,9 +11,9 @@ from unittest.mock import patch
 from PIL import Image
 
 from automatic_stratagems import host_commands as hc
+from automatic_stratagems.hostexec import gamescope_flatpak as gf
 from automatic_stratagems.scanner import capture_backends as cb
-from automatic_stratagems.scanner import gamescope_flatpak as gf
-from automatic_stratagems.scanner import host_metadata as hm
+from automatic_stratagems.shared import gamescope_target as hm
 
 
 class CaptureBackendsTests(unittest.TestCase):
@@ -287,15 +287,15 @@ class CaptureBackendsTests(unittest.TestCase):
         self.assertLessEqual(seen['command_timeout'], 2)
 
     def test_gamescope_target_auto_discovers_game(self):
-        with patch('automatic_stratagems.scanner.host_metadata.resolve_gamescope_capture_target',
+        with patch('automatic_stratagems.scanner.capture.gamescope.resolve_gamescope_capture_target',
                    return_value={'kind': 'native', 'socket': 'gamescope-7'}) as resolve:
             self.assertEqual(cb.gamescope_capture_target(),
                              {'kind': 'native', 'socket': 'gamescope-7'})
         resolve.assert_called_once_with(timeout=5, cancel_event=None)
 
     def test_gamescope_metadata_failure_is_a_scan_error(self):
-        from automatic_stratagems.scanner.host_metadata import HostMetadataError
-        with patch('automatic_stratagems.scanner.host_metadata.resolve_gamescope_capture_target',
+        from automatic_stratagems.shared.gamescope_target import HostMetadataError
+        with patch('automatic_stratagems.scanner.capture.gamescope.resolve_gamescope_capture_target',
                    side_effect=HostMetadataError('multiple games')):
             with self.assertRaisesRegex(cb.ScanError, 'multiple games'):
                 cb.gamescope_capture_target()
@@ -399,7 +399,7 @@ class CaptureBackendsTests(unittest.TestCase):
             self.assertTrue(job.path.exists())
 
     def test_metadata_cleanup_uncertainty_stops_before_capture(self):
-        with patch('automatic_stratagems.scanner.host_metadata.resolve_gamescope_capture_target',
+        with patch('automatic_stratagems.scanner.capture.gamescope.resolve_gamescope_capture_target',
                    side_effect=hc.HostCleanupUnconfirmed('still running')), \
              patch('automatic_stratagems.scanner.game_capture.run_command') as native, \
              self.assertRaises(hc.HostCleanupUnconfirmed):
