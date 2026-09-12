@@ -32,6 +32,7 @@ generation stays in `update/`.
 | `capture_source.py` | capture defaults, normalized settings, binding identity, CLI arguments |
 | `provision/` | runtime provisioning: `runtime_install` (single preparation path), `verify` (check and child preflight), `build` (install-time download, unpack, stage, activate, rollback), `runtime_profile`, `scanner_runtime` |
 | `scan_runner.py`, `host_commands.py` | bounded scanner execution, host command ownership, cleanup, report validation |
+| `scan_diagnostics.py` | runner-managed diagnostic runs: ownership markers, process identity, retention limits, pruning |
 | `hostexec/` | scripts the host `/usr/bin/python3` runs outside the sandbox: Gamescope target lookup, Flatpak Steam capture and cleanup |
 | `shared/` | standard-library helpers every context imports: atomic writes, bounded reads, stability polling, host-job identity, Gamescope target schema |
 | `scanner/` | capture (`scanner/capture/` launches hostexec scripts), image decoding, layout detection, recognition, OCR, caches, JSON reports |
