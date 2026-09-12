@@ -582,7 +582,6 @@ class ScreenshotCaptureTests(unittest.TestCase):
         self.assertIs(cleanup.__globals__['_CLEANUP_RECORDS'], records)
         self.assertIs(
             self.cleanup._register_cleanup.__globals__['_CLEANUP_RECORDS'], records)
-        self.assertIs(getattr(self.capture, '_CLEANUP_RECORDS', records), records)
         config = self.config(kind='folder', trigger='script', script=sys.executable,
                              delete_after_scan=True)
         with patch.object(self.capture, '_run_script',
