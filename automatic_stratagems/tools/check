@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+"""Run feature tests and the unchanged root key-mapping regressions."""
+from pathlib import Path
+import sys
+import unittest
+
+root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(root))
+loader = unittest.TestLoader()
+suite = loader.discover(str(root / "automatic_stratagems/tests"), top_level_dir=str(root))
+suite.addTests(loader.loadTestsFromName("test_key_mapping"))
+raise SystemExit(not unittest.TextTestRunner(verbosity=1).run(suite).wasSuccessful())

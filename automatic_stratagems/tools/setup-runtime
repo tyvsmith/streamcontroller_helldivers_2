@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Install, check, or roll back the scanner's child-only runtime."""
+
+import argparse
+from pathlib import Path
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from automatic_stratagems.runtime_setup import (  # noqa: E402
+    DEFAULT_LOCK,
+    check_runtime,
+    install_runtime,
+    rollback_runtime,
+)
+from automatic_stratagems.scanner_runtime import ScanSetupError  # noqa: E402
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Manage the locked Flatpak scanner runtime"
+    )
+    parser.add_argument("--root", type=Path, default=ROOT)
+    commands = parser.add_subparsers(dest="command", required=True)
+    setup = commands.add_parser("setup", help="install and activate the locked profile")
+    setup.add_argument("--lock", type=Path, default=DEFAULT_LOCK)
+    setup.add_argument("--artifact-dir", type=Path)
+    setup.add_argument("--offline", action="store_true")
+    commands.add_parser("check", help="verify the active profile and real OCR")
+    commands.add_parser("rollback", help="activate the previous verified profile")
+    arguments = parser.parse_args(argv)
+    try:
+        if arguments.command == "setup":
+            selected = install_runtime(
+                arguments.root,
+                lock_path=arguments.lock,
+                artifact_dir=arguments.artifact_dir,
+                offline=arguments.offline,
+            )
+        elif arguments.command == "check":
+            selected = check_runtime(arguments.root, flatpak=True)
+        else:
+            selected = rollback_runtime(arguments.root)
+    except ScanSetupError as error:
+        parser.exit(1, f"setup-runtime: {error}\n")
+    print(selected if selected is not None else "native")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

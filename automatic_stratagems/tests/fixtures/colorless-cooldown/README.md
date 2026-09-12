@@ -1,0 +1,4 @@
+- retain raw 87×87 icon crops from scan-zmsvevo1, captured 2026-09-08
+- crop x=104, y=580 for Meltagun and y=788 for BastionMkXvi
+- include Gamescope and Steam captures with cooldown/inbound overlays
+- use only as regression inputs; runtime templates come from assets/icons

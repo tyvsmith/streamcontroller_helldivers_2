@@ -1,0 +1,361 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "path": "screenshot-2026-05-10_15-18-30.png",
+      "sha256": "d82823dec9c2259e8e741437acdb7fc260dfb32b7104f0b68b8b8ae5a39462d6",
+      "dimensions": [
+        4943,
+        1936
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "screenshot-2026-05-10_15-18-30",
+        "source": "user-provided original HDR screenshot",
+        "captured_at": "unknown",
+        "backend": "unknown",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          4943,
+          1936
+        ],
+        "hdr": "user-reported",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "selection",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "Hellbomb",
+          "AntiMaterialRifle",
+          "RocketSentry",
+          "WarpPack",
+          "OrbitalGatlingBarrage"
+        ]
+      }
+    },
+    {
+      "path": "screenshot-2026-09-06_22-14-47.png",
+      "sha256": "cc0208a34f33e4e588fd8178ff01f2b4dba848fb4a1f131be106d2e9c43b693a",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "screenshot-2026-09-06_22-14-47",
+        "source": "user-provided original HDR screenshot",
+        "captured_at": "unknown",
+        "backend": "unknown",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "user-reported",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          null,
+          "EagleRearm",
+          "OrbitalGatlingBarrage",
+          "Meltagun",
+          "WarpPack",
+          "RocketSentry"
+        ]
+      }
+    },
+    {
+      "path": "screenshot-2026-09-08_11-52-36.png",
+      "sha256": "c180c36d3cc9ec33b0b3f972c6fdc6b623d3fc155b16172a3a6a9df866e405a0",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "screenshot-2026-09-08_11-52-36",
+        "source": "user-provided original HDR screenshot",
+        "captured_at": "unknown",
+        "backend": "unknown",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "user-reported",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "Stalwart",
+          "HeavyMachineGun",
+          "MachineGun",
+          "Railgun"
+        ]
+      }
+    },
+    {
+      "path": "screenshot-2026-09-08_11-57-00.png",
+      "sha256": "9af9007a156b13712611cf222e9c447637a700c0c3826a7f4733a2c85077ac58",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "screenshot-2026-09-08_11-57-00",
+        "source": "user-provided original HDR screenshot",
+        "captured_at": "unknown",
+        "backend": "unknown",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "user-reported",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "Stalwart",
+          "HeavyMachineGun",
+          "Epoch",
+          "GrenadeLauncher"
+        ]
+      }
+    },
+    {
+      "path": "screenshot-2026-09-08_12-20-34.png",
+      "sha256": "05215e3eba005a68bf267d9dbee42e3359be3215e6a9d18d44d9e12e189d84c6",
+      "dimensions": [
+        5122,
+        2162
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "screenshot-2026-09-08_12-20-34",
+        "source": "user-provided original HDR screenshot",
+        "captured_at": "unknown",
+        "backend": "unknown",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5122,
+          2162
+        ],
+        "hdr": "user-reported",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": "unknown",
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": []
+      }
+    },
+    {
+      "path": "screenshot-2026-09-08_12-21-37.png",
+      "sha256": "05abf6df01c129db7bdf486787efdc97b7bd716b48d2623d1a648a5b7a740f84",
+      "dimensions": [
+        5122,
+        2162
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "screenshot-2026-09-08_12-21-37",
+        "source": "user-provided original HDR screenshot",
+        "captured_at": "unknown",
+        "backend": "unknown",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5122,
+          2162
+        ],
+        "hdr": "user-reported",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "selection",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "Stalwart",
+          "HeavyMachineGun",
+          "Railgun",
+          "Speargun"
+        ]
+      }
+    },
+    {
+      "path": "screenshot-2026-09-08_12-22-27.png",
+      "sha256": "dc0db2965e6ceec0441b07af2868ab4c04f95543ab713b172c6f5241778cd1b6",
+      "dimensions": [
+        5122,
+        2162
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "screenshot-2026-09-08_12-22-27",
+        "source": "user-provided original HDR screenshot",
+        "captured_at": "unknown",
+        "backend": "unknown",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5122,
+          2162
+        ],
+        "hdr": "user-reported",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "Stalwart",
+          "HeavyMachineGun",
+          "Railgun",
+          "Speargun"
+        ]
+      }
+    },
+    {
+      "path": "screenshot-2026-09-10_19-48-31.png",
+      "sha256": "dfcbf4e2da3c129c795fb3e6dbb214d885ad7ef4dc39934f83f95be5a8878887",
+      "dimensions": [
+        1433,
+        819
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "screenshot-2026-09-10_19-48-31",
+        "source": "user-provided original HDR screenshot",
+        "captured_at": "unknown",
+        "backend": "unknown",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          1433,
+          819
+        ],
+        "hdr": "user-reported",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": "unknown",
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": []
+      }
+    },
+    {
+      "path": "screenshot-2026-09-11_14-19-16.png",
+      "sha256": "6a153bc196efa9f15ddbbebde3f03f0407fc1d244af2558d329b7a85d8a7f332",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "screenshot-2026-09-11_14-19-16",
+        "source": "user-provided original HDR screenshot",
+        "captured_at": "unknown",
+        "backend": "unknown",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "user-reported",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "selection",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "OrbitalGasStrike",
+          "GrenadeLauncher",
+          "HellbombPortable",
+          "BreakthroughExosuit"
+        ]
+      }
+    }
+  ]
+}

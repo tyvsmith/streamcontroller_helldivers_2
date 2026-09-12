@@ -1,0 +1,4 @@
+- retain 512×216 previews for capture-quality tests
+- steam-corrupt: Steam screenshot 20260908121727_1.jpg with false-color artifacts
+- gamescope-valid: scan-zmsvevo1 Gamescope capture
+- runtime uses color-distribution checks, not these images as references

@@ -1,0 +1,17 @@
+{
+  "capture": "scan-1ydxf07c",
+  "reference_size": [
+    87,
+    87
+  ],
+  "ids": [
+    "Reinforce",
+    "SOSBeacon",
+    "Resupply",
+    "OneTrueFlag",
+    "BreakthroughExosuit",
+    "AntiPersonnelMinefield",
+    "AntiMaterialRifle"
+  ],
+  "label_method": "visually inspected game names and icons; not OCR predictions"
+}

@@ -1,0 +1,145 @@
+{
+  "compatibility": {
+    "architecture": "x86_64",
+    "flatpak_runtime": "org.gnome.Platform/x86_64/50",
+    "python_abi": "cpython-313"
+  },
+  "files": [
+    {
+      "bytes": 51536,
+      "member": "usr/bin/tesseract",
+      "mode": "0755",
+      "path": "bin/tesseract",
+      "sha256": "0c65596774d4378c4ae2bf9038cee9ba1614308ea108342dca775d005648b40b",
+      "source": "tesseract-ocr"
+    },
+    {
+      "bytes": 2473,
+      "member": "usr/share/doc/tesseract-ocr/copyright",
+      "mode": "0644",
+      "path": "licenses/Tesseract.txt",
+      "sha256": "88a60e74ee421a24f89b5a33ede6300bf51fc12f0144f41cd311909f9445d346",
+      "source": "tesseract-ocr"
+    },
+    {
+      "bytes": 3943960,
+      "member": "usr/lib/x86_64-linux-gnu/libtesseract.so.5.0.5",
+      "mode": "0644",
+      "path": "lib/libtesseract.so.5",
+      "sha256": "adaf306c10fcd306cdc8a9d22f8f3b44b71d01d273b0929433616b58d4b03798",
+      "source": "libtesseract5"
+    },
+    {
+      "bytes": 22,
+      "member": "usr/share/tesseract-ocr/5/tessdata/configs/tsv",
+      "mode": "0644",
+      "path": "tessdata/configs/tsv",
+      "sha256": "59d079bb75d8b3d7c839a3564580cb559e362c93a9d70f234e421c0c3e767e04",
+      "source": "libtesseract5"
+    },
+    {
+      "bytes": 2966568,
+      "member": "usr/lib/x86_64-linux-gnu/libleptonica.so.6.0.0",
+      "mode": "0644",
+      "path": "lib/libleptonica.so.6",
+      "sha256": "7078cbb98d36e3b5976b6c91d300dfc136f8c7af00b8b2b195dafac938b87809",
+      "source": "libleptonica6"
+    },
+    {
+      "bytes": 1766,
+      "member": "usr/share/doc/libleptonica6/copyright",
+      "mode": "0644",
+      "path": "licenses/Leptonica.txt",
+      "sha256": "cff4f0cb5db14528a8b84f4a3389012d5c6e0f5a75a882509367b2147c05a83e",
+      "source": "libleptonica6"
+    },
+    {
+      "bytes": 4113088,
+      "member": "usr/share/tesseract-ocr/5/tessdata/eng.traineddata",
+      "mode": "0644",
+      "path": "tessdata/eng.traineddata",
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+      "source": "tesseract-ocr-eng"
+    },
+    {
+      "bytes": 1245,
+      "member": "usr/share/doc/tesseract-ocr-eng/copyright",
+      "mode": "0644",
+      "path": "licenses/tessdata-fast.txt",
+      "sha256": "33fb8161898e34fcf5c6b8585d6be97642d7e8f34a922e783c6c5c970d0b09ad",
+      "source": "tesseract-ocr-eng"
+    }
+  ],
+  "licenses": [
+    {
+      "component": "Tesseract OCR 5.5.0",
+      "notice": "licenses/Tesseract.txt",
+      "spdx": "Apache-2.0"
+    },
+    {
+      "component": "English tessdata_fast 4.1.0",
+      "notice": "licenses/tessdata-fast.txt",
+      "spdx": "Apache-2.0"
+    },
+    {
+      "component": "Leptonica 1.86.0",
+      "notice": "licenses/Leptonica.txt",
+      "spdx": "BSD-2-Clause"
+    }
+  ],
+  "native_python_packages": {
+    "evdev": "2.0.0",
+    "numpy": "2.5.3",
+    "opencv-python-headless": "5.0.0.93",
+    "pillow": "12.3.0"
+  },
+  "ocr": {
+    "language": "eng",
+    "leptonica": "1.86.0",
+    "tesseract": "5.5.0",
+    "traineddata": "tessdata_fast 4.1.0-2"
+  },
+  "profile": "gnome-50-x86_64-cpython-313",
+  "python_packages": {
+    "evdev": "1.9.1",
+    "numpy": "2.2.3",
+    "opencv-python": "4.11.0.86",
+    "pillow": "11.1.0"
+  },
+  "release": 1,
+  "schema_version": 1,
+  "sources": [
+    {
+      "bytes": 416040,
+      "filename": "tesseract-ocr_5.5.0-1.1_amd64.deb",
+      "kind": "deb",
+      "name": "tesseract-ocr",
+      "sha256": "81819c7b5420a62e2dde6023e070d3af2973f7009b72bca33b6f94a1d2520995",
+      "url": "https://snapshot.debian.org/archive/debian/20260331T202859Z/pool/main/t/tesseract/tesseract-ocr_5.5.0-1.1_amd64.deb"
+    },
+    {
+      "bytes": 1392096,
+      "filename": "libtesseract5_5.5.0-1.1_amd64.deb",
+      "kind": "deb",
+      "name": "libtesseract5",
+      "sha256": "b0e6568a1922e4a215a7fa0435620074248cc755bee7d2a5790d55f0675dec52",
+      "url": "https://snapshot.debian.org/archive/debian/20260331T202859Z/pool/main/t/tesseract/libtesseract5_5.5.0-1.1_amd64.deb"
+    },
+    {
+      "bytes": 1086112,
+      "filename": "libleptonica6_1.86.0-1+b1_amd64.deb",
+      "kind": "deb",
+      "name": "libleptonica6",
+      "sha256": "13eba4b5c9d24286f5ac038e57b01dae10bbab2acafbac2d4879126cd170a531",
+      "url": "https://snapshot.debian.org/archive/debian/20260426T202627Z/pool/main/l/leptonlib/libleptonica6_1.86.0-1%2Bb1_amd64.deb"
+    },
+    {
+      "bytes": 1593640,
+      "filename": "tesseract-ocr-eng_4.1.0-2_all.deb",
+      "kind": "deb",
+      "name": "tesseract-ocr-eng",
+      "sha256": "9242d054563262398f8cf41fbd96fcc72f9dde70db16de18539882a6cff74f9d",
+      "url": "https://snapshot.debian.org/archive/debian/20220604T034817Z/pool/main/t/tesseract-lang/tesseract-ocr-eng_4.1.0-2_all.deb"
+    }
+  ]
+}
