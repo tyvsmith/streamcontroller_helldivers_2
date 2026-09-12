@@ -102,7 +102,7 @@ Persistence uses deck serial, absolute page path, and group. Group edits apply
 only when committed. Explicit positive slots are reserved first; `-1` slots are
 allocated from authoritative page topology in row, column, state, and action-index
 order. `streamcontroller_adapter.py` validates and sorts raw beta.15 action
-records; the coordinator retains group and slot policy. An unresolved automatic
+records; `slot_reconciliation.py` holds group and slot policy. An unresolved automatic
 position cannot scan or execute an assignment.
 Release-time binding and revision checks prevent a press from executing a changed
 assignment.
