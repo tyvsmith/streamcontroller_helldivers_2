@@ -263,6 +263,75 @@ class ReadBoundedStreamTests(unittest.TestCase):
         self.assertTrue(stream.closed)
 
 
+class ReadCappedTests(unittest.TestCase):
+    def descriptor(self, data):
+        stream = tempfile.TemporaryFile()
+        self.addCleanup(stream.close)
+        stream.write(data)
+        stream.flush()
+        stream.seek(0)
+        return stream.fileno()
+
+    def reads(self):
+        patcher = patch.object(fs.os, 'read', wraps=os.read)
+        read = patcher.start()
+        self.addCleanup(patcher.stop)
+        return read
+
+    def test_reads_a_small_file_to_eof(self):
+        descriptor = self.descriptor(b'0123456789')
+        read = self.reads()
+        self.assertEqual(fs.read_capped(descriptor, 20, 4), b'0123456789')
+        self.assertEqual([args[1] for args, _ in read.call_args_list],
+                         [4, 4, 4, 4])
+
+    def test_stops_after_limit_plus_one_bytes(self):
+        descriptor = self.descriptor(b'x' * 100)
+        read = self.reads()
+        self.assertEqual(fs.read_capped(descriptor, 10, 4), b'x' * 11)
+        self.assertEqual([args[1] for args, _ in read.call_args_list],
+                         [4, 4, 3])
+
+    def test_exact_limit_asks_for_one_more_byte_to_find_eof(self):
+        descriptor = self.descriptor(b'x' * 10)
+        read = self.reads()
+        self.assertEqual(fs.read_capped(descriptor, 10, 64), b'x' * 10)
+        self.assertEqual([args[1] for args, _ in read.call_args_list], [11, 1])
+
+    def test_chunks_are_yielded_in_order_for_streaming_callers(self):
+        descriptor = self.descriptor(b'abcdefg')
+        self.assertEqual(list(fs.iter_capped_chunks(descriptor, 5, 2)),
+                         [b'ab', b'cd', b'ef'])
+
+    def test_before_read_runs_before_every_read_including_eof(self):
+        descriptor = self.descriptor(b'abcde')
+        events = []
+        real_read = os.read
+
+        def read(fd, size):
+            events.append('read')
+            return real_read(fd, size)
+
+        with patch.object(fs.os, 'read', side_effect=read):
+            data = fs.read_capped(descriptor, 10, 2,
+                                  before_read=lambda: events.append('guard'))
+        self.assertEqual(data, b'abcde')
+        self.assertEqual(events, ['guard', 'read'] * 4)
+
+    def test_before_read_error_stops_before_the_next_read(self):
+        descriptor = self.descriptor(b'abcdef')
+        guard = Mock(side_effect=[None, TooLarge('cancelled')])
+        read = self.reads()
+        with self.assertRaisesRegex(TooLarge, 'cancelled'):
+            fs.read_capped(descriptor, 10, 2, before_read=guard)
+        self.assertEqual(read.call_count, 1)
+
+    def test_read_errors_propagate(self):
+        with patch.object(fs.os, 'read', side_effect=OSError('io error')), \
+                self.assertRaisesRegex(OSError, 'io error'):
+            fs.read_capped(99, 10, 4)
+
+
 def stat_metadata(**changes):
     values = {'st_dev': 1, 'st_ino': 2, 'st_mode': stat.S_IFREG | 0o644,
               'st_size': 3, 'st_mtime_ns': 4, 'st_ctime_ns': 5}

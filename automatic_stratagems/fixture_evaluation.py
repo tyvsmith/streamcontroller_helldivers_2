@@ -18,6 +18,7 @@ from PIL import Image
 
 from .scan_runner import SCAN_TIMEOUT_SECONDS, _run_owned, validate_report
 from .shared.bounded_json import read_bounded_json
+from .shared.fs import iter_capped_chunks, read_capped
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -92,15 +93,7 @@ def _inspect_image(path):
             raise ValueError(f'Fixture image is not a regular file: {path.name}')
         if metadata.st_size > MAX_IMAGE_BYTES:
             raise ValueError(f'Fixture image exceeds the byte limit: {path.name}')
-        chunks = []
-        remaining = MAX_IMAGE_BYTES + 1
-        while remaining:
-            chunk = os.read(descriptor, min(64 * 1024, remaining))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        encoded = b''.join(chunks)
+        encoded = read_capped(descriptor, MAX_IMAGE_BYTES, 64 * 1024)
     finally:
         os.close(descriptor)
     if len(encoded) > MAX_IMAGE_BYTES:
@@ -132,14 +125,11 @@ def _bounded_file_sha256(path, max_bytes):
         if metadata.st_size > max_bytes:
             raise ValueError('Manifest exceeds the byte limit')
         digest = hashlib.sha256()
-        remaining = max_bytes + 1
-        while remaining:
-            chunk = os.read(descriptor, min(64 * 1024, remaining))
-            if not chunk:
-                break
+        size = 0
+        for chunk in iter_capped_chunks(descriptor, max_bytes, 64 * 1024):
             digest.update(chunk)
-            remaining -= len(chunk)
-        if remaining == 0:
+            size += len(chunk)
+        if size > max_bytes:
             raise ValueError('Manifest exceeds the byte limit')
         return digest.hexdigest()
     finally:

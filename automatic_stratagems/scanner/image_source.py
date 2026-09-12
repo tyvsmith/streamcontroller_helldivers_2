@@ -13,7 +13,7 @@ from .game_capture import (MAX_ENCODED_IMAGE_BYTES, MAX_IMAGE_DIMENSION,
                            MAX_IMAGE_PIXELS, ScanError)
 from ..shared.fs import check_cancel as _check_cancel
 from ..shared.fs import typed_file_stamp as _snapshot
-from ..shared.fs import check_deadline, poll_deadline
+from ..shared.fs import check_deadline, poll_deadline, read_capped
 
 
 MAX_DIRECTORY_ENTRIES = 4096
@@ -169,21 +169,18 @@ def _read_bytes(path, expected, cancel_event, deadline):
             raise ScanError("Image source is not a regular file.")
         if _snapshot(opened) != _snapshot(expected):
             raise ScanError("Image source changed while it was being read.")
-        encoded = bytearray()
-        remaining = MAX_ENCODED_IMAGE_BYTES + 1
-        while remaining:
+
+        def guard():
             _check_cancel(cancel_event)
             _check_deadline(deadline)
-            chunk = os.read(descriptor, min(64 * 1024, remaining))
-            if not chunk:
-                break
-            encoded.extend(chunk)
-            remaining -= len(chunk)
+
+        encoded = read_capped(descriptor, MAX_ENCODED_IMAGE_BYTES, 64 * 1024,
+                              before_read=guard)
         if len(encoded) > MAX_ENCODED_IMAGE_BYTES:
             raise ScanError("Image source encoded image is too large.")
         if _snapshot(os.fstat(descriptor)) != _snapshot(expected):
             raise ScanError("Image source changed while it was being read.")
-        return bytes(encoded)
+        return encoded
     except ScanError:
         raise
     except OSError as error:

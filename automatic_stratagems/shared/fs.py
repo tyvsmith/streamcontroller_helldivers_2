@@ -134,6 +134,27 @@ def atomic_json(path, value, *, max_bytes, too_large, short_write_message):
             pass
 
 
+def iter_capped_chunks(descriptor, limit, chunk_size, before_read=None):
+    """Yield chunks until EOF or limit + 1 bytes, so callers can detect overflow.
+
+    before_read runs before every read, including the one that finds EOF.
+    """
+    remaining = limit + 1
+    while remaining:
+        if before_read is not None:
+            before_read()
+        chunk = os.read(descriptor, min(chunk_size, remaining))
+        if not chunk:
+            return
+        yield chunk
+        remaining -= len(chunk)
+
+
+def read_capped(descriptor, limit, chunk_size, before_read=None):
+    """Read at most limit + 1 bytes; a result longer than limit overflowed."""
+    return b"".join(iter_capped_chunks(descriptor, limit, chunk_size, before_read))
+
+
 def read_bounded_stream(stream, limit, name, output, overflow):
     """Drain a pipe into output, recording name in overflow past limit bytes."""
     try:

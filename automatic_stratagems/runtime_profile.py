@@ -13,6 +13,8 @@ import sys
 from types import MappingProxyType
 from typing import Mapping
 
+from .shared.fs import read_capped
+
 
 FLATPAK_INFO = Path("/.flatpak-info")
 FLATPAK_PROFILE = "gnome-50-x86_64-cpython-313"
@@ -40,17 +42,11 @@ def _read_json_document(path: Path, limit: int, description: str) -> tuple[dict,
             metadata = os.fstat(descriptor)
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > limit:
                 raise ScanSetupError(f"Invalid scanner runtime {description}: {path}")
-            data = bytearray()
-            while len(data) <= limit:
-                chunk = os.read(descriptor, min(64 * 1024, limit + 1 - len(data)))
-                if not chunk:
-                    break
-                data.extend(chunk)
-            if len(data) > limit:
+            raw = read_capped(descriptor, limit, 64 * 1024)
+            if len(raw) > limit:
                 raise ScanSetupError(f"Invalid scanner runtime {description}: {path}")
         finally:
             os.close(descriptor)
-        raw = bytes(data)
         value = json.loads(raw.decode("utf-8"))
     except ScanSetupError:
         raise

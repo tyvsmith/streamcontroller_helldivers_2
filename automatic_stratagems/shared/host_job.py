@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import stat
 
+from .fs import read_capped
+
 
 OWNER = "net_jslay_helldivers_2"
 VERSION = 1
@@ -31,15 +33,7 @@ def _read_json(path):
         if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid() or
                 metadata.st_size > STATE_LIMIT):
             raise HostCommandError(f"Unsafe host command state: {path}")
-        chunks = []
-        remaining = STATE_LIMIT + 1
-        while remaining:
-            chunk = os.read(descriptor, min(remaining, 4096))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        payload = b"".join(chunks)
+        payload = read_capped(descriptor, STATE_LIMIT, 4096)
         if len(payload) > STATE_LIMIT:
             raise HostCommandError(f"Unsafe host command state: {path}")
     finally:

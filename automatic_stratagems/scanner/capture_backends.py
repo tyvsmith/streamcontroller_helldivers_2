@@ -10,7 +10,7 @@ from .game_capture import (MAX_ENCODED_IMAGE_BYTES, ScanError, decode_image,
                            remaining_timeout)
 from ..shared.fs import check_cancel as _check_cancel
 from ..shared.fs import (check_deadline, file_stamp, poll_deadline,
-                         wait_for_stable_stamp)
+                         read_capped, wait_for_stable_stamp)
 
 
 BACKENDS = ('auto', 'gamescope', 'screenshot')
@@ -23,15 +23,7 @@ def read_frame(path):
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise ScanError('Screenshot is not a regular file.')
-        chunks = []
-        remaining = MAX_ENCODED_IMAGE_BYTES + 1
-        while remaining:
-            chunk = os.read(descriptor, min(remaining, 64 * 1024))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        encoded = b''.join(chunks)
+        encoded = read_capped(descriptor, MAX_ENCODED_IMAGE_BYTES, 64 * 1024)
         if len(encoded) > MAX_ENCODED_IMAGE_BYTES:
             raise ScanError('Screenshot encoded image is too large.')
         after = os.fstat(descriptor)

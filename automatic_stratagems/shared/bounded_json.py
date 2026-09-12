@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import stat
 
+from .fs import read_capped
+
 
 DEFAULT_MAX_DEPTH = 64
 READ_CHUNK_BYTES = 64 * 1024
@@ -55,15 +57,7 @@ def read_bounded_json(path, *, max_bytes, max_depth=DEFAULT_MAX_DEPTH):
             raise ValueError('JSON path must be a regular file')
         if metadata.st_size > max_bytes:
             raise ValueError('JSON document is too large')
-        chunks = []
-        remaining = max_bytes + 1
-        while remaining:
-            chunk = os.read(descriptor, min(READ_CHUNK_BYTES, remaining))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        encoded = b''.join(chunks)
+        encoded = read_capped(descriptor, max_bytes, READ_CHUNK_BYTES)
         if len(encoded) > max_bytes:
             raise ValueError('JSON document is too large')
     finally:

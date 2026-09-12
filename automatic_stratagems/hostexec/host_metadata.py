@@ -11,6 +11,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from automatic_stratagems.shared.fs import read_capped
 from automatic_stratagems.shared.gamescope_target import (
     FlatpakGamescopeTarget, GAMESCOPECTL_PATH, HostMetadataError)
 
@@ -37,15 +38,7 @@ def _read_bounded(path, limit):
         if hasattr(os, 'O_NOFOLLOW'):
             flags |= os.O_NOFOLLOW
         descriptor = os.open(path, flags)
-        chunks = []
-        remaining = limit + 1
-        while remaining:
-            chunk = os.read(descriptor, min(remaining, 64 * 1024))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        value = b''.join(chunks)
+        value = read_capped(descriptor, limit, 64 * 1024)
         if len(value) > limit:
             raise HostMetadataError(f'Host metadata file is too large: {path}')
         return value

@@ -11,7 +11,7 @@ import time
 
 from ..shared.fs import check_cancel as _check_cancel
 from ..shared.fs import typed_file_stamp_with_ctime as _metadata_snapshot
-from ..shared.fs import check_deadline, poll_deadline
+from ..shared.fs import check_deadline, iter_capped_chunks, poll_deadline
 
 
 MAX_CONFIG_STRING = 8192
@@ -478,18 +478,17 @@ def _fingerprint_descriptor(descriptor, expected, cancel_event=None,
             not stat.S_ISREG(before.st_mode) or
             before.st_size > MAX_ENCODED_IMAGE_BYTES):
         raise _scan_error("Screenshot identity changed.")
-    digest = hashlib.sha256()
-    remaining = before.st_size + 1
-    read_size = 0
-    while remaining:
+
+    def guard():
         _check_cancel(cancel_event)
         _check_deadline(deadline)
-        chunk = os.read(descriptor, min(1024 * 1024, remaining))
-        if not chunk:
-            break
+
+    digest = hashlib.sha256()
+    read_size = 0
+    for chunk in iter_capped_chunks(descriptor, before.st_size, 1024 * 1024,
+                                    before_read=guard):
         digest.update(chunk)
         read_size += len(chunk)
-        remaining -= len(chunk)
     if read_size != before.st_size:
         raise _scan_error("Screenshot identity changed.")
     if _metadata_snapshot(os.fstat(descriptor))[:len(expected)] != expected:

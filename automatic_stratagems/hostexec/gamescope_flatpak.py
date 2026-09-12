@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from automatic_stratagems.hostexec.host_metadata import (
     validate_flatpak_gamescope_target)
 from automatic_stratagems.shared.fs import (
-    file_stamp, fsync_directory, wait_for_stable_stamp, write_all)
+    file_stamp, fsync_directory, read_capped, wait_for_stable_stamp, write_all)
 from automatic_stratagems.shared.gamescope_target import (
     FlatpakGamescopeTarget, HostMetadataError, RECORD_NAME)
 from automatic_stratagems.shared.host_job import HostJob, validate_job
@@ -106,15 +106,7 @@ def _read_record(path):
     try:
         metadata = os.fstat(descriptor)
         identity = (metadata.st_dev, metadata.st_ino)
-        chunks = []
-        remaining = RECORD_LIMIT + 1
-        while remaining:
-            chunk = os.read(descriptor, min(remaining, 4096))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        value = b''.join(chunks)
+        value = read_capped(descriptor, RECORD_LIMIT, 4096)
     finally:
         os.close(descriptor)
     if len(value) > RECORD_LIMIT:
