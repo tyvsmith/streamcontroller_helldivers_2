@@ -50,6 +50,12 @@ cleanly and never scan; the import check is what catches it. Each host script
 inserts the plugin root on `sys.path` once before its first repository import,
 and a test runs every script with `-I -S` to prove it loads.
 
+StreamController imports the plugin as `plugins.<folder>.main` without the
+repository root on `sys.path`, so plugin-side modules use relative imports.
+Absolute `automatic_stratagems.` imports resolve only in the scanner child, host
+scripts, the install hook, and tooling. A test imports plugin-side modules under
+that package name, because the test runner itself has the root on `sys.path`.
+
 ## Scan flow
 
 1. Resolve the initiating action's deck, page, group, and current capture settings.

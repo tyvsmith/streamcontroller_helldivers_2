@@ -14,10 +14,10 @@ import subprocess
 import time
 import uuid
 
-from automatic_stratagems.shared.host_job import (
+from .shared.host_job import (
     HostCommandError, HostJob, OWNER, REGISTRY_FILE, STATE_LIMIT, VERSION,
     _read_json, _registry_value, _validate_job)
-from automatic_stratagems.shared.fs import fsync_directory, write_all
+from .shared.fs import fsync_directory, write_all
 
 
 JOB_DIRECTORY_ENV = "HD2_HOST_JOB_DIRECTORY"
