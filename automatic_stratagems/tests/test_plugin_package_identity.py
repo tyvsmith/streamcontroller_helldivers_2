@@ -22,6 +22,7 @@ PLUGIN_ID = 'net_jslay_helldivers_2'
 PLUGIN_MODULES = (
     'automatic_stratagems.host_commands',
     'automatic_stratagems.scan_runner',
+    'automatic_stratagems.scan_diagnostics',
     'automatic_stratagems.scan_state',
     'automatic_stratagems.scan_session',
     'automatic_stratagems.scan_operation',

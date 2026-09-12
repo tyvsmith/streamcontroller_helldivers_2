@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from automatic_stratagems import scan_runner
+from automatic_stratagems import scan_diagnostics, scan_runner
 from automatic_stratagems.provision.scanner_runtime import ScannerRuntime
 from automatic_stratagems.scanner import scan_game
 
@@ -736,11 +736,11 @@ class RunnerTests(unittest.TestCase):
             run = scan_runner.prepare_diagnostic_run(cache)
             self.assertEqual(cache.stat().st_mode & 0o777, 0o700)
             self.assertEqual(run.stat().st_mode & 0o777, 0o700)
-            marker = json.loads((run / scan_runner.RUN_MARKER).read_text())
-            self.assertEqual(marker['owner'], scan_runner.DIAGNOSTIC_OWNER)
+            marker = json.loads((run / scan_diagnostics.RUN_MARKER).read_text())
+            self.assertEqual(marker['owner'], scan_diagnostics.DIAGNOSTIC_OWNER)
             self.assertEqual(marker['status'], 'open')
             scan_runner.close_diagnostic_run(run, 'complete')
-            self.assertEqual(json.loads((run / scan_runner.RUN_MARKER).read_text())['status'],
+            self.assertEqual(json.loads((run / scan_diagnostics.RUN_MARKER).read_text())['status'],
                              'complete')
 
     def test_invalid_scanner_results_mark_diagnostics_failed(self):
@@ -770,44 +770,44 @@ class RunnerTests(unittest.TestCase):
                 runs = [path for path in cache.iterdir()
                         if path.name.startswith('run-')]
                 self.assertEqual(len(runs), 1)
-                marker = json.loads((runs[0] / scan_runner.RUN_MARKER).read_text())
+                marker = json.loads((runs[0] / scan_diagnostics.RUN_MARKER).read_text())
                 self.assertEqual(marker['status'], 'failed')
 
     def test_diagnostic_marker_retries_short_writes(self):
         with tempfile.TemporaryDirectory() as parent:
             path = Path(parent) / 'marker.json'
-            value = {'owner': scan_runner.DIAGNOSTIC_OWNER, 'version': 1}
-            real_write = scan_runner.os.write
+            value = {'owner': scan_diagnostics.DIAGNOSTIC_OWNER, 'version': 1}
+            real_write = scan_diagnostics.os.write
 
             def short_write(descriptor, data):
                 return real_write(descriptor, data[:5])
 
-            with patch.object(scan_runner.os, 'write', side_effect=short_write):
-                scan_runner._write_marker(path, value, create=True)
+            with patch.object(scan_diagnostics.os, 'write', side_effect=short_write):
+                scan_diagnostics._write_marker(path, value, create=True)
             self.assertEqual(json.loads(path.read_text()), value)
 
     def test_diagnostic_marker_write_failure_preserves_old_and_cleans_partial(self):
         with tempfile.TemporaryDirectory() as parent:
             parent = Path(parent)
             path = parent / 'marker.json'
-            original = {'owner': scan_runner.DIAGNOSTIC_OWNER, 'status': 'open'}
-            scan_runner._write_marker(path, original, create=True)
-            real_write = scan_runner.os.write
+            original = {'owner': scan_diagnostics.DIAGNOSTIC_OWNER, 'status': 'open'}
+            scan_diagnostics._write_marker(path, original, create=True)
+            real_write = scan_diagnostics.os.write
 
             def failed_write(descriptor, data):
                 real_write(descriptor, data[:5])
                 raise OSError('disk full')
 
-            with patch.object(scan_runner.os, 'write', side_effect=failed_write):
+            with patch.object(scan_diagnostics.os, 'write', side_effect=failed_write):
                 with self.assertRaisesRegex(OSError, 'disk full'):
-                    scan_runner._write_marker(path, dict(original, status='complete'))
+                    scan_diagnostics._write_marker(path, dict(original, status='complete'))
             self.assertEqual(json.loads(path.read_text()), original)
             self.assertEqual(list(parent.iterdir()), [path])
 
             create = parent / 'new-marker.json'
-            with patch.object(scan_runner.os, 'write', side_effect=failed_write):
+            with patch.object(scan_diagnostics.os, 'write', side_effect=failed_write):
                 with self.assertRaisesRegex(OSError, 'disk full'):
-                    scan_runner._write_marker(create, original, create=True)
+                    scan_diagnostics._write_marker(create, original, create=True)
             self.assertFalse(create.exists())
 
     def test_diagnostics_reject_symlink_and_unowned_cache(self):
@@ -827,14 +827,14 @@ class RunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as parent:
             cache = Path(parent) / 'diagnostics'
             cache.mkdir()
-            os.mkfifo(cache / scan_runner.CACHE_MARKER)
+            os.mkfifo(cache / scan_diagnostics.CACHE_MARKER)
             with patch.object(Path, 'read_text', side_effect=AssertionError('read FIFO')):
                 with self.assertRaisesRegex(ValueError, 'not owned'):
                     scan_runner.prepare_diagnostic_run(cache)
 
     def test_diagnostic_pruning_preserves_open_and_unowned_directories(self):
         with tempfile.TemporaryDirectory() as parent, \
-             patch.object(scan_runner, 'MAX_DIAGNOSTIC_RUNS', 1):
+             patch.object(scan_diagnostics, 'MAX_DIAGNOSTIC_RUNS', 1):
             cache = Path(parent) / 'diagnostics'
             old = scan_runner.prepare_diagnostic_run(cache)
             scan_runner.close_diagnostic_run(old, 'complete')
@@ -849,13 +849,13 @@ class RunnerTests(unittest.TestCase):
 
     def test_diagnostic_pruning_closes_abandoned_owned_run(self):
         with tempfile.TemporaryDirectory() as parent, \
-             patch.object(scan_runner, 'MAX_DIAGNOSTIC_RUNS', 1):
+             patch.object(scan_diagnostics, 'MAX_DIAGNOSTIC_RUNS', 1):
             cache = Path(parent) / 'diagnostics'
             abandoned = scan_runner.prepare_diagnostic_run(cache)
-            marker_path = abandoned / scan_runner.RUN_MARKER
+            marker_path = abandoned / scan_diagnostics.RUN_MARKER
             marker = json.loads(marker_path.read_text())
             marker['runner']['pid'] = 2_000_000_000
-            scan_runner._write_marker(marker_path, marker)
+            scan_diagnostics._write_marker(marker_path, marker)
             live = scan_runner.prepare_diagnostic_run(cache)
             scan_runner.prune_diagnostics(cache)
             self.assertFalse(abandoned.exists())
@@ -863,21 +863,21 @@ class RunnerTests(unittest.TestCase):
 
     def test_diagnostic_pruning_preserves_malformed_open_identity(self):
         with tempfile.TemporaryDirectory() as parent, \
-             patch.object(scan_runner, 'MAX_DIAGNOSTIC_RUNS', 0):
+             patch.object(scan_diagnostics, 'MAX_DIAGNOSTIC_RUNS', 0):
             cache = Path(parent) / 'diagnostics'
             run = scan_runner.prepare_diagnostic_run(cache)
-            marker_path = run / scan_runner.RUN_MARKER
+            marker_path = run / scan_diagnostics.RUN_MARKER
             marker = json.loads(marker_path.read_text())
             marker['runner'] = {'pid': os.getpid(), 'boot_id': 'malformed',
                                 'start_time': 'not-a-clock-tick'}
-            scan_runner._write_marker(marker_path, marker)
+            scan_diagnostics._write_marker(marker_path, marker)
             scan_runner.prune_diagnostics(cache)
             self.assertTrue(run.exists())
             self.assertEqual(json.loads(marker_path.read_text())['status'], 'open')
 
     def test_diagnostic_pruning_preserves_open_run_when_proc_is_unreadable(self):
         with tempfile.TemporaryDirectory() as parent, \
-             patch.object(scan_runner, 'MAX_DIAGNOSTIC_RUNS', 0):
+             patch.object(scan_diagnostics, 'MAX_DIAGNOSTIC_RUNS', 0):
             cache = Path(parent) / 'diagnostics'
             run = scan_runner.prepare_diagnostic_run(cache)
             original_read = Path.read_text
@@ -890,7 +890,7 @@ class RunnerTests(unittest.TestCase):
             with patch.object(Path, 'read_text', read):
                 scan_runner.prune_diagnostics(cache)
             self.assertTrue(run.exists())
-            self.assertEqual(json.loads((run / scan_runner.RUN_MARKER).read_text())['status'],
+            self.assertEqual(json.loads((run / scan_diagnostics.RUN_MARKER).read_text())['status'],
                              'open')
 
     def test_diagnostic_failure_does_not_mask_cancellation(self):
@@ -908,6 +908,31 @@ class RunnerTests(unittest.TestCase):
             with self.assertRaises(scan_runner.CancelledError):
                 scan_runner.run_scan('/tmp/root', debug_dir='/tmp/cache')
             warning.assert_called_once()
+
+    def test_run_scan_manages_diagnostics_through_runner_names(self):
+        for returncode, stdout, outcome in (
+                (0, json.dumps(VALID_REPORT).encode(), 'complete'),
+                (0, b'not-json', 'failed')):
+            with self.subTest(outcome=outcome), \
+                 tempfile.TemporaryDirectory() as parent, \
+                 patch.object(scan_runner, 'is_flatpak', return_value=False), \
+                 patch.object(scan_runner, 'check_scan_setup'), \
+                 patch.object(scan_runner, 'resolve_scanner_runtime',
+                              return_value=self.runtime(profile='native')), \
+                 patch.object(scan_runner, '_run_owned',
+                              return_value=(returncode, stdout, b'')), \
+                 patch.object(scan_runner, 'prepare_diagnostic_run',
+                              return_value=Path('/tmp/owned-run')) as prepare, \
+                 patch.object(scan_runner, 'close_diagnostic_run') as close, \
+                 patch.object(scan_runner, 'prune_diagnostics') as prune:
+                cache = Path(parent) / 'diagnostics'
+                try:
+                    scan_runner.run_scan('/tmp/root', debug_dir=cache)
+                except ValueError:
+                    self.assertEqual(outcome, 'failed')
+                prepare.assert_called_once_with(cache)
+                close.assert_called_once_with(Path('/tmp/owned-run'), outcome)
+                prune.assert_called_once_with(cache)
 
 
 if __name__ == '__main__':
