@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlite3
 from threading import RLock
 
-from ..bounded_json import loads_bounded_json
+from ..shared.bounded_json import loads_bounded_json
 
 
 class RecognitionCache:

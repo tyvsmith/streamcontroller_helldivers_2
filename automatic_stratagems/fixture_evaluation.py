@@ -16,8 +16,8 @@ import time
 
 from PIL import Image
 
-from .bounded_json import read_bounded_json
 from .scan_runner import SCAN_TIMEOUT_SECONDS, _run_owned, validate_report
+from .shared.bounded_json import read_bounded_json
 
 
 ROOT = Path(__file__).resolve().parent.parent

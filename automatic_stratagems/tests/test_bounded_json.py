@@ -1,6 +1,6 @@
 import unittest
 
-from automatic_stratagems.bounded_json import loads_bounded_json
+from automatic_stratagems.shared.bounded_json import loads_bounded_json
 
 
 class BoundedJsonTests(unittest.TestCase):

@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 import tempfile
 
-from .bounded_json import read_bounded_json
 from .scan_session import SLOT_COLORS, ScanSession
+from .shared.bounded_json import read_bounded_json
 
 
 MAX_STATE_BYTES = 1024 * 1024

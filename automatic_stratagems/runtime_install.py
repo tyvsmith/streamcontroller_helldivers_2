@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Callable, Mapping
 import venv
 
-from .bounded_json import read_bounded_json
 from .runtime_profile import FLATPAK_INFO, SCANNER_VENV, ScanSetupError
 from .runtime_setup import atomic_json, check_runtime, install_runtime
 from .scanner_runtime import run_captured
+from .shared.bounded_json import read_bounded_json
 
 
 FEATURE_SETTING = "automatic_stratagems_enabled"

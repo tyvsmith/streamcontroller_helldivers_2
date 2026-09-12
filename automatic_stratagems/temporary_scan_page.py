@@ -5,9 +5,9 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
-from .bounded_json import read_bounded_json
 from .capture_source import (
     SCREENSHOT_SETTING_KEYS, screenshot_config, screenshot_source_identity)
+from .shared.bounded_json import read_bounded_json
 from .streamcontroller_adapter import (
     discard_cached_page, register_page, unregister_page)
 
