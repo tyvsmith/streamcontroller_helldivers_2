@@ -1,18 +1,19 @@
 """Run scan workers, complete scans on GTK, and cancel or shut down scan work."""
 from concurrent.futures import CancelledError
 from functools import partial
-from threading import current_thread
+from threading import Thread, current_thread
 from time import monotonic
 
 from gi.repository import GLib
 from loguru import logger as log
 
-from .capture_source import source_identity
+from .capture_source import normalize_capture_backend, operation_source, source_identity
 from . import runtime_preparation
 from .scan_artwork import catalog_colors
+from .scan_operation import ScanOperation, ScanPlan
 from .scan_runner import (FLATPAK_TERMINATE_GRACE_SECONDS,
                           TERMINATE_GRACE_SECONDS, ScanSetupError,
-                          check_scan_setup, run_scan,
+                          check_scan_setup, run_scan, scan_workers,
                           validate_image_source_report)
 from .streamcontroller_adapter import source_action_address
 
@@ -22,8 +23,14 @@ SHUTDOWN_TIMEOUT_SECONDS = (FLATPAK_TERMINATE_GRACE_SECONDS
 MAIN_CONTEXT_TIMEOUT_SECONDS = 5
 
 
+def scan_mode(action):
+    return ('new_page' if (getattr(action, 'new_page_action', False) is True
+                           or action.get_settings().get('scan_mode') == 'new_page')
+            else 'update')
+
+
 class ScanLifecycle:
-    """Own active scan operations from worker execution to completion and shutdown.
+    """Own scan operations from start and preparation to completion and shutdown.
 
     Everything else -- sessions, persistence, page attempts, generated pages,
     redraw, feature and shutdown state, and this lifecycle's own entry points --
@@ -115,6 +122,138 @@ class ScanLifecycle:
                 and self.active_scans.get(plan.context) is operation):
             self.active_scans.pop(plan.context, None)
         self.coordinator.plugin.input_lock.release()
+
+    def _prepare_scan_operation(self, action, operation, *, replace, regenerate):
+        context = session = token = None
+        source_action = cached_path = None
+        attempt_id = None
+        new_page = False
+        try:
+            context = self.coordinator.context(action)
+            session = self.coordinator.session(action)
+            new_page = scan_mode(action) == 'new_page'
+            if new_page and session.snapshot().status == 'scanning':
+                owns_scan = ScanOperation.action_presentation_is_active(
+                    action, context, session=session)
+                if not regenerate or not owns_scan:
+                    operation.complete()
+                    self.coordinator.show_action_error(action)
+                    return False
+            if new_page:
+                attempt_id = self.coordinator.begin_page_attempt(action)
+            automatic = [a for a in self.coordinator._attached_actions()
+                         if isinstance(a, self.automatic_type)
+                         and a.get_is_present()
+                         and self.coordinator.context(a) == context]
+            slots = [a.slot() for a in automatic]
+            filters = {slot: a.color_filter()
+                       for a, slot in zip(automatic, slots)
+                       if slot is not None}
+            if new_page:
+                if self.coordinator.temporary_pages is None:
+                    raise ValueError('Temporary pages are unavailable')
+                self.coordinator.temporary_pages.layout(action.deck_controller)
+                source_action = source_action_address(action)
+                filters = self.coordinator.slot_filters(context, session)
+                if regenerate:
+                    if session.snapshot().status == 'scanning':
+                        self.coordinator.cancel_context(context)
+                    cached_path = self.coordinator._restore_cached_session(
+                        context, source_action)
+            elif regenerate:
+                raise ValueError('Only page openers can regenerate a cache')
+            operation_image_settings = self.coordinator._operation_image_settings(action)
+            frozen_source_identity = source_identity(operation_image_settings)
+            image_source = operation_source(
+                operation_image_settings, allow_rescan=True)
+            if not new_page and any(slot is None for slot in slots):
+                log.warning(
+                    'Automatic slot position unavailable; choose an explicit slot')
+                self.coordinator.show_action_error(action)
+                operation.complete()
+                return False
+            token = session.begin(filters, replace=replace, transient=new_page)
+            if token is None:
+                if new_page:
+                    self.coordinator.finish_page_attempt(
+                        action, attempt_id, 'cancelled',
+                        'Scan already in progress')
+                operation.complete()
+                self.coordinator.show_action_error(action)
+                return False
+            if new_page:
+                self.coordinator.bind_page_attempt(action, attempt_id, session, token)
+            operation.bind_plan(ScanPlan(
+                context=context, session=session, token=token,
+                backend=normalize_capture_backend(operation_image_settings),
+                workers=scan_workers(
+                    self.coordinator.plugin.get_settings().get('scan_workers', 2)),
+                source_snapshot=frozen_source_identity,
+                image_source=image_source, source_action=source_action,
+                cached_path=cached_path,
+                scan_revision=session.snapshot().revision,
+                new_page=new_page, regenerate=regenerate,
+                attempt_id=attempt_id))
+            plan = operation.plan
+            operation.bind_presentation()
+            self.active_scans[plan.context] = operation
+            if not new_page:
+                self.coordinator.persist(action, session)
+            self.coordinator.redraw(context)
+            if not new_page and (not slots or len(slots) != len(set(slots))):
+                session.fail(token, 'Add uniquely numbered Automatic slots')
+                self.coordinator.persist(action, session)
+                self.coordinator.show_action_error(action)
+                operation.complete()
+                self.coordinator.redraw(context)
+                return False
+            return True
+        except CancelledError:
+            operation.cancel.set()
+            operation.setup_done.set()
+            if session is not None and token is not None and session.is_active(token):
+                transient = session.is_transient(token)
+                if transient:
+                    self.coordinator.finish_page_attempt(
+                        action, attempt_id, 'cancelled', 'Scan cancelled',
+                        session=session, token=token)
+                session.cancel()
+                if not transient:
+                    self.coordinator.persist_context(context, session)
+            operation.complete()
+        except Exception as error:
+            operation.cancel.set()
+            operation.setup_done.set()
+            if session is not None:
+                if new_page:
+                    if token is not None and session.is_active(token):
+                        session.fail(token, str(error))
+                    if attempt_id is not None:
+                        self.coordinator.finish_page_attempt(
+                            action, attempt_id, 'failed', error,
+                            session=session if token is not None else None,
+                            token=token)
+                else:
+                    if token is None and context is not None:
+                        try:
+                            token = session.begin(
+                                self.coordinator.slot_filters(context, session))
+                        except Exception:
+                            log.exception(
+                                'Unable to initialize failed stratagem scan state')
+                    if token is not None and session.is_active(token):
+                        session.fail(token, str(error))
+                    try:
+                        self.coordinator.persist_context(context, session)
+                    except Exception:
+                        log.exception(
+                            'Unable to persist failed stratagem scan setup')
+            log.exception('Unable to start stratagem scan')
+            operation.complete()
+            if context is not None:
+                self.coordinator.redraw(context)
+            self.coordinator.show_action_error(action)
+        return False
 
     def _apply_scan_result(self, action, operation, report, error, colors=None):
         plan = operation.plan
@@ -309,3 +448,64 @@ class ScanLifecycle:
             log.exception('Unable to queue stratagem scan result')
         finally:
             operation.complete()
+
+    def start(self, action, *, replace=False, regenerate=False):
+        if (self.coordinator.closed or not self.coordinator.enabled
+                or not action.get_is_present()):
+            return
+        if not self.coordinator.plugin.input_lock.acquire(blocking=False):
+            self.coordinator.show_action_error(action)
+            return
+        operation = ScanOperation(
+            action, continue_scan=not regenerate,
+            on_complete=self.coordinator._complete_scan_operation)
+        if not self.coordinator._prepare_scan_operation(
+                action, operation, replace=replace, regenerate=regenerate):
+            return
+        plan = operation.plan
+        try:
+            operation.bind_worker(Thread(
+                target=partial(self.coordinator._run_scan_worker, action, operation),
+                name='hd2-scan', daemon=True))
+            if (operation.cancel.is_set() or self.coordinator.closed
+                    or not self.coordinator.enabled
+                    or not action.get_is_present()
+                    or self.coordinator.context(action) != plan.context
+                    or not plan.session.is_active(plan.token)):
+                raise CancelledError()
+            operation.worker.start()
+            operation.mark_started()
+        except CancelledError:
+            operation.cancel.set()
+            operation.setup_done.set()
+            if plan.session.is_active(plan.token):
+                transient = plan.session.is_transient(plan.token)
+                if transient:
+                    self.coordinator.finish_page_attempt(
+                        action, plan.attempt_id, 'cancelled', 'Scan cancelled',
+                        session=plan.session, token=plan.token)
+                plan.session.cancel()
+                if not transient:
+                    self.coordinator.persist_context(plan.context, plan.session)
+            operation.complete()
+        except Exception as error:
+            operation.cancel.set()
+            operation.setup_done.set()
+            if plan.new_page:
+                if plan.session.is_active(plan.token):
+                    plan.session.fail(plan.token, str(error))
+                if plan.attempt_id is not None:
+                    self.coordinator.finish_page_attempt(
+                        action, plan.attempt_id, 'failed', error,
+                        session=plan.session, token=plan.token)
+            else:
+                if plan.session.is_active(plan.token):
+                    plan.session.fail(plan.token, str(error))
+                try:
+                    self.coordinator.persist_context(plan.context, plan.session)
+                except Exception:
+                    log.exception('Unable to persist failed stratagem scan setup')
+            log.exception('Unable to start stratagem scan')
+            operation.complete()
+            self.coordinator.redraw(plan.context)
+            self.coordinator.show_action_error(action)

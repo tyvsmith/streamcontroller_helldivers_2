@@ -23,9 +23,13 @@ class Action:
         self.context = context
         self.deck_controller = None if context is None else context[0]
         self.present = True
+        self.settings = {}
 
     def get_is_present(self):
         return self.present
+
+    def get_settings(self):
+        return self.settings
 
 
 class Automatic(Action):
@@ -36,10 +40,18 @@ class Automatic(Action):
     def slot(self):
         return self._slot
 
+    def color_filter(self):
+        return 'any'
+
 
 class InputLock:
     def __init__(self, events):
         self.events = events
+        self.busy = False
+
+    def acquire(self, blocking=True):
+        self.events.append('busy' if self.busy else 'acquire')
+        return not self.busy
 
     def release(self):
         self.events.append('release')
@@ -63,7 +75,7 @@ class Host:
     def __init__(self, mod, settings, events):
         self.plugin = types.SimpleNamespace(
             PATH='/plugin', stratagems={'A': ['UP'], 'B': ['DOWN']},
-            input_lock=InputLock(events))
+            input_lock=InputLock(events), get_settings=lambda: {})
         self.sessions = {}
         self.actions = set()
         self.closed = False
@@ -76,6 +88,10 @@ class Host:
         self._configured_filters = Mock(return_value=({}, False))
         self._operation_image_settings = Mock(return_value=settings)
         self._restore_cached_session = Mock(return_value=None)
+        self.begin_page_attempt = Mock(return_value=7)
+        self.bind_page_attempt = Mock(return_value=True)
+        self.temporary_pages = Mock()
+        self.automatic = []
         self.lifecycle = mod.ScanLifecycle(self, Automatic)
 
     @property
@@ -84,6 +100,19 @@ class Host:
 
     def context(self, action):
         return action.context
+
+    def session(self, action):
+        return self.sessions[action.context]
+
+    def _attached_actions(self):
+        return list(self.automatic)
+
+    def _prepare_scan_operation(self, action, operation, *, replace, regenerate):
+        return self.lifecycle._prepare_scan_operation(
+            action, operation, replace=replace, regenerate=regenerate)
+
+    def _run_scan_worker(self, action, operation):
+        return self.lifecycle._run_scan_worker(action, operation)
 
     def cancel_context(self, context):
         return self.lifecycle.cancel_context(context)
@@ -529,6 +558,205 @@ class CompletionAndShutdownTests(ScanLifecycleTestCase):
         self.assertEqual(inspect.signature(self.mod.ScanLifecycle.shutdown)
                          .parameters['timeout'].default, self.mod.SHUTDOWN_TIMEOUT_SECONDS)
         self.assertEqual(self.mod.MAIN_CONTEXT_TIMEOUT_SECONDS, 5)
+
+
+class EntryTests(ScanLifecycleTestCase):
+    """Starting and preparing a scan: every early exit ends with input released once."""
+
+    def update_setup(self):
+        session = self.assigned_session()
+        self.host.automatic = [Automatic(self.context, 1)]
+        return session
+
+    def page_setup(self):
+        session = self.assigned_session()
+        self.action.settings = {'scan_mode': 'new_page'}
+        return session
+
+    def page_token(self):
+        return self.host.bind_page_attempt.call_args.args[3]
+
+    def exception_messages(self):
+        return [call.args[0] for call in self.mod.log.exception.call_args_list]
+
+    def test_a_launch_binds_a_named_daemon_worker_before_starting_it(self):
+        session = self.update_setup()
+        thread = Mock()
+        with patch.object(self.mod, 'Thread', return_value=thread) as create:
+            self.lifecycle.start(self.action, replace=True)
+        target = create.call_args.kwargs['target']
+        self.assertEqual((create.call_args.kwargs['name'], create.call_args.kwargs['daemon']),
+                         ('hd2-scan', True))
+        self.assertEqual(target.func, self.host._run_scan_worker)
+        self.assertIs(target.args[0], self.action)
+        operation = target.args[1]
+        self.assertIs(operation.worker, thread)
+        thread.start.assert_called_once_with()
+        self.assertTrue(operation.started)
+        self.assertEqual(operation._on_complete, self.host._complete_scan_operation)
+        self.assertIs(self.host.active_scans[self.context], operation)
+        self.assertTrue(session.is_active(operation.plan.token))
+        self.host.persist.assert_called_once_with(self.action, session)
+        self.assertEqual(self.events, ['acquire'])
+
+    def test_regenerating_an_update_button_fails_its_setup(self):
+        session = self.update_setup()
+        with patch.object(self.mod, 'Thread') as create:
+            self.lifecycle.start(self.action, replace=True, regenerate=True)
+        create.assert_not_called()
+        self.assertEqual((session.snapshot().status, session.snapshot().message),
+                         ('failed', 'Only page openers can regenerate a cache'))
+        self.assertEqual(session.snapshot().assignments[1], 'A')
+        self.host.persist_context.assert_called_once_with(self.context, session)
+        self.host.show_action_error.assert_called_once_with(self.action)
+        self.assertEqual(self.exception_messages(), ['Unable to start stratagem scan'])
+        self.assertEqual(self.host.active_scans, {})
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def test_a_page_opener_refused_a_session_token_cancels_its_attempt(self):
+        session = self.page_setup()
+        with patch.object(session, 'begin', return_value=None), \
+             patch.object(self.mod, 'Thread') as create:
+            self.lifecycle.start(self.action, replace=True)
+        create.assert_not_called()
+        self.host.finish_page_attempt.assert_called_once_with(
+            self.action, 7, 'cancelled', 'Scan already in progress')
+        self.host.bind_page_attempt.assert_not_called()
+        self.host.show_action_error.assert_called_once_with(self.action)
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def test_cancellation_while_saving_a_prepared_scan_keeps_assignments(self):
+        session = self.update_setup()
+        self.host.persist.side_effect = CancelledError()
+        with patch.object(self.mod, 'Thread') as create:
+            self.lifecycle.start(self.action, replace=True)
+        create.assert_not_called()
+        self.assertNotEqual(session.snapshot().status, 'scanning')
+        self.assertEqual(session.snapshot().assignments[1], 'A')
+        self.host.persist_context.assert_called_once_with(self.context, session)
+        self.host.show_action_error.assert_not_called()
+        self.host.redraw.assert_not_called()
+        self.assertEqual(self.host.active_scans, {})
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def test_cancellation_while_drawing_a_prepared_page_scan_cancels_its_attempt(self):
+        session = self.page_setup()
+        self.host.redraw.side_effect = CancelledError()
+        with patch.object(self.mod, 'Thread') as create:
+            self.lifecycle.start(self.action, replace=True)
+        create.assert_not_called()
+        token = self.page_token()
+        self.assertFalse(session.is_active(token))
+        self.host.finish_page_attempt.assert_called_once_with(
+            self.action, 7, 'cancelled', 'Scan cancelled', session=session, token=token)
+        self.host.persist_context.assert_not_called()
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def test_a_setup_failure_without_a_failure_token_is_still_saved_and_shown(self):
+        session = self.update_setup()
+        self.host._operation_image_settings.side_effect = ValueError(
+            'Global screenshot settings changed')
+        self.host.slot_filters.side_effect = RuntimeError('filters unavailable')
+        with patch.object(self.mod, 'Thread') as create:
+            self.lifecycle.start(self.action, replace=True)
+        create.assert_not_called()
+        self.assertEqual(session.snapshot().status, 'ready')
+        self.assertEqual(self.exception_messages(),
+                         ['Unable to initialize failed stratagem scan state',
+                          'Unable to start stratagem scan'])
+        self.host.persist_context.assert_called_once_with(self.context, session)
+        self.host.redraw.assert_called_once_with(self.context)
+        self.host.show_action_error.assert_called_once_with(self.action)
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def test_a_setup_failure_that_cannot_be_saved_is_logged_and_shown(self):
+        session = self.update_setup()
+        self.host._operation_image_settings.side_effect = ValueError(
+            'Global screenshot settings changed')
+        self.host.persist_context.side_effect = OSError('disk full')
+        with patch.object(self.mod, 'Thread'):
+            self.lifecycle.start(self.action, replace=True)
+        self.assertEqual((session.snapshot().status, session.snapshot().message),
+                         ('failed', 'Global screenshot settings changed'))
+        self.assertEqual(self.exception_messages(),
+                         ['Unable to persist failed stratagem scan setup',
+                          'Unable to start stratagem scan'])
+        self.host.show_action_error.assert_called_once_with(self.action)
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def launch_cancelled(self):
+        thread = Mock()
+
+        def create(**_kwargs):
+            self.host.enabled = False
+            return thread
+
+        with patch.object(self.mod, 'Thread', side_effect=create):
+            self.lifecycle.start(self.action, replace=True)
+        return thread
+
+    def test_a_launch_cancelled_before_start_cancels_an_update_scan(self):
+        session = self.update_setup()
+        thread = self.launch_cancelled()
+        thread.start.assert_not_called()
+        self.assertNotEqual(session.snapshot().status, 'scanning')
+        self.assertEqual(session.snapshot().assignments[1], 'A')
+        self.host.persist_context.assert_called_once_with(self.context, session)
+        self.host.finish_page_attempt.assert_not_called()
+        self.host.show_action_error.assert_not_called()
+        self.assertEqual(self.host.active_scans, {})
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def test_a_launch_cancelled_before_start_cancels_a_page_attempt(self):
+        session = self.page_setup()
+        thread = self.launch_cancelled()
+        thread.start.assert_not_called()
+        token = self.page_token()
+        self.assertFalse(session.is_active(token))
+        self.host.finish_page_attempt.assert_called_once_with(
+            self.action, 7, 'cancelled', 'Scan cancelled', session=session, token=token)
+        self.host.persist_context.assert_not_called()
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def launch_failure(self):
+        thread = Mock()
+        thread.start.side_effect = RuntimeError('thread unavailable')
+        with patch.object(self.mod, 'Thread', return_value=thread):
+            self.lifecycle.start(self.action, replace=True)
+        return thread
+
+    def test_a_worker_that_cannot_start_fails_an_update_scan(self):
+        session = self.update_setup()
+        self.launch_failure()
+        self.assertEqual((session.snapshot().status, session.snapshot().message),
+                         ('failed', 'thread unavailable'))
+        self.host.persist_context.assert_called_once_with(self.context, session)
+        self.assertEqual(self.exception_messages(), ['Unable to start stratagem scan'])
+        self.host.show_action_error.assert_called_once_with(self.action)
+        self.assertEqual(self.host.redraw.call_args_list[-1].args, (self.context,))
+        self.assertEqual(self.host.active_scans, {})
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def test_a_worker_that_cannot_start_fails_a_page_attempt(self):
+        session = self.page_setup()
+        self.launch_failure()
+        token = self.page_token()
+        self.assertFalse(session.is_active(token))
+        attempt = self.host.finish_page_attempt.call_args
+        self.assertEqual(attempt.args[:3], (self.action, 7, 'failed'))
+        self.assertEqual(str(attempt.args[3]), 'thread unavailable')
+        self.assertEqual(attempt.kwargs, {'session': session, 'token': token})
+        self.host.persist_context.assert_not_called()
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def test_a_worker_start_failure_that_cannot_be_saved_is_logged(self):
+        self.update_setup()
+        self.host.persist_context.side_effect = OSError('disk full')
+        self.launch_failure()
+        self.assertEqual(self.exception_messages(),
+                         ['Unable to persist failed stratagem scan setup',
+                          'Unable to start stratagem scan'])
+        self.assertEqual(self.events, ['acquire', 'release'])
 
 
 if __name__ == '__main__':

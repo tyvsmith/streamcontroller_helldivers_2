@@ -213,7 +213,7 @@ class SandboxLifecycleTests(ActionTestHarness, unittest.TestCase):
             ]
 
         for replacement in (
-                patch.object(self.mod, "Thread", side_effect=thread),
+                patch.object(self.mod.scan_lifecycle, "Thread", side_effect=thread),
                 patch.object(self.mod.scan_lifecycle.GLib, "idle_add", side_effect=lambda callback, *args:
                              self.queued.put((callback, args)) or 1),
                 patch.dict(scan_runner_globals, {

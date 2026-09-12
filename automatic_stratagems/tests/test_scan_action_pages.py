@@ -126,7 +126,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         back.get_settings.return_value = {'group': 'HD2'}
         self.coordinator.back(back)
         queued = []
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={
                  'status': 'matched', 'rows': [{'id': 'B'}]}), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
@@ -136,7 +136,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
             self.assertNotIn(self.coordinator.context(second), self.coordinator.active_scans)
             presentation = second._scan_presentation
             self.assertTrue(presentation[1].is_active(presentation[2]))
-            with patch.object(self.mod, 'Thread') as blocked:
+            with patch.object(self.mod.scan_lifecycle, 'Thread') as blocked:
                 self.coordinator.start(first, replace=True, regenerate=True)
             blocked.assert_not_called()
             self.assertTrue(Path(first_path).exists())
@@ -191,7 +191,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.back(back)
         self.plugin.input_lock.acquire()
         try:
-            with patch.object(self.mod, 'Thread') as thread:
+            with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
                 self.coordinator.start(action, replace=True, regenerate=True)
             thread.assert_not_called()
         finally:
@@ -211,7 +211,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
             dict(deck='deck-one', page=path, group='HD2'))
         before = state.read_bytes()
 
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'check_scan_setup', create=True,
                           side_effect=RuntimeError('missing sandbox OCR')), \
              patch.object(self.mod.scan_lifecycle, 'run_scan') as scan, \
@@ -249,7 +249,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
             events.append(('scan', args, kwargs))
             return {'status': 'matched', 'rows': [{'id': 'A'}]}
 
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'check_scan_setup', create=True,
                           side_effect=preflight), \
              patch.object(self.coordinator, 'delete_cached_page',
@@ -308,7 +308,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
                 events.append(('delete', Path(old_path).exists(), {}))
             return discard(path)
 
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'check_scan_setup', side_effect=preflight), \
              patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=scan), \
              patch.object(self.coordinator.temporary_pages, 'discard',
@@ -361,7 +361,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
                 cancel_event=kwargs['cancel_event'])
             return report
 
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'check_scan_setup'), \
              patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=load_then_report), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
@@ -523,7 +523,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
     def test_global_screenshot_change_preserves_gamescope_cache_and_session(self):
         action, root = self.temporary_setup()
         pages = self.coordinator.temporary_pages
-        address = self.mod._source_action_address(action)
+        address = self.mod.scan_lifecycle.source_action_address(action)
         screenshot = pages.create(
             self.deck, self.page.json_path, 'HD2', 'auto', address)
         gamescope = pages.create(
@@ -553,7 +553,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         scan = self.temporary_scan_action(path)
         self.plugin_settings['screenshot_folder'] = str(root / 'other')
 
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan') as run:
             self.coordinator.start(scan, replace=True)
 
@@ -739,7 +739,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.back(back)
         with patch.object(self.coordinator.temporary_pages, 'discard',
                           side_effect=RuntimeError('delete failed')), \
-             patch.object(self.mod, 'Thread') as thread, \
+             patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'check_scan_setup'), \
              patch.object(self.mod.scan_lifecycle, 'run_scan') as scan, \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
@@ -769,7 +769,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.back(back)
         queued = []
         report = {'status': 'matched', 'rows': [{'id': 'B'}]}
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'check_scan_setup'), \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
@@ -862,7 +862,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
             self.mod.AutomaticStratagemPage,
             {'group': 'HD2', 'capture_backend': 'screenshot'})
         action.show_error = Mock()
-        with patch.object(self.mod, 'Thread') as thread:
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
             self.coordinator.start(action, replace=True)
         thread.assert_not_called()
         self.assertEqual(action._scan_attempt.status, 'failed')
@@ -892,7 +892,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
              'source': {'kind': 'live', 'backend': 'gamescope',
                         'socket': '/run/gamescope.sock'}},
         ]
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=reports), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args:
@@ -986,7 +986,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
                 cancel_event=kwargs['cancel_event'])
             return report
 
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=load_then_report) as run, \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: callback(*args)):
@@ -1048,7 +1048,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         automatic = self.page_actions[before]
         second = dict(first, mtime_ns=2, fingerprint='b' * 64)
 
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={
                  'status': 'matched', 'rows': [{'id': 'A'}],
                  'source': second}) as scan, \
@@ -1081,7 +1081,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         del page['keys'][scan_key]
         Path(path).write_text(json.dumps(page))
 
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan') as scan:
             self.coordinator.start(automatic, replace=True)
 
@@ -1102,7 +1102,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         scan_action['settings']['capture_backend'] = 'screenshot'
         Path(path).write_text(json.dumps(page))
 
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan') as scan:
             self.coordinator.start(automatic, replace=True)
 
@@ -1129,7 +1129,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         self.synchronous_scan(launcher, report)
         path = self.deck.active_page.json_path
         scan = self.temporary_scan_action(path)
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
             self.coordinator.start(scan)
@@ -1150,7 +1150,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
     def test_cancelled_launch_does_not_open_page_when_result_arrives(self):
         launcher, root = self.temporary_setup()
         report = {'status': 'matched', 'rows': [{'id': 'A'}]}
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
             self.coordinator.start(launcher)
@@ -1169,7 +1169,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         report = {'status': 'partial', 'rows': [{'id': 'A'}, {'id': None}]}
         session.finish(token, report, self.plugin.stratagems)
         self.assertIs(self.coordinator.session(launcher), session)
-        with patch.object(self.mod, 'Thread') as thread:
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
             self.coordinator.start(launcher)
             thread.assert_called_once()
         self.assertEqual(self.deck.active_page.json_path, self.page.json_path)
@@ -1233,7 +1233,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         source = self.coordinator.session(launcher)
         token = source.begin([1])
         source.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
-        with patch.object(self.mod, 'Thread') as thread:
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
             self.coordinator.start(launcher, replace=True, regenerate=True)
             thread.assert_called_once()
         self.assertEqual(source.snapshot().status, 'scanning')
@@ -1279,7 +1279,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
 
         path = self.coordinator.temporary_pages.create(
             self.deck, self.page.json_path, 'HD2', 'auto',
-            self.mod._source_action_address(action),
+            self.mod.scan_lifecycle.source_action_address(action),
             image_settings=self.mod._image_page_settings(action))
         action.render()
         self.assertEqual(self.coordinator.session(action).snapshot().revision, revision)
@@ -1337,7 +1337,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         launcher, root = self.temporary_setup()
         queued = []
         report = {'status': 'matched', 'rows': [{'id': 'A'}]}
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: queued.append((callback, args)) or 1):

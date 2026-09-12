@@ -284,7 +284,7 @@ class ActionRenderingTests(ActionTestHarness, unittest.TestCase):
             action.on_ready_called = True
             self.coordinator.actions.add(action)
 
-        with patch.object(self.mod, 'Thread'):
+        with patch.object(self.mod.scan_lifecycle, 'Thread'):
             self.coordinator.start(initiator, replace=True)
         initiator.render(); other.render(); automatic.render()
 
@@ -302,7 +302,7 @@ class ActionRenderingTests(ActionTestHarness, unittest.TestCase):
             action.on_ready_called = True
             self.coordinator.actions.add(action)
 
-        with patch.object(self.mod, 'Thread'):
+        with patch.object(self.mod.scan_lifecycle, 'Thread'):
             self.coordinator.start(initiator, replace=True)
         initiator.render(); other.render()
 
@@ -318,7 +318,7 @@ class ActionRenderingTests(ActionTestHarness, unittest.TestCase):
             registered.on_ready_called = True
             self.coordinator.actions.add(registered)
         queued = []
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan',
                           return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
@@ -352,7 +352,7 @@ class ActionRenderingTests(ActionTestHarness, unittest.TestCase):
             action.show_error = Mock()
             action.on_ready_called = True
             self.coordinator.actions.add(action)
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={
                  'status': 'no_detections', 'rows': []}), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
@@ -499,7 +499,7 @@ class ActionRenderingTests(ActionTestHarness, unittest.TestCase):
         slot = self.rendering_action(self.mod.AutomaticStratagem)
         slot.on_ready_called = True
         self.coordinator.actions.add(slot)
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
             self.coordinator.start(action, replace=True)

@@ -17,7 +17,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
                          {'automatic_stratagems_enabled': 'true'}):
             self.plugin.get_settings = lambda: settings
             self.assertFalse(self.coordinator.enabled)
-            with patch.object(self.mod, 'Thread') as thread:
+            with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
                 self.coordinator.start(self.action())
                 thread.assert_not_called()
             self.assertFalse(self.plugin.input_lock.locked())
@@ -49,7 +49,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.actions.add(action)
         action.on_ready_called = True
         session = self.coordinator.session(action)
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'catalog_colors', return_value={}), \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={'status':'matched', 'rows':[{'id':'A'}]}), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f,*args:f(*args)):
@@ -77,7 +77,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
 
     def test_busy_input_does_not_launch_scanner(self):
         a=self.action(); other=self.action(); self.plugin.input_lock.acquire()
-        with patch.object(self.mod,'Thread') as thread:
+        with patch.object(self.mod.scan_lifecycle,'Thread') as thread:
             self.coordinator.start(a)
             thread.assert_not_called()
         a.show_error.assert_called_once_with(duration=3)
@@ -90,7 +90,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         session = self.coordinator.session(action)
         session.begin({1: 'any'})
 
-        with patch.object(self.mod, 'Thread') as thread:
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
             self.coordinator.start(action)
 
         thread.assert_not_called()
@@ -108,7 +108,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
 
         action.get_settings.side_effect = None
         action.get_settings.return_value = {'slot': 1}
-        with patch.object(self.mod, 'Thread') as thread:
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
             self.coordinator.start(action)
         thread.assert_called_once()
         self.assertTrue(self.plugin.input_lock.locked())
@@ -125,7 +125,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         action = self.action()
         thread = Mock()
         thread.start.side_effect = RuntimeError('thread unavailable')
-        with patch.object(self.mod, 'Thread', return_value=thread):
+        with patch.object(self.mod.scan_lifecycle, 'Thread', return_value=thread):
             self.coordinator.start(action)
         self.assertFalse(self.plugin.input_lock.locked())
         self.assertEqual(self.coordinator.session(action).snapshot().status, 'failed')
@@ -135,7 +135,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         action.render = Mock()
         action.on_ready_called = True
         self.coordinator.actions.add(action)
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=RuntimeError('queue closed')):
             self.coordinator.start(action, replace=True)
@@ -226,7 +226,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
                 self.assertTrue(child_pid.exists())
                 self.assertTrue(self.coordinator.shutdown())
                 self.assertFalse(self.plugin.input_lock.locked())
-                with patch.object(self.mod, 'Thread') as thread:
+                with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
                     self.coordinator.start(action, replace=True)
                 thread.assert_not_called()
             pid = int(child_pid.read_text())
@@ -260,7 +260,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
 
         scanner_thread = Mock()
         with patch.object(self.coordinator, 'persist', side_effect=blocked_persist), \
-             patch.object(self.mod, 'Thread', return_value=scanner_thread):
+             patch.object(self.mod.scan_lifecycle, 'Thread', return_value=scanner_thread):
             setup = threading.Thread(target=self.coordinator.start, args=(action,),
                                      kwargs={'replace': True})
             setup.start()
@@ -290,7 +290,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         scanner_thread = Mock()
         result = []
         with patch.object(self.coordinator, 'persist', side_effect=blocked_persist), \
-             patch.object(self.mod, 'Thread', return_value=scanner_thread):
+             patch.object(self.mod.scan_lifecycle, 'Thread', return_value=scanner_thread):
             setup = threading.Thread(target=self.coordinator.start, args=(action,),
                                      kwargs={'replace': True})
             setup.start()
@@ -366,7 +366,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         slot.on_ready_called=True; slot.render=Mock()
         self.coordinator.actions.add(slot)
         report={'status':'matched','rows':[{'id':'A'}]}
-        with patch.object(self.mod,'Thread') as thread, patch.object(self.mod.scan_lifecycle,'run_scan',return_value=report) as scan, patch.object(self.mod.scan_lifecycle.GLib,'idle_add',side_effect=lambda f,*args:f(*args)):
+        with patch.object(self.mod.scan_lifecycle,'Thread') as thread, patch.object(self.mod.scan_lifecycle,'run_scan',return_value=report) as scan, patch.object(self.mod.scan_lifecycle.GLib,'idle_add',side_effect=lambda f,*args:f(*args)):
             thread.side_effect=lambda **kw: types.SimpleNamespace(start=kw['target'])
             self.coordinator.start(a)
             scan.assert_called_once_with('/tmp/plugin', backend='gamescope', workers=2,
@@ -387,7 +387,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         slot.on_ready_called=True; slot.render=Mock()
         self.coordinator.actions.add(slot)
         s=self.coordinator.session(a); t=s.begin([1]); s.finish(t,{'status':'matched','rows':[{'id':'A'}]},self.plugin.stratagems)
-        with patch.object(self.mod,'Thread') as thread, patch.object(self.mod.scan_lifecycle,'run_scan',side_effect=ValueError('Focus game')), patch.object(self.mod.scan_lifecycle.GLib,'idle_add',side_effect=lambda f,*args:f(*args)):
+        with patch.object(self.mod.scan_lifecycle,'Thread') as thread, patch.object(self.mod.scan_lifecycle,'run_scan',side_effect=ValueError('Focus game')), patch.object(self.mod.scan_lifecycle.GLib,'idle_add',side_effect=lambda f,*args:f(*args)):
             thread.side_effect=lambda **kw: types.SimpleNamespace(start=kw['target'])
             self.coordinator.start(a)
         self.assertEqual(s.snapshot().status,'failed')
@@ -413,7 +413,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         }
         report = {'status': 'no_detections', 'rows': [], 'source': metadata}
 
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report) as scan, \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: callback(*args)):
@@ -447,7 +447,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
                        'size_bytes': 456, 'fingerprint': 'a' * 64},
         }
         queued = []
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args:

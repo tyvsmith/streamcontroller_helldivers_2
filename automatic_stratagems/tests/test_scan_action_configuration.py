@@ -270,7 +270,7 @@ class ActionConfigurationTests(ActionTestHarness, unittest.TestCase):
 
         self.assertEqual(earlier.slot(), 1)
         self.assertEqual(later.slot(), 2)
-        with patch.object(self.mod, 'Thread') as thread:
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
             self.coordinator.start(later, replace=True)
         thread.assert_called_once()
         self.assertEqual(
@@ -291,7 +291,7 @@ class ActionConfigurationTests(ActionTestHarness, unittest.TestCase):
         action.render()
         self.assertEqual(action.set_center_label.call_args.args[0], '?')
         with patch.object(self.mod, 'execute_stratagem') as execute, \
-             patch.object(self.mod, 'Thread') as thread:
+             patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
             action.on_key_down()
             action.on_key_short_up()
 
@@ -307,7 +307,7 @@ class ActionConfigurationTests(ActionTestHarness, unittest.TestCase):
         unresolved.show_error = Mock()
         self.coordinator.actions.update((scanner, unresolved))
 
-        with patch.object(self.mod, 'Thread') as thread:
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
             self.coordinator.start(scanner, replace=True)
 
         thread.assert_not_called()
@@ -404,7 +404,7 @@ class ActionConfigurationTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.actions.add(action)
 
         self.assertEqual(action.slot(), 7)
-        with patch.object(self.mod, 'Thread') as thread:
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
             self.coordinator.start(action, replace=True)
 
         thread.assert_called_once()
@@ -701,8 +701,8 @@ class ActionConfigurationTests(ActionTestHarness, unittest.TestCase):
         token = session.begin({1: 'any', 2: 'any'})
         session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]},
                        self.plugin.stratagems)
-        with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=self.mod.CancelledError):
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
+             patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=self.mod.scan_lifecycle.CancelledError):
             self.coordinator.start(scanner, replace=True)
             operation = self.coordinator.active_scans[self.coordinator.context(scanner)]
             self.coordinator.remove_action(first)

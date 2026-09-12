@@ -41,7 +41,7 @@ class ActionTestHarness:
 
     def operation_source(self, action, *, allow_rescan=False):
         settings = self.coordinator._operation_image_settings(action)
-        return self.mod.operation_source(
+        return self.mod.scan_lifecycle.operation_source(
             settings, allow_rescan=allow_rescan)
 
     def wait_for_input_release(self):
@@ -167,7 +167,7 @@ class ActionTestHarness:
 
     def synchronous_scan(self, action, report=None, error=None, *, replace=False,
                          regenerate=False):
-        with patch.object(self.mod, 'Thread') as thread, \
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'check_scan_setup'), \
              patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report, side_effect=error), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):

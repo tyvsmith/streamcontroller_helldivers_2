@@ -106,7 +106,7 @@ class ReplayLifecycleTests(ActionTestHarness, unittest.TestCase):
                 profile='native', runtime_root=None)),
             patch.object(scan_runner, 'scan_command', return_value=command),
             patch.object(scan_runner.subprocess, 'Popen', side_effect=launch),
-            patch.object(self.mod, 'Thread', side_effect=thread),
+            patch.object(self.mod.scan_lifecycle, 'Thread', side_effect=thread),
             patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=scan_runner.run_scan),
             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                          side_effect=lambda callback, *args: self.queued.put((callback, args)) or 1),
@@ -150,7 +150,7 @@ class ReplayLifecycleTests(ActionTestHarness, unittest.TestCase):
         self.assertEqual(json.loads(self.source.read_text()), {'keys': {}})
 
     def test_cancel_reaps_scanner_and_preserves_existing_cached_page(self):
-        address = self.mod._source_action_address(self.opener)
+        address = self.mod.scan_lifecycle.source_action_address(self.opener)
         cached = self.pages.create(self.deck, str(self.source), 'default', 'auto', address)
         identity = dict(deck=self.deck.serial_number(), page=cached, group='default')
         state = ScanSession()
