@@ -423,6 +423,46 @@ class CaptureBackendsTests(unittest.TestCase):
         with self.assertRaisesRegex(cb.ScanError, 'Multiple'):
             cb.wait_frame(lambda: [Path('a'), Path('b')])
 
+    @staticmethod
+    def frame_metadata(size, mtime_ns=10):
+        return type('Metadata', (), {
+            'st_mode': 0o100600, 'st_dev': 1, 'st_ino': 2,
+            'st_size': size, 'st_mtime_ns': mtime_ns})()
+
+    def test_wait_frame_keeps_polling_through_unstatable_candidates(self):
+        candidate = unittest.mock.MagicMock()
+        frame = self.frame_metadata(3)
+        candidate.stat.side_effect = [OSError('gone'), ValueError('bad'),
+                                      frame, frame]
+        with patch.object(cb.time, 'sleep'), \
+             patch.object(cb, 'read_frame', return_value='image') as read:
+            self.assertEqual(cb.wait_frame(lambda: [candidate]),
+                             ('image', candidate))
+        self.assertEqual(candidate.stat.call_count, 4)
+        read.assert_called_once_with(candidate)
+
+    def test_wait_frame_remembers_empty_stamps_without_reading_them(self):
+        candidate = unittest.mock.MagicMock()
+        candidate.stat.side_effect = [
+            self.frame_metadata(3), self.frame_metadata(0),
+            self.frame_metadata(3), self.frame_metadata(3)]
+        with patch.object(cb.time, 'sleep'), \
+             patch.object(cb, 'read_frame', return_value='image') as read:
+            cb.wait_frame(lambda: [candidate])
+        self.assertEqual(candidate.stat.call_count, 4)
+        read.assert_called_once_with(candidate)
+
+    def test_wait_frame_read_failure_keeps_polling_the_same_frame(self):
+        candidate = unittest.mock.MagicMock()
+        candidate.stat.return_value = self.frame_metadata(3)
+        with patch.object(cb.time, 'sleep'), \
+             patch.object(cb, 'read_frame',
+                          side_effect=[OSError('close failed'), 'image']) as read:
+            self.assertEqual(cb.wait_frame(lambda: [candidate]),
+                             ('image', candidate))
+        self.assertEqual(candidate.stat.call_count, 3)
+        self.assertEqual(read.call_count, 2)
+
     def test_growing_screenshot_is_bounded(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'growing.png'

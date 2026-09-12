@@ -126,6 +126,21 @@ class FlatpakGamescopeTests(unittest.TestCase):
                                              'encoded image limit'):
                 gf._wait_stable(symlink, time.monotonic() + .02)
 
+    def test_stable_wait_skips_empty_and_unreadable_observations(self):
+        def metadata(size):
+            return type('Metadata', (), {
+                'st_mode': 0o100600, 'st_dev': 1, 'st_ino': 2,
+                'st_size': size, 'st_mtime_ns': 10})()
+
+        path = unittest.mock.MagicMock()
+        path.is_symlink.return_value = False
+        path.lstat.side_effect = [metadata(5), OSError('gone'), metadata(0),
+                                  metadata(5)]
+        with patch.object(gf.time, 'sleep'):
+            stamp = gf._wait_stable(path, time.monotonic() + 5)
+        self.assertEqual(stamp, (1, 2, 5, 10))
+        self.assertEqual(path.lstat.call_count, 4)
+
     def test_frame_copy_handles_short_writes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

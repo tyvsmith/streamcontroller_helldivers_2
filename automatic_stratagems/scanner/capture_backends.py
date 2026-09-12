@@ -1,6 +1,5 @@
 """Capture Helldivers through its uniquely associated Gamescope socket."""
 
-from concurrent.futures import CancelledError
 from itertools import islice
 import os
 from pathlib import Path
@@ -9,6 +8,9 @@ import time
 
 from .game_capture import (MAX_ENCODED_IMAGE_BYTES, ScanError, decode_image,
                            remaining_timeout)
+from ..shared.fs import check_cancel as _check_cancel
+from ..shared.fs import (check_deadline, file_stamp, poll_deadline,
+                         wait_for_stable_stamp)
 
 
 BACKENDS = ('auto', 'gamescope', 'screenshot')
@@ -33,8 +35,7 @@ def read_frame(path):
         if len(encoded) > MAX_ENCODED_IMAGE_BYTES:
             raise ScanError('Screenshot encoded image is too large.')
         after = os.fstat(descriptor)
-        if ((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) !=
-                (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)):
+        if file_stamp(before) != file_stamp(after):
             raise ScanError('Screenshot changed while it was being read.')
         return decode_image(encoded, 'Screenshot')
     except OSError as error:
@@ -45,28 +46,31 @@ def read_frame(path):
 
 
 def wait_frame(paths, timeout=5, cancel_event=None, deadline=None):
-    frame_deadline = time.monotonic() + timeout
-    if deadline is not None:
-        frame_deadline = min(frame_deadline, deadline)
-    stable = {}
-    while time.monotonic() < frame_deadline:
-        _check_cancel(cancel_event)
+    frame_deadline = poll_deadline(timeout, deadline)
+
+    def probe():
         candidates = list(islice(iter(paths()), 2))
         if len(candidates) > 1:
             raise ScanError('Multiple new screenshots; cannot identify this capture.')
         for path in candidates:
             try:
                 metadata = path.stat()
-                stamp = (metadata.st_dev, metadata.st_ino,
-                         metadata.st_size, metadata.st_mtime_ns)
-                if stable.get(path) == stamp and metadata.st_size:
-                    return read_frame(path), path
-                stable[path] = stamp
+                return path, file_stamp(metadata), bool(metadata.st_size)
             except (OSError, ValueError):
                 pass
-        remaining = frame_deadline - time.monotonic()
-        if remaining > 0:
-            time.sleep(min(.1, remaining))
+        return None
+
+    def read(path, _stamp):
+        # A failed read keeps polling, exactly like a failed stat.
+        try:
+            return read_frame(path), path
+        except (OSError, ValueError):
+            return None
+
+    frame = wait_for_stable_stamp(probe, frame_deadline, interval=.1,
+                                  cancel_event=cancel_event, accept=read)
+    if frame is not None:
+        return frame
     _check_cancel(cancel_event)
     if deadline is not None and time.monotonic() >= deadline:
         raise ScanError('Scanner work deadline exhausted while waiting for screenshot.')
@@ -139,14 +143,8 @@ def capture_issue(image, backend):
     return None
 
 
-def _check_cancel(cancel_event):
-    if cancel_event is not None and cancel_event.is_set():
-        raise CancelledError()
-
-
 def _check_deadline(deadline):
-    if deadline is not None and time.monotonic() >= deadline:
-        raise ScanError('Scanner work deadline exhausted.')
+    check_deadline(deadline, lambda: ScanError('Scanner work deadline exhausted.'))
 
 
 def _capture_attempt(backend, recognize, screenshot, save_attempt, prepare,

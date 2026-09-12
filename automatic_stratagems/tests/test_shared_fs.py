@@ -1,11 +1,14 @@
 """Shared stdlib-only filesystem primitives used by every execution context."""
 
+from concurrent.futures import CancelledError
 import os
 from pathlib import Path
 import stat
 import tempfile
+import threading
+from types import SimpleNamespace
 import unittest
-from unittest.mock import call, patch
+from unittest.mock import Mock, patch
 
 from automatic_stratagems.shared import fs
 
@@ -258,6 +261,194 @@ class ReadBoundedStreamTests(unittest.TestCase):
         with self.assertRaisesRegex(OSError, 'pipe broke'):
             fs.read_bounded_stream(stream, 10, 'stdout', bytearray(), [])
         self.assertTrue(stream.closed)
+
+
+def stat_metadata(**changes):
+    values = {'st_dev': 1, 'st_ino': 2, 'st_mode': stat.S_IFREG | 0o644,
+              'st_size': 3, 'st_mtime_ns': 4, 'st_ctime_ns': 5}
+    values.update(changes)
+    return SimpleNamespace(**values)
+
+
+class FileStampTests(unittest.TestCase):
+    def test_file_stamp_is_device_inode_size_and_mtime(self):
+        self.assertEqual(fs.file_stamp(stat_metadata()), (1, 2, 3, 4))
+
+    def test_typed_file_stamp_adds_the_file_type_before_size(self):
+        self.assertEqual(fs.typed_file_stamp(stat_metadata()),
+                         (1, 2, stat.S_IFREG, 3, 4))
+
+    def test_typed_file_stamp_with_ctime_adds_ctime_last(self):
+        self.assertEqual(fs.typed_file_stamp_with_ctime(stat_metadata()),
+                         (1, 2, stat.S_IFREG, 3, 4, 5))
+
+    def test_each_stamp_ignores_exactly_the_fields_it_omits(self):
+        base = stat_metadata()
+        chmodded = stat_metadata(st_mode=stat.S_IFREG | 0o600, st_ctime_ns=6)
+        retyped = stat_metadata(st_mode=stat.S_IFDIR | 0o644)
+        self.assertEqual(fs.file_stamp(retyped), fs.file_stamp(base))
+        self.assertEqual(fs.typed_file_stamp(chmodded), fs.typed_file_stamp(base))
+        self.assertNotEqual(fs.typed_file_stamp(retyped), fs.typed_file_stamp(base))
+        self.assertNotEqual(fs.typed_file_stamp_with_ctime(chmodded),
+                            fs.typed_file_stamp_with_ctime(base))
+        for field, value in (('st_dev', 9), ('st_ino', 9), ('st_size', 9),
+                             ('st_mtime_ns', 9)):
+            changed = stat_metadata(**{field: value})
+            with self.subTest(field=field):
+                self.assertNotEqual(fs.file_stamp(changed), fs.file_stamp(base))
+
+    def test_stamps_accept_real_stat_results(self):
+        with tempfile.NamedTemporaryFile() as stream:
+            metadata = os.stat(stream.name)
+        self.assertEqual(fs.typed_file_stamp_with_ctime(metadata), (
+            metadata.st_dev, metadata.st_ino, stat.S_IFREG, metadata.st_size,
+            metadata.st_mtime_ns, metadata.st_ctime_ns))
+
+
+class Expired(Exception):
+    pass
+
+
+class GuardTests(unittest.TestCase):
+    def test_cancel_check_raises_only_for_a_set_event(self):
+        event = threading.Event()
+        fs.check_cancel(None)
+        fs.check_cancel(event)
+        event.set()
+        with self.assertRaises(CancelledError):
+            fs.check_cancel(event)
+
+    def test_deadline_check_raises_the_factory_error_at_or_after_the_deadline(self):
+        error = Expired('deadline exhausted')
+        with patch.object(fs.time, 'monotonic', return_value=5.0):
+            for deadline in (4.0, 5.0):
+                with self.subTest(deadline=deadline), \
+                        self.assertRaises(Expired) as caught:
+                    fs.check_deadline(deadline, lambda: error)
+                self.assertIs(caught.exception, error)
+
+    def test_deadline_check_never_builds_the_error_before_the_deadline(self):
+        expired = Mock(side_effect=AssertionError('built too early'))
+        with patch.object(fs.time, 'monotonic', return_value=5.0) as monotonic:
+            fs.check_deadline(None, expired)
+            monotonic.assert_not_called()
+            fs.check_deadline(5.5, expired)
+        expired.assert_not_called()
+
+    def test_poll_deadline_caps_the_wait_at_the_work_deadline(self):
+        with patch.object(fs.time, 'monotonic', return_value=10.0) as monotonic:
+            self.assertEqual(fs.poll_deadline(5, None), 15.0)
+            self.assertEqual(fs.poll_deadline(5, 12.0), 12.0)
+            self.assertEqual(fs.poll_deadline(5, 20.0), 15.0)
+        self.assertEqual(monotonic.call_count, 3)
+
+
+class Clock:
+    def __init__(self):
+        self.now = 0
+        self.reads = 0
+        self.sleeps = []
+
+    def monotonic(self):
+        self.reads += 1
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+class WaitForStableStampTests(unittest.TestCase):
+    def setUp(self):
+        self.clock = Clock()
+        for name in ('monotonic', 'sleep'):
+            patcher = patch.object(fs.time, name, side_effect=getattr(self.clock, name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def probe(*observations):
+        return Mock(side_effect=list(observations))
+
+    def test_returns_the_stamp_after_two_equal_ready_observations(self):
+        probe = self.probe(('path', 'A', True), ('path', 'A', True))
+        self.assertEqual(fs.wait_for_stable_stamp(probe, 100, interval=10), 'A')
+        self.assertEqual(probe.call_count, 2)
+        self.assertEqual(self.clock.sleeps, [10])
+        self.assertEqual(self.clock.reads, 3)
+
+    def test_changing_stamp_keeps_waiting(self):
+        probe = self.probe(('path', 'A', True), ('path', 'B', True),
+                           ('path', 'B', True))
+        self.assertEqual(fs.wait_for_stable_stamp(probe, 100, interval=10), 'B')
+        self.assertEqual(probe.call_count, 3)
+
+    def test_unready_stamps_are_remembered_but_never_accepted(self):
+        probe = self.probe(('path', 'A', True), ('path', 'B', False),
+                           ('path', 'B', False), ('path', 'A', True),
+                           ('path', 'A', True))
+        self.assertEqual(fs.wait_for_stable_stamp(probe, 100, interval=10), 'A')
+        self.assertEqual(probe.call_count, 5)
+
+    def test_no_observation_keeps_the_remembered_stamp(self):
+        probe = self.probe(('path', 'A', True), None, ('path', 'A', True))
+        self.assertEqual(fs.wait_for_stable_stamp(probe, 100, interval=10), 'A')
+        self.assertEqual(probe.call_count, 3)
+
+    def test_stamps_are_remembered_per_key(self):
+        probe = self.probe(('a', 'S', True), ('b', 'S', True), ('a', 'S', True))
+        self.assertEqual(
+            fs.wait_for_stable_stamp(probe, 100, interval=10,
+                                     accept=lambda key, stamp: (key, stamp)),
+            ('a', 'S'))
+        self.assertEqual(probe.call_count, 3)
+
+    def test_accept_result_is_returned_and_none_keeps_polling(self):
+        probe = self.probe(*[('path', 'A', True)] * 3)
+        accept = Mock(side_effect=[None, 'frame'])
+        self.assertEqual(
+            fs.wait_for_stable_stamp(probe, 100, interval=10, accept=accept),
+            'frame')
+        self.assertEqual(probe.call_count, 3)
+        self.assertEqual(accept.call_args_list, [(('path', 'A'),)] * 2)
+
+    def test_returns_none_at_the_end_without_sleeping_past_it(self):
+        probe = self.probe(('path', 'A', True), ('path', 'B', True),
+                           ('path', 'C', True))
+        self.assertIsNone(fs.wait_for_stable_stamp(probe, 25, interval=10))
+        self.assertEqual(probe.call_count, 3)
+        self.assertEqual(self.clock.sleeps, [10, 10, 5])
+
+    def test_expired_end_never_probes(self):
+        self.clock.now = 30
+        probe = self.probe()
+        self.assertIsNone(fs.wait_for_stable_stamp(probe, 25, interval=10))
+        probe.assert_not_called()
+        self.assertEqual(self.clock.sleeps, [])
+
+    def test_cancel_is_checked_before_every_probe(self):
+        event = threading.Event()
+        event.set()
+        probe = self.probe()
+        with self.assertRaises(CancelledError):
+            fs.wait_for_stable_stamp(probe, 100, interval=10, cancel_event=event)
+        probe.assert_not_called()
+
+        event.clear()
+        probe = Mock(side_effect=lambda: event.set())
+        with self.assertRaises(CancelledError):
+            fs.wait_for_stable_stamp(probe, 100, interval=10, cancel_event=event)
+        self.assertEqual(probe.call_count, 1)
+
+    def test_probe_and_accept_errors_propagate(self):
+        with self.assertRaisesRegex(ValueError, 'probe failed'):
+            fs.wait_for_stable_stamp(Mock(side_effect=ValueError('probe failed')),
+                                     100, interval=10)
+        probe = self.probe(('path', 'A', True), ('path', 'A', True))
+        with self.assertRaisesRegex(OSError, 'accept failed'):
+            fs.wait_for_stable_stamp(
+                probe, 100, interval=10,
+                accept=Mock(side_effect=OSError('accept failed')))
 
 
 if __name__ == '__main__':

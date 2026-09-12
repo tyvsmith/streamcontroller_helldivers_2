@@ -9,6 +9,10 @@ import stat
 import threading
 import time
 
+from ..shared.fs import check_cancel as _check_cancel
+from ..shared.fs import typed_file_stamp_with_ctime as _metadata_snapshot
+from ..shared.fs import check_deadline, poll_deadline
+
 
 MAX_CONFIG_STRING = 8192
 MAX_DIRECTORY_ENTRIES = 4096
@@ -29,14 +33,8 @@ def _scan_error(message, cause=None):
     return error
 
 
-def _check_cancel(cancel_event):
-    if cancel_event is not None and cancel_event.is_set():
-        raise CancelledError()
-
-
 def _check_deadline(deadline):
-    if deadline is not None and time.monotonic() >= deadline:
-        raise _scan_error("Scanner work deadline exhausted.")
+    check_deadline(deadline, lambda: _scan_error("Scanner work deadline exhausted."))
 
 
 def _absolute(value, name):
@@ -297,11 +295,6 @@ def _capture_hotkey(config, receive, cancel_event=None, deadline=None):
         raise _scan_error(f"Screenshot hotkey failed: {error}", error)
 
 
-def _metadata_snapshot(metadata):
-    return (metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode),
-            metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns)
-
-
 def _directory_snapshot(directory, cancel_event=None, deadline=None):
     _check_cancel(cancel_event)
     _check_deadline(deadline)
@@ -525,9 +518,7 @@ def _wait_for_screenshot(config, selection, before, cancel_event=None,
     source = Path(config["path"])
     (directory, root_identity, old_entries, old_fingerprint,
      steam_snapshot) = before
-    end = time.monotonic() + WAIT_SECONDS
-    if deadline is not None:
-        end = min(end, deadline)
+    end = poll_deadline(WAIT_SECONDS, deadline)
     last_error = None
     while time.monotonic() < end:
         _check_cancel(cancel_event)

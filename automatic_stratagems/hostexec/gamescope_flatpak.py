@@ -17,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from automatic_stratagems.hostexec.host_metadata import (
     validate_flatpak_gamescope_target)
-from automatic_stratagems.shared.fs import fsync_directory, write_all
+from automatic_stratagems.shared.fs import (
+    file_stamp, fsync_directory, wait_for_stable_stamp, write_all)
 from automatic_stratagems.shared.gamescope_target import (
     FlatpakGamescopeTarget, HostMetadataError, RECORD_NAME)
 from automatic_stratagems.shared.host_job import HostJob, validate_job
@@ -137,26 +138,25 @@ def _read_record(path):
 
 
 def _wait_stable(path, deadline):
-    stable = None
-    while time.monotonic() < deadline:
+    def probe():
         try:
             metadata = path.lstat()
-            stamp = (metadata.st_dev, metadata.st_ino, metadata.st_size,
-                     metadata.st_mtime_ns)
             if (stat.S_ISREG(metadata.st_mode) and not path.is_symlink() and
                     metadata.st_size > MAX_ENCODED_IMAGE_BYTES):
                 raise FlatpakGamescopeError(
                     'Gamescope screenshot exceeds the encoded image limit.')
             if (stat.S_ISREG(metadata.st_mode) and not path.is_symlink() and
                     metadata.st_size > 0):
-                if stamp == stable:
-                    return stamp
-                stable = stamp
+                return path, file_stamp(metadata), True
         except OSError:
             pass
-        time.sleep(min(.05, max(0, deadline - time.monotonic())))
-    raise FlatpakGamescopeError(
-        'Gamescope did not create a complete screenshot before the deadline.')
+        return None
+
+    stamp = wait_for_stable_stamp(probe, deadline, interval=.05)
+    if stamp is None:
+        raise FlatpakGamescopeError(
+            'Gamescope did not create a complete screenshot before the deadline.')
+    return stamp
 
 
 def _copy_frame(source, output, expected):
@@ -166,8 +166,7 @@ def _copy_frame(source, output, expected):
     try:
         source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
         metadata = os.fstat(source_fd)
-        if ((metadata.st_dev, metadata.st_ino, metadata.st_size,
-             metadata.st_mtime_ns) != expected or
+        if (file_stamp(metadata) != expected or
                 not stat.S_ISREG(metadata.st_mode)):
             raise FlatpakGamescopeError('Gamescope screenshot identity changed.')
         output_fd = os.open(
@@ -189,8 +188,7 @@ def _copy_frame(source, output, expected):
             raise FlatpakGamescopeError(
                 'Gamescope screenshot ended before its recorded size.')
         after = os.fstat(source_fd)
-        if ((after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) !=
-                expected):
+        if file_stamp(after) != expected:
             raise FlatpakGamescopeError(
                 'Gamescope screenshot changed while it was copied.')
         os.fsync(output_fd)

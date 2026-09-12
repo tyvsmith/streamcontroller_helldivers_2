@@ -1,6 +1,5 @@
 """Bounded, stable PNG/JPEG loading for configured file and folder sources."""
 
-from concurrent.futures import CancelledError
 import hashlib
 import io
 import os
@@ -12,6 +11,9 @@ from PIL import Image
 
 from .game_capture import (MAX_ENCODED_IMAGE_BYTES, MAX_IMAGE_DIMENSION,
                            MAX_IMAGE_PIXELS, ScanError)
+from ..shared.fs import check_cancel as _check_cancel
+from ..shared.fs import typed_file_stamp as _snapshot
+from ..shared.fs import check_deadline, poll_deadline
 
 
 MAX_DIRECTORY_ENTRIES = 4096
@@ -24,19 +26,8 @@ FLATPAK_INFO = Path("/.flatpak-info")
 _UNSET = object()
 
 
-def _check_cancel(cancel_event):
-    if cancel_event is not None and cancel_event.is_set():
-        raise CancelledError()
-
-
 def _check_deadline(deadline):
-    if deadline is not None and time.monotonic() >= deadline:
-        raise ScanError("Scanner work deadline exhausted.")
-
-
-def _snapshot(metadata):
-    return (metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode),
-            metadata.st_size, metadata.st_mtime_ns)
+    check_deadline(deadline, lambda: ScanError("Scanner work deadline exhausted."))
 
 
 def _absolute_path(path):
@@ -141,9 +132,7 @@ def _selection(kind, source, folder_identity, cancel_event, deadline):
 
 
 def _stable_selection(kind, source, folder_identity, cancel_event, deadline):
-    stability_deadline = time.monotonic() + MAX_STABILITY_WAIT_SECONDS
-    if deadline is not None:
-        stability_deadline = min(stability_deadline, deadline)
+    stability_deadline = poll_deadline(MAX_STABILITY_WAIT_SECONDS, deadline)
     candidate, metadata = _selection(
         kind, source, folder_identity, cancel_event, deadline)
     signature = (candidate, _snapshot(metadata))
