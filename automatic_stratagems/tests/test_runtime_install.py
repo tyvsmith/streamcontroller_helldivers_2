@@ -255,7 +255,14 @@ class InstallHookTests(unittest.TestCase):
             plugin_root = self.installed_tree(
                 directory, {runtime_install.FEATURE_SETTING: False})
             (plugin_root / '__install__.py').write_bytes(hook.read_bytes())
-            (plugin_root / 'automatic_stratagems').symlink_to(feature)
+            # Link the feature's contents but not its runtime/ payload directory,
+            # so the status record lands in this tree and a record left by an
+            # earlier run cannot satisfy the assertion.
+            installed_feature = plugin_root / 'automatic_stratagems'
+            installed_feature.mkdir()
+            for entry in feature.iterdir():
+                if entry.name not in ('runtime', '.venv'):
+                    (installed_feature / entry.name).symlink_to(entry)
 
             result = subprocess.run(
                 [sys.executable, str(plugin_root / '__install__.py')],
