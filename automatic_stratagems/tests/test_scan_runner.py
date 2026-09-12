@@ -471,7 +471,8 @@ class RunnerTests(unittest.TestCase):
                     errors, scan_runner._stop_and_reap, process, 0), daemon=True)
             worker.start()
             deadline = time.monotonic() + 1
-            while killpg.call_count < 2 and time.monotonic() < deadline:
+            while ((killpg.call_count < 2 or not log_error.called)
+                   and time.monotonic() < deadline):
                 time.sleep(.01)
             self.assertTrue(worker.is_alive())
             self.assertFalse(process.waited)
