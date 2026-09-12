@@ -269,7 +269,8 @@ result, and records `state`, `profile`, `error`, and `updated_at` in ignored
 `automatic_stratagems/runtime/setup-status.json`. It prepares nothing while the
 feature setting is off, reports failures instead of raising them, and is called
 from three places: `__install__.py` (StreamController's store install and update
-hook, using the plugin's own directory layout to find its settings), the settings
+hook, using the plugin's own directory layout to find its settings and unwrapping
+StreamController's `file-version` 2.0 envelope; flat pre-2.0 files are read as-is), the settings
 switch and its **Scanner setup** row, and a scan whose setup check failed. That
 last caller prepares the runtime in place of scanning and asks for another scan,
 so scanning still never installs. Installation is idempotent: Flatpak profiles are

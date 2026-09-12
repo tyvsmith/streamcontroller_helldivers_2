@@ -13,6 +13,11 @@ from automatic_stratagems.runtime_profile import ScanSetupError
 ENABLED = {runtime_install.FEATURE_SETTING: True}
 
 
+def settings_document(settings):
+    """Wrap plugin settings the way StreamController's PluginBase writes them."""
+    return {'file-version': '2.0', 'settings': settings}
+
+
 class FeatureFlagTests(unittest.TestCase):
     def test_feature_is_disabled_unless_the_setting_is_exactly_true(self):
         self.assertFalse(runtime_install.feature_enabled({}))
@@ -199,14 +204,15 @@ class DefaultInstallerTests(unittest.TestCase):
 
 
 class InstallHookTests(unittest.TestCase):
-    def installed_tree(self, directory, settings):
+    def installed_tree(self, directory, settings, *, document=settings_document):
         data = Path(directory) / 'data'
         plugin_root = data / 'plugins/net_jslay_helldivers_2'
         plugin_root.mkdir(parents=True)
         if settings is not None:
             settings_dir = data / 'settings/plugins/net_jslay_helldivers_2'
             settings_dir.mkdir(parents=True)
-            (settings_dir / 'settings.json').write_text(json.dumps(settings))
+            (settings_dir / 'settings.json').write_text(
+                json.dumps(document(settings)))
         return plugin_root
 
     def test_plugin_settings_are_read_from_the_installed_data_layout(self):
@@ -214,6 +220,27 @@ class InstallHookTests(unittest.TestCase):
             plugin_root = self.installed_tree(directory, ENABLED)
             self.assertEqual(
                 runtime_install.installed_plugin_settings(plugin_root), ENABLED)
+
+    def test_an_enabled_plugin_reads_back_as_enabled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plugin_root = self.installed_tree(directory, ENABLED)
+            self.assertIs(runtime_install.feature_enabled(
+                runtime_install.installed_plugin_settings(plugin_root)), True)
+
+    def test_pre_envelope_flat_plugin_settings_are_still_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plugin_root = self.installed_tree(
+                directory, ENABLED, document=lambda settings: settings)
+            self.assertEqual(
+                runtime_install.installed_plugin_settings(plugin_root), ENABLED)
+
+    def test_an_envelope_without_a_settings_object_reads_as_empty(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plugin_root = self.installed_tree(
+                directory, ENABLED,
+                document=lambda settings: {'file-version': '2.0', 'settings': []})
+            self.assertEqual(
+                runtime_install.installed_plugin_settings(plugin_root), {})
 
     def test_plugin_settings_are_empty_without_a_settings_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -260,7 +287,8 @@ class InstallHookTests(unittest.TestCase):
             link.symlink_to(checkout)
             settings_dir = data / 'settings/plugins/net_jslay_helldivers_2'
             settings_dir.mkdir(parents=True)
-            (settings_dir / 'settings.json').write_text(json.dumps(ENABLED))
+            (settings_dir / 'settings.json').write_text(
+                json.dumps(settings_document(ENABLED)))
 
             self.assertEqual(
                 runtime_install.installed_plugin_settings(link), ENABLED)

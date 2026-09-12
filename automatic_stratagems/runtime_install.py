@@ -25,6 +25,7 @@ STATUS_SCHEMA_VERSION = 1
 STATUS_PATH = "automatic_stratagems/runtime/setup-status.json"
 MAX_STATUS_BYTES = 4096
 MAX_SETTINGS_BYTES = 64 * 1024
+SETTINGS_FILE_VERSION = "2.0"
 MAX_ERROR_CHARACTERS = 1024
 
 REQUIREMENTS = "automatic_stratagems/requirements.txt"
@@ -88,6 +89,9 @@ def installed_plugin_settings(root: Path) -> dict:
     The plugin directory is normalized without resolving symlinks: a plugin
     directory symlinked into StreamController's plugin folder keeps the
     installed layout that holds its settings.
+
+    StreamController 2.0 settings files wrap the values as
+    ``{"file-version": "2.0", "settings": {...}}``; older files are flat.
     """
     root = Path(os.path.abspath(root))
     path = root.parent.parent / "settings/plugins" / root.name / "settings.json"
@@ -95,6 +99,8 @@ def installed_plugin_settings(root: Path) -> dict:
         value = read_bounded_json(path, max_bytes=MAX_SETTINGS_BYTES)
     except (OSError, ValueError):
         return {}
+    if isinstance(value, dict) and value.get("file-version") == SETTINGS_FILE_VERSION:
+        value = value.get("settings")
     return value if isinstance(value, dict) else {}
 
 
