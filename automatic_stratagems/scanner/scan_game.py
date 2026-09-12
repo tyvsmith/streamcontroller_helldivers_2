@@ -23,7 +23,8 @@ from PIL import Image, ImageDraw
 from automatic_stratagems.host_commands import HostCommandError
 
 from .errors import ScanError
-from .image_decode import MAX_ENCODED_IMAGE_BYTES, decode_image
+from .image_decode import decode_image
+from .limits import MAX_ENCODED_IMAGE_BYTES
 from .capture_backends import BACKENDS, scan_live
 from .icon_normalization import normalize_icon
 from .selection_layout import empty_tile, find_selection_band, selection_boxes

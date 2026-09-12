@@ -39,6 +39,7 @@ PLUGIN_MODULES = (
 # screenshot source resolution; the rest of scanner/ runs only in the child.
 PLUGIN_REACHABLE_SCANNER_FILES = (
     'scanner/errors.py',
+    'scanner/limits.py',
     'scanner/screenshot_capture.py',
     'scanner/capture/screenshot_*.py',
 )

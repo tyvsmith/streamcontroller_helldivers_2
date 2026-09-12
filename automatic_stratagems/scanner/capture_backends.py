@@ -8,7 +8,8 @@ import time
 
 from .capture.command import remaining_timeout
 from .errors import ScanError
-from .image_decode import MAX_ENCODED_IMAGE_BYTES, decode_image
+from .image_decode import decode_image
+from .limits import MAX_ENCODED_IMAGE_BYTES
 from ..shared.fs import check_cancel as _check_cancel
 from ..shared.fs import (check_deadline, file_stamp, poll_deadline,
                          read_capped, wait_for_stable_stamp)

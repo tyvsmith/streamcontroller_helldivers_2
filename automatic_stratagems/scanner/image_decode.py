@@ -4,12 +4,8 @@ import io
 
 from PIL import Image
 
-from .capture.command import MAX_ENCODED_IMAGE_BYTES
 from .errors import ScanError
-
-
-MAX_IMAGE_DIMENSION = 16_384
-MAX_IMAGE_PIXELS = 40_000_000
+from .limits import MAX_ENCODED_IMAGE_BYTES, MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS
 
 
 def decode_image(encoded, source):

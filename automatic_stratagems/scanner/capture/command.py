@@ -9,14 +9,13 @@ import time
 from concurrent.futures import CancelledError
 
 from ..errors import ScanError
+from ..limits import MAX_ENCODED_IMAGE_BYTES
 
 # Readers look this name up at start so tests can replace the drain.
 from ...shared.fs import read_bounded_stream as _read_bounded
 
 
-# Command stdout can carry an encoded capture, so the image byte cap lives here
-# and image_decode imports it; defining it there would pull Pillow into commands.
-MAX_ENCODED_IMAGE_BYTES = 64 * 1024 * 1024
+# Command stdout can carry one encoded capture.
 MAX_COMMAND_STDOUT_BYTES = MAX_ENCODED_IMAGE_BYTES
 MAX_COMMAND_STDERR_BYTES = 256 * 1024
 NATIVE_SETSID = "/usr/bin/setsid"

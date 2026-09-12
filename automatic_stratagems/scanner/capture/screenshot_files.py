@@ -10,6 +10,7 @@ import time
 from ...shared.fs import check_cancel as _check_cancel
 from ...shared.fs import typed_file_stamp_with_ctime as _metadata_snapshot
 from ...shared.fs import check_deadline, iter_capped_chunks
+from ..limits import MAX_ENCODED_IMAGE_BYTES
 
 
 MAX_DIRECTORY_ENTRIES = 4096
@@ -97,7 +98,6 @@ def _stable_fingerprint(path, expected, cancel_event=None, deadline=None):
 
 def _fingerprint_descriptor(descriptor, expected, cancel_event=None,
                             deadline=None):
-    from .command import MAX_ENCODED_IMAGE_BYTES
     before = os.fstat(descriptor)
     if (_metadata_snapshot(before)[:len(expected)] != expected or
             not stat.S_ISREG(before.st_mode) or
