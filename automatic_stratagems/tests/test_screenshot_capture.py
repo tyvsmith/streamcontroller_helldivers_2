@@ -21,6 +21,12 @@ class ScreenshotCaptureTests(unittest.TestCase):
     def setUpClass(cls):
         cls.capture = importlib.import_module(
             plugin_module('automatic_stratagems.scanner.screenshot_capture'))
+        cls.cleanup = importlib.import_module(
+            plugin_module('automatic_stratagems.scanner.capture.screenshot_cleanup'))
+        cls.files = importlib.import_module(
+            plugin_module('automatic_stratagems.scanner.capture.screenshot_files'))
+        cls.source = importlib.import_module(
+            plugin_module('automatic_stratagems.scanner.capture.screenshot_source'))
         cls.game_capture = importlib.import_module(
             plugin_module('automatic_stratagems.scanner.game_capture'))
 
@@ -63,6 +69,94 @@ class ScreenshotCaptureTests(unittest.TestCase):
         self.assertNotIn('PIL', top_imports)
         self.assertNotIn('evdev', top_imports)
 
+    def test_lower_capture_modules_never_import_the_facade(self):
+        ast = __import__('ast')
+        for module in (self.cleanup, self.files, self.source):
+            tree = ast.parse(Path(module.__file__).read_text())
+            imported = [
+                node.module or '' for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom)
+            ] + [alias.name for node in ast.walk(tree)
+                 if isinstance(node, ast.Import) for alias in node.names]
+            top = {alias.name.split('.')[0] for node in tree.body
+                   if isinstance(node, (ast.Import, ast.ImportFrom))
+                   for alias in node.names}
+            with self.subTest(module=module.__name__):
+                self.assertFalse([name for name in imported
+                                  if 'screenshot_capture' in name])
+                self.assertFalse(top & {'PIL', 'evdev'})
+
+    def test_facade_names_are_the_lower_module_objects(self):
+        for name in ('cleanup_screenshot', '_register_cleanup',
+                     '_steam_thumbnail_snapshot'):
+            self.assertIs(getattr(self.capture, name), getattr(self.cleanup, name))
+        for name in ('resolve_source', 'is_steam_managed'):
+            self.assertIs(getattr(self.capture, name), getattr(self.source, name))
+        # No stale facade copies that a patch could target without effect.
+        for name in ('_CLEANUP_LOCK', '_CLEANUP_RECORDS', 'THUMBNAIL_WAIT_SECONDS',
+                     '_steam_directories', '_wait_for_steam_thumbnail',
+                     '_delete_cleanup_pairs', '_fingerprint_descriptor',
+                     'MAX_DIRECTORY_ENTRIES'):
+            self.assertFalse(hasattr(self.capture, name), name)
+
+    def registered(self, config, name='new.png', newly_created=True, steam=None):
+        path = self.image(name)
+        metadata = {
+            'path': str(path), 'size_bytes': path.stat().st_size,
+            'mtime_ns': path.stat().st_mtime_ns,
+            'fingerprint': __import__('hashlib').sha256(path.read_bytes()).hexdigest(),
+        }
+        identity = self.cleanup._metadata_snapshot(path.lstat())
+        self.cleanup._register_cleanup(config, metadata, identity, newly_created,
+                                       steam)
+        return path, metadata, identity
+
+    def test_register_cleanup_directly_records_only_new_non_steam_files(self):
+        config = self.config(kind='folder', trigger='script', script=sys.executable,
+                             delete_after_scan=True)
+        records = self.cleanup._CLEANUP_RECORDS
+        count = len(records)
+        with patch.object(self.source, '_steam_directories', return_value=[]):
+            _, disabled, _ = self.registered({**config, 'delete_after_scan': False})
+            _, existing, _ = self.registered(config, newly_created=False)
+            path, created, identity = self.registered(config)
+        self.assertEqual(disabled.keys() & {'cleanup_token', 'cleanup_skipped'}, set())
+        self.assertNotIn('cleanup_token', existing)
+        self.assertIn('Pre-existing', existing['cleanup_skipped'])
+        record = records[created['cleanup_token']]
+        self.assertEqual(len(records), count + 1)
+        self.assertEqual(record['source'], ('folder', str(self.root), 'script'))
+        self.assertEqual(record['identity'], identity[:5])
+        self.assertEqual(len(record['parent_identity']), 6)
+        self.assertIsNone(record['thumbnail'])
+        self.assertTrue(self.cleanup.cleanup_screenshot(config, created))
+        self.assertFalse(path.exists())
+        self.assertEqual(len(records), count)
+
+        with patch.object(self.source, '_steam_directories',
+                          return_value=[self.root.resolve().parent]):
+            _, nested, _ = self.registered(config, 'nested.png')
+        with patch.object(self.source, '_steam_directories',
+                          return_value=[self.root.resolve()]):
+            _, unverified, _ = self.registered(config, 'unverified.png')
+        self.assertIn('Only standard Steam', nested['cleanup_skipped'])
+        self.assertIn('could not be verified', unverified['cleanup_skipped'])
+        self.assertNotIn('cleanup_token', nested)
+        self.assertNotIn('cleanup_token', unverified)
+        self.assertEqual(len(records), count)
+
+    def test_cleanup_directly_consumes_record_when_source_differs(self):
+        config = self.config(kind='folder', trigger='script', script=sys.executable,
+                             delete_after_scan=True)
+        with patch.object(self.source, '_steam_directories', return_value=[]):
+            path, metadata, _ = self.registered(config)
+        token = metadata['cleanup_token']
+        self.assertFalse(self.cleanup.cleanup_screenshot(
+            {**config, 'trigger': 'hotkey'}, metadata))
+        self.assertNotIn(token, self.cleanup._CLEANUP_RECORDS)
+        self.assertFalse(self.cleanup.cleanup_screenshot(config, metadata))
+        self.assertTrue(path.exists())
+
     def test_resolve_source_normalizes_explicit_path_without_requiring_it(self):
         missing = self.root / 'missing' / '..' / 'capture.png'
         resolved = self.capture.resolve_source(self.config(kind='file', path=str(missing)))
@@ -74,16 +168,16 @@ class ScreenshotCaptureTests(unittest.TestCase):
         second = self.root / 'second'
         first.mkdir(); second.mkdir()
         config = self.config(path='')
-        with patch.object(self.capture, '_steam_directories', return_value=[first]):
+        with patch.object(self.source, '_steam_directories', return_value=[first]):
             self.assertEqual(self.capture.resolve_source(config)['path'], str(first))
         for directories in ([], [first, second]):
             with self.subTest(count=len(directories)), \
-                 patch.object(self.capture, '_steam_directories', return_value=directories), \
+                 patch.object(self.source, '_steam_directories', return_value=directories), \
                  self.assertRaises(self.game_capture.ScanError):
                 self.capture.resolve_source(config)
 
     def test_public_steam_managed_predicate_uses_discovered_directories(self):
-        with patch.object(self.capture, '_steam_directories',
+        with patch.object(self.source, '_steam_directories',
                           return_value=[self.root]):
             self.assertTrue(self.capture.is_steam_managed(self.root / 'shot.png'))
             self.assertFalse(self.capture.is_steam_managed(
@@ -93,10 +187,10 @@ class ScreenshotCaptureTests(unittest.TestCase):
         userdata = self.root / '.local/share/Steam/userdata'
         (userdata / 'one').mkdir(parents=True)
         (userdata / 'two').mkdir()
-        with patch.object(self.capture.Path, 'home', return_value=self.root), \
-             patch.object(self.capture, 'MAX_DIRECTORY_ENTRIES', 1), \
+        with patch.object(self.source.Path, 'home', return_value=self.root), \
+             patch.object(self.source, 'MAX_DIRECTORY_ENTRIES', 1), \
              self.assertRaisesRegex(self.game_capture.ScanError, 'too many'):
-            self.capture._steam_directories()
+            self.source._steam_directories()
 
     def test_check_setup_rejects_invalid_config_without_triggering(self):
         invalid = (
@@ -208,10 +302,10 @@ class ScreenshotCaptureTests(unittest.TestCase):
         target.write_bytes(b'x')
         descriptor = os.open(target, os.O_RDONLY)
         self.addCleanup(os.close, descriptor)
-        expected = self.capture._metadata_snapshot(os.fstat(descriptor))
-        with patch.object(self.capture.os, 'read', return_value=b'x') as read, \
+        expected = self.files._metadata_snapshot(os.fstat(descriptor))
+        with patch.object(self.files.os, 'read', return_value=b'x') as read, \
              self.assertRaisesRegex(self.game_capture.ScanError, 'changed'):
-            self.capture._fingerprint_descriptor(descriptor, expected)
+            self.files._fingerprint_descriptor(descriptor, expected)
         self.assertEqual(read.call_count, 2)
 
     def test_candidate_replacement_after_decode_is_rejected(self):
@@ -265,7 +359,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         self.image('one.png')
         self.image('two.png')
         config = self.config(kind='folder', trigger='script', script=sys.executable)
-        with patch.object(self.capture, 'MAX_DIRECTORY_ENTRIES', 1), \
+        with patch.object(self.files, 'MAX_DIRECTORY_ENTRIES', 1), \
              self.assertRaisesRegex(self.game_capture.ScanError, 'too many'):
             self.capture.capture_screenshot(config)
 
@@ -314,14 +408,14 @@ class ScreenshotCaptureTests(unittest.TestCase):
             self.image('two.png')
             return result
 
-        records = len(self.capture._CLEANUP_RECORDS)
+        records = len(self.cleanup._CLEANUP_RECORDS)
         with patch.object(self.capture, '_run_script',
                           side_effect=lambda *_a, **_k: self.image('one.png')), \
              patch.object(self.capture, '_read_triggered_candidate',
                           side_effect=read_then_publish_second), \
              self.assertRaisesRegex(self.game_capture.ScanError, 'Multiple new'):
             self.capture.capture_screenshot(config)
-        self.assertEqual(len(self.capture._CLEANUP_RECORDS), records)
+        self.assertEqual(len(self.cleanup._CLEANUP_RECORDS), records)
 
     def test_trigger_wait_honors_timeout_and_cancellation(self):
         target = self.root / 'future.png'
@@ -463,6 +557,25 @@ class ScreenshotCaptureTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertFalse(self.capture.cleanup_screenshot(config, metadata))
 
+    def test_capture_registration_is_the_record_cleanup_consumes(self):
+        cleanup = self.capture.cleanup_screenshot
+        records = sys.modules[cleanup.__module__]._CLEANUP_RECORDS
+        self.assertIs(cleanup.__globals__['_CLEANUP_RECORDS'], records)
+        self.assertIs(
+            self.capture._register_cleanup.__globals__['_CLEANUP_RECORDS'], records)
+        self.assertIs(getattr(self.capture, '_CLEANUP_RECORDS', records), records)
+        config = self.config(kind='folder', trigger='script', script=sys.executable,
+                             delete_after_scan=True)
+        with patch.object(self.capture, '_run_script',
+                          side_effect=lambda *_a, **_k: self.image('new.png')):
+            _, metadata = self.capture.capture_screenshot(config)
+        token = metadata['cleanup_token']
+        self.assertEqual(records[token]['path'], str(self.root / 'new.png'))
+        self.assertTrue(cleanup(config, metadata))
+        self.assertNotIn(token, records)
+        self.assertNotIn('cleanup_token', metadata)
+        self.assertFalse((self.root / 'new.png').exists())
+
     def test_no_trigger_and_delete_disabled_publish_no_cleanup_receipt(self):
         target = self.image()
         _, reused = self.capture.capture_screenshot(self.config(
@@ -476,12 +589,12 @@ class ScreenshotCaptureTests(unittest.TestCase):
         target.unlink()
         config = self.config(kind='folder', trigger='script', script=sys.executable,
                              delete_after_scan=False)
-        records = len(self.capture._CLEANUP_RECORDS)
+        records = len(self.cleanup._CLEANUP_RECORDS)
         with patch.object(self.capture, '_run_script',
                           side_effect=lambda *_a, **_k: self.image('new.png')):
             _, created = self.capture.capture_screenshot(config)
         self.assertNotIn('cleanup_token', created)
-        self.assertEqual(len(self.capture._CLEANUP_RECORDS), records)
+        self.assertEqual(len(self.cleanup._CLEANUP_RECORDS), records)
 
     def test_cleanup_preserves_changed_replaced_and_steam_managed_files(self):
         config = self.config(kind='folder', trigger='script', script=sys.executable,
@@ -517,7 +630,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
             Image.new('RGB', (12, 8), 'blue').save(target)
             return original_rename(source, destination, **kwargs)
 
-        with patch.object(self.capture.os, 'rename',
+        with patch.object(self.cleanup.os, 'rename',
                           side_effect=replace_before_claim):
             self.assertFalse(self.capture.cleanup_screenshot(config, metadata))
         self.assertEqual(Image.open(target).getpixel((0, 0)), (0, 0, 255))
@@ -530,13 +643,13 @@ class ScreenshotCaptureTests(unittest.TestCase):
                           side_effect=lambda *_a, **_k: self.image('new.png')):
             _, metadata = self.capture.capture_screenshot(config)
         cancelled = threading.Event()
-        original = self.capture._fingerprint_descriptor
+        original = self.cleanup._fingerprint_descriptor
 
         def cancel_after_claim(*args, **kwargs):
             cancelled.set()
             return original(*args, **kwargs)
 
-        with patch.object(self.capture, '_fingerprint_descriptor',
+        with patch.object(self.cleanup, '_fingerprint_descriptor',
                           side_effect=cancel_after_claim), \
              self.assertRaises(__import__('concurrent.futures').futures.CancelledError):
             self.capture.cleanup_screenshot(
@@ -574,7 +687,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
             self.image('new.jpg', 'blue')
             self.image('thumbnails/new.jpg', 'green')
 
-        with patch.object(self.capture, '_steam_directories',
+        with patch.object(self.source, '_steam_directories',
                           return_value=[self.root, other_account]), \
              patch.object(self.capture, '_run_script', side_effect=trigger):
             _, metadata = self.capture.capture_screenshot(config)
@@ -586,7 +699,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
 
     def test_steam_cleanup_waits_for_late_thumbnail(self):
         config = self.steam_config()
-        with patch.object(self.capture, '_steam_directories', return_value=[self.root]), \
+        with patch.object(self.source, '_steam_directories', return_value=[self.root]), \
              patch.object(self.capture, '_run_script',
                           side_effect=lambda *_a, **_k: self.image('new.jpg')):
             _, metadata = self.capture.capture_screenshot(config)
@@ -594,18 +707,18 @@ class ScreenshotCaptureTests(unittest.TestCase):
                 .02, lambda: self.image('thumbnails/new.jpg', 'green'))
             timer.start()
             self.addCleanup(timer.join)
-            with patch.object(self.capture, 'THUMBNAIL_WAIT_SECONDS', .2):
+            with patch.object(self.cleanup, 'THUMBNAIL_WAIT_SECONDS', .2):
                 self.assertTrue(self.capture.cleanup_screenshot(config, metadata))
         self.assertFalse((self.root / 'new.jpg').exists())
         self.assertFalse((self.root / 'thumbnails/new.jpg').exists())
 
     def test_steam_missing_thumbnail_retains_main_with_reason(self):
         config = self.steam_config()
-        with patch.object(self.capture, '_steam_directories', return_value=[self.root]), \
+        with patch.object(self.source, '_steam_directories', return_value=[self.root]), \
              patch.object(self.capture, '_run_script',
                           side_effect=lambda *_a, **_k: self.image('new.jpg')):
             _, metadata = self.capture.capture_screenshot(config)
-            with patch.object(self.capture, 'THUMBNAIL_WAIT_SECONDS', .03):
+            with patch.object(self.cleanup, 'THUMBNAIL_WAIT_SECONDS', .03):
                 self.assertFalse(self.capture.cleanup_screenshot(config, metadata))
         self.assertTrue((self.root / 'new.jpg').exists())
         self.assertIn('thumbnail', metadata['cleanup_skipped'].lower())
@@ -613,7 +726,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
     def test_steam_preexisting_same_name_thumbnail_disables_cleanup(self):
         config = self.steam_config()
         old = self.image('thumbnails/new.jpg')
-        with patch.object(self.capture, '_steam_directories', return_value=[self.root]), \
+        with patch.object(self.source, '_steam_directories', return_value=[self.root]), \
              patch.object(self.capture, '_run_script',
                           side_effect=lambda *_a, **_k: self.image('new.jpg')):
             _, metadata = self.capture.capture_screenshot(config)
@@ -630,7 +743,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
             self.image('new.jpg', 'blue')
             self.image('thumbnails/new.jpg', 'green')
 
-        with patch.object(self.capture, '_steam_directories', return_value=[self.root]), \
+        with patch.object(self.source, '_steam_directories', return_value=[self.root]), \
              patch.object(self.capture, '_run_script', side_effect=trigger):
             _, metadata = self.capture.capture_screenshot(config)
             self.assertFalse(self.capture.cleanup_screenshot(config, metadata))
@@ -645,10 +758,10 @@ class ScreenshotCaptureTests(unittest.TestCase):
             self.image('new.jpg')
             (self.root / 'thumbnails/new.jpg').symlink_to(target)
 
-        with patch.object(self.capture, '_steam_directories', return_value=[self.root]), \
+        with patch.object(self.source, '_steam_directories', return_value=[self.root]), \
              patch.object(self.capture, '_run_script', side_effect=trigger):
             _, metadata = self.capture.capture_screenshot(config)
-            with patch.object(self.capture, 'THUMBNAIL_WAIT_SECONDS', .03):
+            with patch.object(self.cleanup, 'THUMBNAIL_WAIT_SECONDS', .03):
                 self.assertFalse(self.capture.cleanup_screenshot(config, metadata))
         self.assertTrue((self.root / 'new.jpg').exists())
         self.assertTrue(target.exists())
@@ -660,10 +773,10 @@ class ScreenshotCaptureTests(unittest.TestCase):
             self.image('new.jpg')
             self.image('thumbnails/new.jpg', 'green')
 
-        with patch.object(self.capture, '_steam_directories', return_value=[self.root]), \
+        with patch.object(self.source, '_steam_directories', return_value=[self.root]), \
              patch.object(self.capture, '_run_script', side_effect=trigger):
             _, metadata = self.capture.capture_screenshot(config)
-            original = self.capture._wait_for_steam_thumbnail
+            original = self.cleanup._wait_for_steam_thumbnail
 
             def replace_after_wait(*args, **kwargs):
                 result = original(*args, **kwargs)
@@ -671,7 +784,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
                     self.root / 'thumbnails/new.jpg')
                 return result
 
-            with patch.object(self.capture, '_wait_for_steam_thumbnail',
+            with patch.object(self.cleanup, '_wait_for_steam_thumbnail',
                               side_effect=replace_after_wait):
                 self.assertFalse(self.capture.cleanup_screenshot(config, metadata))
         self.assertTrue((self.root / 'new.jpg').exists())
@@ -687,10 +800,10 @@ class ScreenshotCaptureTests(unittest.TestCase):
             self.image('thumbnails/new.jpg')
 
         cancelled = threading.Event()
-        with patch.object(self.capture, '_steam_directories', return_value=[self.root]), \
+        with patch.object(self.source, '_steam_directories', return_value=[self.root]), \
              patch.object(self.capture, '_run_script', side_effect=trigger):
             _, metadata = self.capture.capture_screenshot(config)
-            original = self.capture._fingerprint_descriptor
+            original = self.cleanup._fingerprint_descriptor
             calls = [0]
 
             def cancel_after_pair_claim(*args, **kwargs):
@@ -699,7 +812,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
                     cancelled.set()
                 return original(*args, **kwargs)
 
-            with patch.object(self.capture, '_fingerprint_descriptor',
+            with patch.object(self.cleanup, '_fingerprint_descriptor',
                               side_effect=cancel_after_pair_claim), \
                  self.assertRaises(__import__('concurrent.futures').futures.CancelledError):
                 self.capture.cleanup_screenshot(
