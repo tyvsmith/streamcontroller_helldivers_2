@@ -20,6 +20,7 @@ generation stays in `update/`.
 | `integration.py`, `visibility.py` | action registration, feature settings, chooser visibility, lifecycle hooks |
 | `streamcontroller_adapter.py` | validated StreamController page action records, registration, and UI compatibility seams |
 | `scan_actions.py` | action behavior, context/slot resolution, scan coordination, GTK completion |
+| `runtime_preparation.py` | runtime preparation for the settings button and failed scans, and the failed scan's message |
 | `scan_operation.py` | immutable scan plan, cancellation, worker ownership, constructor-bound finalization |
 | `scan_session.py`, `scan_state.py` | assignment and filter state machine, validated atomic persistence |
 | `temporary_scan_page.py`, `scan_artwork.py` | owned generated pages and action presentation |

@@ -486,8 +486,9 @@ class OptionalIntegrationTests(unittest.TestCase):
         row.get_active.return_value = True
 
         ensure = Mock()
-        with patch.dict(feature, {'ensure_scanner_runtime': ensure,
-                                  'Thread': self.inline_thread()}):
+        with patch.object(feature['runtime_preparation'],
+                          'ensure_scanner_runtime', ensure), \
+             patch.dict(feature, {'Thread': self.inline_thread()}):
             integration._automatic_changed(row, None)
 
         ensure.assert_called_once_with(
@@ -499,8 +500,9 @@ class OptionalIntegrationTests(unittest.TestCase):
         row.get_active.return_value = False
 
         ensure = Mock()
-        with patch.dict(feature, {'ensure_scanner_runtime': ensure,
-                                  'Thread': self.inline_thread()}):
+        with patch.object(feature['runtime_preparation'],
+                          'ensure_scanner_runtime', ensure), \
+             patch.dict(feature, {'Thread': self.inline_thread()}):
             integration._automatic_changed(row, None)
 
         ensure.assert_not_called()
@@ -535,8 +537,9 @@ class OptionalIntegrationTests(unittest.TestCase):
             integration._setup_row()
         handler = button.connect.call_args.args[1]
 
-        with patch.dict(feature, {'ensure_scanner_runtime': ensure,
-                                  'Thread': self.inline_thread()}):
+        with patch.object(feature['runtime_preparation'],
+                          'ensure_scanner_runtime', ensure), \
+             patch.dict(feature, {'Thread': self.inline_thread()}):
             handler(button)
 
         ensure.assert_called_once_with(plugin.PATH, {})

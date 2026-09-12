@@ -9,9 +9,8 @@ from loguru import logger as log
 from src.backend.PluginManager.ActionHolder import ActionHolder
 from src.backend.PluginManager.InputBases import KeyAction
 
-from .provision.runtime_install import (
-    FEATURE_SETTING, ensure_scanner_runtime, read_status,
-)
+from .provision.runtime_install import FEATURE_SETTING, read_status
+from . import runtime_preparation
 
 
 ACTION_SPECS = {
@@ -276,7 +275,7 @@ class AutomaticIntegration:
 
     def _prepare_runtime(self):
         try:
-            ensure_scanner_runtime(self.plugin.PATH, self.plugin.get_settings())
+            runtime_preparation.prepare_scanner_runtime(self.plugin)
         except Exception as error:
             log.error(f"Unable to prepare the scanner runtime: {error}")
         finally:

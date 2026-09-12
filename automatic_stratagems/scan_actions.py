@@ -15,7 +15,8 @@ from .capture_source import (
     CAPTURE_BACKENDS, normalize_capture_backend,
     operation_source, page_source_settings, source_identity, source_settings,
 )
-from .provision.runtime_install import ensure_scanner_runtime, feature_enabled
+from .provision.runtime_install import feature_enabled
+from . import runtime_preparation
 from .scan_runner import (FLATPAK_TERMINATE_GRACE_SECONDS,
                           TERMINATE_GRACE_SECONDS, ScanSetupError,
                           check_scan_setup, run_scan, scan_workers,
@@ -832,24 +833,6 @@ class ScanCoordinator:
             operation.continuation.set()
         return False
 
-    def _prepared_runtime_message(self, error):
-        """Install the scanner runtime after a setup failure and report it.
-
-        A tap that cannot scan prepares the runtime instead; the caller scans
-        again once it is ready. Preparation never runs while a scan can start.
-        """
-        try:
-            status = ensure_scanner_runtime(
-                self.plugin.PATH, self.plugin.get_settings())
-        except Exception as failure:
-            log.warning('Unable to prepare the scanner runtime: {}', failure)
-            return str(error)
-        if status.get('state') == 'installed':
-            return 'Scanner runtime prepared. Scan again.'
-        if status.get('state') == 'error':
-            return f"Scanner setup failed: {status.get('error')}"
-        return str(error)
-
     def _run_scan_worker(self, action, operation):
         plan = operation.plan
         try:
@@ -892,7 +875,8 @@ class ScanCoordinator:
             except ScanSetupError as error:
                 GLib.idle_add(
                     partial(self._apply_scan_result, action, operation),
-                    None, self._prepared_runtime_message(error))
+                    None, runtime_preparation.setup_failure_message(
+                        self.plugin, error))
             except Exception as error:
                 GLib.idle_add(
                     partial(self._apply_scan_result, action, operation),

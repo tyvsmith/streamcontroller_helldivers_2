@@ -492,7 +492,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.actions.add(slot)
         prepared = {'state': 'installed', 'profile': 'native', 'error': None}
 
-        with patch.object(self.mod, 'ensure_scanner_runtime',
+        with patch.object(self.mod.runtime_preparation, 'ensure_scanner_runtime',
                           return_value=prepared) as ensure:
             self.synchronous_scan(
                 action,
@@ -511,7 +511,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         prepared = {'state': 'error', 'profile': 'flatpak',
                     'error': 'Cannot download scanner runtime source'}
 
-        with patch.object(self.mod, 'ensure_scanner_runtime',
+        with patch.object(self.mod.runtime_preparation, 'ensure_scanner_runtime',
                           return_value=prepared):
             self.synchronous_scan(
                 action, error=self.mod.ScanSetupError('runtime is absent'))
@@ -525,7 +525,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.actions.add(slot)
         prepared = {'state': 'ready', 'profile': 'flatpak', 'error': None}
 
-        with patch.object(self.mod, 'ensure_scanner_runtime',
+        with patch.object(self.mod.runtime_preparation, 'ensure_scanner_runtime',
                           return_value=prepared):
             self.synchronous_scan(
                 action,
@@ -540,7 +540,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         slot = self.rendering_action(self.mod.AutomaticStratagem)
         self.coordinator.actions.add(slot)
 
-        with patch.object(self.mod, 'ensure_scanner_runtime') as ensure:
+        with patch.object(self.mod.runtime_preparation, 'ensure_scanner_runtime') as ensure:
             self.synchronous_scan(action, error=RuntimeError('scanner crashed'))
 
         ensure.assert_not_called()
