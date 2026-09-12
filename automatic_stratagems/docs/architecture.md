@@ -36,7 +36,7 @@ generation stays in `update/`.
 | `scan_diagnostics.py` | runner-managed diagnostic runs: ownership markers, process identity, retention limits, pruning |
 | `hostexec/` | scripts the host `/usr/bin/python3` runs outside the sandbox: Gamescope target lookup, Flatpak Steam capture and cleanup |
 | `shared/` | standard-library helpers every context imports: atomic writes, bounded reads, stability polling, host-job identity, Gamescope target schema |
-| `scanner/` | capture (`scanner/capture/` launches hostexec scripts), image decoding, layout detection, recognition, OCR, caches, JSON reports |
+| `scanner/` | capture (`scanner/capture/`: bounded commands, hostexec launchers, screenshot trigger, detection, and cleanup), image decoding, layout detection, recognition, OCR, caches, JSON reports |
 
 ## Execution contexts
 
