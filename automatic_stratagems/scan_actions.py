@@ -23,7 +23,8 @@ from .scan_runner import (FLATPAK_TERMINATE_GRACE_SECONDS,
                           validate_image_source_report)
 from .scan_session import SLOT_COLORS, ScanSession
 from .scan_operation import ScanOperation, ScanPlan
-from .scan_state import ScanStateStore
+from . import session_registry
+from .session_registry import scan_group as _scan_group
 from .scan_artwork import catalog_colors, badged_icon
 from .loading_animation import LoadingAnimation
 from .streamcontroller_adapter import (
@@ -57,10 +58,6 @@ def _configured_slot(settings):
     except (ValueError, TypeError):
         return -1
     return min(value, 99) if value > 0 else -1
-
-
-def _scan_group(settings):
-    return str(settings.get('group', 'default')).strip() or 'default'
 
 
 def _resolved_layout(action, group=None):
@@ -119,14 +116,24 @@ class ScanCoordinator:
 
     def __init__(self, plugin, state_dir=None):
         self.plugin = plugin
-        self.sessions = {}
+        self.registry = session_registry.SessionRegistry(plugin, state_dir)
         self.actions = WeakSet()
-        self.store = ScanStateStore(state_dir) if state_dir is not None else None
-        self.state_errors = {}
         self.temporary_pages = None
         self.active_scans = {}
         self.closed = False
         self.compatibility_error = None
+
+    @property
+    def sessions(self):
+        return self.registry.sessions
+
+    @property
+    def store(self):
+        return self.registry.store
+
+    @property
+    def state_errors(self):
+        return self.registry.state_errors
 
     @property
     def enabled(self):
@@ -244,37 +251,19 @@ class ScanCoordinator:
             owner=self.plugin)
 
     def identity(self, action):
-        _, page, group = self.context(action)
-        serial = action.deck_controller.serial_number()
-        if not isinstance(serial, str) or not serial:
-            raise ValueError('Deck serial number unavailable')
-        return dict(deck=serial, page=str(Path(page).absolute()), group=group)
+        return self.registry.identity(action)
 
     def context(self, action):
-        group = _scan_group(action.get_settings())
-        return action.deck_controller, action.page.json_path, group
+        return self.registry.context(action)
 
     def session(self, action):
-        return self.session_for(self.context(action))
+        return self.registry.session(action)
 
     def session_for(self, context):
-        if context not in self.sessions:
-            session = ScanSession()
-            if self.store:
-                try:
-                    session = self.store.load(self.context_identity(context), self.plugin.stratagems)
-                except (OSError, ValueError) as error:
-                    self.state_errors[context] = f'Unable to restore scan state: {error}'
-                    log.warning(self.state_errors[context])
-            self.sessions[context] = session
-        return self.sessions[context]
+        return self.registry.session_for(context)
 
     def context_identity(self, context):
-        deck, page, group = context
-        serial = deck.serial_number()
-        if not isinstance(serial, str) or not serial:
-            raise ValueError('Deck serial number unavailable')
-        return dict(deck=serial, page=str(Path(page).absolute()), group=group)
+        return self.registry.context_identity(context)
 
     def slot_filters(self, context, session):
         slots = [a for a in self._attached_actions() if isinstance(a, AutomaticStratagem)
@@ -285,17 +274,10 @@ class ScanCoordinator:
         return {int(slot): row['filter'] for slot, row in session.checkpoint()['slots'].items()}
 
     def persist(self, action, session):
-        self.persist_context(self.context(action), session)
+        self.registry.persist(action, session)
 
     def persist_context(self, context, session):
-        if not self.store:
-            return
-        try:
-            self.write_state(self.context_identity(context), session)
-            self.state_errors.pop(context, None)
-        except Exception as error:
-            self.state_errors[context] = f'Unable to save scan state: {error}'
-            log.warning(self.state_errors[context])
+        self.registry.persist_context(context, session)
 
     def clear(self, action):
         if not self.enabled or not action.get_is_present():
@@ -317,10 +299,7 @@ class ScanCoordinator:
         return result.snapshot()
 
     def write_state(self, identity, session):
-        colors = catalog_colors(self.plugin.PATH, self.plugin.stratagems)
-        lm = getattr(self.plugin, 'lm', None)
-        names = {key: lm.get(f'actions.{key}.name') for key in self.plugin.stratagems} if lm else {}
-        self.store.save(identity, session, self.plugin.stratagems, colors, names)
+        self.registry.write_state(identity, session)
 
     def _cached_image_source_matches(self, action, path):
         settings = self.temporary_pages.scan_settings(

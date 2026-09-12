@@ -1208,7 +1208,9 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         unrelated = self.action(); unrelated.get_settings.return_value = {'group': 'other'}
         separate = self.coordinator.session(unrelated)
         before = separate.snapshot()
-        with patch.object(self.mod, 'catalog_colors', return_value=colors):
+        with patch.object(self.mod, 'catalog_colors', return_value=colors), \
+             patch.object(self.mod.session_registry, 'catalog_colors',
+                          return_value=colors):
             self.synchronous_scan(launcher, {
                 'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]})
             scan = self.temporary_scan_action(self.deck.active_page.json_path)

@@ -22,10 +22,11 @@ generation stays in `update/`.
 | `scan_actions.py` | action behavior, context/slot resolution, scan coordination, GTK completion |
 | `runtime_preparation.py` | runtime preparation for the settings button and failed scans, and the failed scan's message |
 | `scan_operation.py` | immutable scan plan, cancellation, worker ownership, constructor-bound finalization |
+| `session_registry.py` | session lookup by action context, context identity, restore and persistence |
 | `scan_session.py`, `scan_state.py` | assignment and filter state machine, validated atomic persistence |
 | `temporary_scan_page.py`, `scan_artwork.py` | owned generated pages and action presentation |
 | `capture_source.py` | capture defaults, normalized settings, binding identity, CLI arguments |
-| `provision/` | runtime preparation: `runtime_install` (single preparation path), `verify` (check and child preflight), `build` (install-time download, unpack, stage, activate, rollback), `runtime_profile`, `scanner_runtime` |
+| `provision/` | runtime provisioning: `runtime_install` (single preparation path), `verify` (check and child preflight), `build` (install-time download, unpack, stage, activate, rollback), `runtime_profile`, `scanner_runtime` |
 | `scan_runner.py`, `host_commands.py` | bounded scanner execution, host command ownership, cleanup, report validation |
 | `hostexec/` | scripts the host `/usr/bin/python3` runs outside the sandbox: Gamescope target lookup, Flatpak Steam capture and cleanup |
 | `shared/` | standard-library helpers every context imports: atomic writes, bounded reads, stability polling, host-job identity, Gamescope target schema |
