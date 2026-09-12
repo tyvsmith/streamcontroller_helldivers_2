@@ -38,6 +38,17 @@ class HostexecScriptTests(unittest.TestCase):
         self.assertTrue(hostexec.script('host_metadata.py').is_file())
         self.assertTrue(hostexec.script('gamescope_flatpak.py').is_file())
 
+    def test_every_hostexec_script_imports_under_a_bare_host_interpreter(self):
+        # check-imports only sees import statements; this proves each script's
+        # sys.path bootstrap works and it loads nothing outside the stdlib.
+        scripts = sorted(path for path in hostexec.DIRECTORY.glob('*.py')
+                         if path.name != '__init__.py')
+        self.assertGreaterEqual(len(scripts), 2)
+        for script in scripts:
+            with self.subTest(script=script.name):
+                result = _bare_script(script)
+                self.assertNotIn('Traceback', result.stderr, result.stderr)
+
     def test_host_metadata_runs_as_a_bare_script_without_the_package_on_path(self):
         result = _bare_script(hostexec.script('host_metadata.py'), '--nope')
         self.assertEqual(result.returncode, 1, result.stderr)
