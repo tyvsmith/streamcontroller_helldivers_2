@@ -17,7 +17,8 @@ generation stays in `update/`.
 
 | Component | Responsibility |
 | --- | --- |
-| `integration.py`, `visibility.py` | action registration, feature settings, chooser visibility, lifecycle hooks |
+| `integration.py`, `visibility.py` | action registration, chooser visibility, runtime preparation threading, lifecycle hooks |
+| `settings_rows.py` | Adwaita rows for the feature switch, scanner setup, workers, and screenshot capture, and the settings they save |
 | `streamcontroller_adapter.py` | validated StreamController page action records, registration, and UI compatibility seams |
 | `scan_actions.py` | action behavior, scan coordination, GTK completion |
 | `runtime_preparation.py` | runtime preparation for the settings button and failed scans, and the failed scan's message |
@@ -323,6 +324,14 @@ content-addressed and reused, and the native environment is rebuilt whenever it
 cannot be verified. The plugin imports only the verification path;
 `provision/build.py` and its download and archive modules load only when an
 installation runs.
+
+The settings switch and **Scanner setup** row prepare the runtime on a daemon
+thread that shutdown deliberately does not join, because a native install can run
+for up to 30 minutes. If StreamController exits mid-install, the pip child is not
+owned and may finish on its own, a Flatpak staging directory can remain under
+`runtime/staging/`, and the status record keeps the previous attempt. The next
+preparation re-verifies and rebuilds; activation is atomic, so a half-built
+profile is never selected.
 
 Tests cover sessions/actions, persistence, generated pages, stale completion,
 input ownership, process cleanup, recognition, and negative screenshots. The
