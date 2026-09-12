@@ -11,8 +11,6 @@ from pathlib import Path
 import re
 import shutil
 import stat
-import subprocess
-import sys
 import tarfile
 import urllib.request
 import uuid
@@ -23,20 +21,13 @@ from .runtime_profile import (
     MAX_ACTIVATION_BYTES,
     MAX_PROFILE_BYTES,
     ScanSetupError,
-    flatpak_child_environment,
+    atomic_json,
     read_json,
     validate_activation_pointer,
-    validate_flatpak_platform,
     validate_profile,
 )
-from .scanner_runtime import (
-    ScannerRuntime,
-    resolve_scanner_runtime,
-    run_captured,
-    scanner_preflight_command,
-)
-from .shared.fs import atomic_json as _atomic_json
 from .shared.fs import canonical_json, fsync_directory, write_all
+from .verify import _default_preflight, _require_profile_unchanged
 
 
 DEFAULT_LOCK = Path(__file__).with_name("runtime_profiles") / f"{FLATPAK_PROFILE}.json"
@@ -287,15 +278,6 @@ def _validate_file_entry(entry: dict, source_names: set[str], seen: set[str]) ->
     seen.add(path)
 
 
-def atomic_json(path: Path, value: dict) -> None:
-    """Replace one small bounded JSON record atomically and durably."""
-    _atomic_json(
-        path, value, max_bytes=MAX_ACTIVATION_BYTES,
-        too_large=lambda: ScanSetupError("Scanner runtime record is too large"),
-        short_write_message="short write while activating scanner runtime",
-    )
-
-
 def _activation_for(profile_root: Path, manifest_hash: str, previous: dict | None) -> dict:
     value = {
         "schema_version": 1,
@@ -321,49 +303,6 @@ def _read_activation(path: Path, *, required: bool) -> dict | None:
             raise ScanSetupError("Invalid scanner runtime activation record")
         validate_activation_pointer(value["previous"], "previous activation")
     return value
-
-
-def _run_preflight(root: Path, runtime: ScannerRuntime) -> None:
-    command = scanner_preflight_command(root, runtime)
-    try:
-        returncode, _stdout, stderr = run_captured(
-            command,
-            cwd=root,
-            env=runtime.env,
-            timeout=30,
-        )
-    except ScanSetupError:
-        raise
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise ScanSetupError(f"Scanner runtime child preflight failed: {error}") from error
-    if returncode != 0:
-        message = stderr[:4096].decode("utf-8", "replace").strip()
-        raise ScanSetupError(
-            f"Scanner runtime child preflight failed: {message or returncode}"
-        )
-
-
-def _default_preflight(root: Path, profile_root: Path, _manifest: dict) -> None:
-    validate_flatpak_platform()
-    child_env = flatpak_child_environment(profile_root, os.environ)
-    runtime = ScannerRuntime(
-        interpreter=Path(sys.executable),
-        env=child_env,
-        profile=FLATPAK_PROFILE,
-        runtime_root=profile_root,
-    )
-    _run_preflight(root, runtime)
-
-
-def _require_profile_unchanged(profile_root: Path, expected_hash: str) -> None:
-    try:
-        _, checked_hash = validate_profile(profile_root)
-    except ScanSetupError as error:
-        raise ScanSetupError(
-            "Scanner runtime changed during child preflight"
-        ) from error
-    if checked_hash != expected_hash:
-        raise ScanSetupError("Scanner runtime changed during child preflight")
 
 
 def install_runtime(
@@ -494,29 +433,3 @@ def rollback_runtime(
     new_activation = _activation_for(profile_root, previous["manifest_sha256"], current)
     atomic_json(activation_path, new_activation)
     return profile_root
-
-
-def check_runtime(
-    root: Path,
-    *,
-    flatpak: bool | None = None,
-    environ: dict[str, str] | None = None,
-    preflight: Preflight | None = None,
-) -> Path | None:
-    """Revalidate the active profile and execute its child preflight."""
-    root = Path(root)
-    runtime = resolve_scanner_runtime(
-        root, flatpak=flatpak, environ=environ
-    )
-    if runtime.runtime_root is None:
-        manifest = {"schema_version": 1, "profile": "native"}
-        manifest_hash = None
-    else:
-        manifest, manifest_hash = validate_profile(runtime.runtime_root)
-    if preflight is None:
-        _run_preflight(root, runtime)
-    else:
-        preflight(runtime.runtime_root, manifest)
-    if runtime.runtime_root is not None:
-        _require_profile_unchanged(runtime.runtime_root, manifest_hash)
-    return runtime.runtime_root

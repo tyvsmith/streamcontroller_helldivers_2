@@ -391,7 +391,7 @@ class ScannerRuntimeTests(unittest.TestCase):
 
 class RuntimeSetupTests(unittest.TestCase):
     def test_offline_setup_builds_a_hash_verified_profile_and_reuses_it(self):
-        from automatic_stratagems import runtime_setup
+        from automatic_stratagems import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
@@ -405,7 +405,7 @@ class RuntimeSetupTests(unittest.TestCase):
                     (profile_root / "tessdata/eng.traineddata").read_bytes(), b"english"
                 )
 
-            profile_root = runtime_setup.install_runtime(
+            profile_root = build.install_runtime(
                 root,
                 lock_path=lock_path,
                 artifact_dir=artifacts,
@@ -424,7 +424,7 @@ class RuntimeSetupTests(unittest.TestCase):
             self.assertFalse(any(path.is_symlink() for path in profile_root.rglob("*")))
 
             shutil.rmtree(artifacts)
-            reused = runtime_setup.install_runtime(
+            reused = build.install_runtime(
                 root,
                 lock_path=lock_path,
                 artifact_dir=artifacts,
@@ -436,13 +436,13 @@ class RuntimeSetupTests(unittest.TestCase):
             self.assertEqual(observed[1], profile_root)
 
     def test_failed_update_keeps_the_previous_activation_and_removes_stage(self):
-        from automatic_stratagems import runtime_setup
+        from automatic_stratagems import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
             artifacts = Path(directory) / "artifacts"
             lock_path = self.make_sources_and_lock(artifacts, root)
-            first = runtime_setup.install_runtime(
+            first = build.install_runtime(
                 root, lock_path=lock_path, artifact_dir=artifacts,
                 offline=True, preflight=lambda *_: None,
             )
@@ -454,7 +454,7 @@ class RuntimeSetupTests(unittest.TestCase):
             lock["release"] = 2
             lock_path.write_text(json.dumps(lock))
             with self.assertRaisesRegex(scanner_runtime.ScanSetupError, "child rejected"):
-                runtime_setup.install_runtime(
+                build.install_runtime(
                     root, lock_path=lock_path, artifact_dir=artifacts,
                     offline=True,
                     preflight=lambda *_: (_ for _ in ()).throw(
@@ -471,7 +471,7 @@ class RuntimeSetupTests(unittest.TestCase):
             self.assertEqual(list(staging.iterdir()), [])
 
     def test_preflight_cannot_mutate_the_immutable_payload_before_activation(self):
-        from automatic_stratagems import runtime_setup
+        from automatic_stratagems import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
@@ -486,7 +486,7 @@ class RuntimeSetupTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 scanner_runtime.ScanSetupError, "allowlist"
             ):
-                runtime_setup.install_runtime(
+                build.install_runtime(
                     root, lock_path=lock_path, artifact_dir=artifacts,
                     offline=True, preflight=mutating_preflight,
                 )
@@ -495,26 +495,26 @@ class RuntimeSetupTests(unittest.TestCase):
             )
 
     def test_rollback_atomically_selects_the_previous_verified_profile(self):
-        from automatic_stratagems import runtime_setup
+        from automatic_stratagems import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
             artifacts = Path(directory) / "artifacts"
             lock_path = self.make_sources_and_lock(artifacts, root)
-            first = runtime_setup.install_runtime(
+            first = build.install_runtime(
                 root, lock_path=lock_path, artifact_dir=artifacts,
                 offline=True, preflight=lambda *_: None,
             )
             lock = json.loads(lock_path.read_text())
             lock["release"] = 2
             lock_path.write_text(json.dumps(lock))
-            second = runtime_setup.install_runtime(
+            second = build.install_runtime(
                 root, lock_path=lock_path, artifact_dir=artifacts,
                 offline=True, preflight=lambda *_: None,
             )
             self.assertNotEqual(first, second)
 
-            selected = runtime_setup.rollback_runtime(
+            selected = build.rollback_runtime(
                 root, preflight=lambda *_: None
             )
             self.assertEqual(selected, first)
@@ -527,7 +527,7 @@ class RuntimeSetupTests(unittest.TestCase):
             )
 
     def test_offline_setup_rejects_wrong_source_hash_and_archive_symlink(self):
-        from automatic_stratagems import runtime_setup
+        from automatic_stratagems import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
@@ -536,7 +536,7 @@ class RuntimeSetupTests(unittest.TestCase):
             source = artifacts / "tesseract.deb"
             source.write_bytes(source.read_bytes() + b"corrupt")
             with self.assertRaisesRegex(scanner_runtime.ScanSetupError, "source hash"):
-                runtime_setup.install_runtime(
+                build.install_runtime(
                     root, lock_path=lock_path, artifact_dir=artifacts,
                     offline=True, preflight=lambda *_: None,
                 )
@@ -548,13 +548,13 @@ class RuntimeSetupTests(unittest.TestCase):
                 artifacts, root, tesseract_symlink=True
             )
             with self.assertRaisesRegex(scanner_runtime.ScanSetupError, "regular file"):
-                runtime_setup.install_runtime(
+                build.install_runtime(
                     root, lock_path=lock_path, artifact_dir=artifacts,
                     offline=True, preflight=lambda *_: None,
                 )
 
     def test_check_revalidates_the_active_profile_before_child_preflight(self):
-        from automatic_stratagems import runtime_setup
+        from automatic_stratagems import verify
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -563,7 +563,7 @@ class RuntimeSetupTests(unittest.TestCase):
             with _FlatpakPatches(
                 self.write_flatpak_info(root), "cpython-313"
             ):
-                selected = runtime_setup.check_runtime(
+                selected = verify.check_runtime(
                     root,
                     flatpak=True,
                     environ={"PATH": "/usr/bin"},
@@ -575,7 +575,7 @@ class RuntimeSetupTests(unittest.TestCase):
             self.assertEqual(observed, [(profile_root, PROFILE)])
 
     def test_check_rejects_a_profile_mutated_by_child_preflight(self):
-        from automatic_stratagems import runtime_setup
+        from automatic_stratagems import verify
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -590,7 +590,7 @@ class RuntimeSetupTests(unittest.TestCase):
                 with self.assertRaisesRegex(
                     scanner_runtime.ScanSetupError, "child preflight"
                 ):
-                    runtime_setup.check_runtime(
+                    verify.check_runtime(
                         root,
                         flatpak=True,
                         environ={"PATH": "/usr/bin"},
@@ -598,13 +598,13 @@ class RuntimeSetupTests(unittest.TestCase):
                     )
 
     def test_update_rejects_a_corrupt_existing_activation(self):
-        from automatic_stratagems import runtime_setup
+        from automatic_stratagems import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
             artifacts = Path(directory) / "artifacts"
             lock_path = self.make_sources_and_lock(artifacts, root)
-            runtime_setup.install_runtime(
+            build.install_runtime(
                 root, lock_path=lock_path, artifact_dir=artifacts,
                 offline=True, preflight=lambda *_: None,
             )
@@ -614,13 +614,13 @@ class RuntimeSetupTests(unittest.TestCase):
             activation.write_text(json.dumps(value))
 
             with self.assertRaisesRegex(scanner_runtime.ScanSetupError, "activation"):
-                runtime_setup.install_runtime(
+                build.install_runtime(
                     root, lock_path=lock_path, artifact_dir=artifacts,
                     offline=True, preflight=lambda *_: None,
                 )
 
     def test_atomic_activation_handles_short_writes_and_cleans_failed_temps(self):
-        from automatic_stratagems import runtime_setup
+        from automatic_stratagems import runtime_profile
         from automatic_stratagems.shared import fs
 
         with tempfile.TemporaryDirectory() as directory:
@@ -632,7 +632,7 @@ class RuntimeSetupTests(unittest.TestCase):
                 return real_write(descriptor, data[:5])
 
             with patch.object(fs.os, "write", side_effect=short_write) as write:
-                runtime_setup.atomic_json(path, value)
+                runtime_profile.atomic_json(path, value)
             self.assertGreater(write.call_count, 1)
             self.assertEqual(json.loads(path.read_text()), value)
 
@@ -642,25 +642,25 @@ class RuntimeSetupTests(unittest.TestCase):
 
             with patch.object(fs.os, "write", side_effect=failed_write):
                 with self.assertRaisesRegex(OSError, "disk full"):
-                    runtime_setup.atomic_json(path, dict(value, directory="y"))
+                    runtime_profile.atomic_json(path, dict(value, directory="y"))
             self.assertEqual(json.loads(path.read_text()), value)
             self.assertEqual([p.name for p in path.parent.iterdir()], ["active.json"])
 
     def test_rollback_reuses_the_bounded_validated_manifest(self):
-        from automatic_stratagems import runtime_setup
+        from automatic_stratagems import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
             artifacts = Path(directory) / "artifacts"
             lock_path = self.make_sources_and_lock(artifacts, root)
-            runtime_setup.install_runtime(
+            build.install_runtime(
                 root, lock_path=lock_path, artifact_dir=artifacts,
                 offline=True, preflight=lambda *_: None,
             )
             lock = json.loads(lock_path.read_text())
             lock["release"] = 2
             lock_path.write_text(json.dumps(lock))
-            runtime_setup.install_runtime(
+            build.install_runtime(
                 root, lock_path=lock_path, artifact_dir=artifacts,
                 offline=True, preflight=lambda *_: None,
             )
@@ -673,23 +673,23 @@ class RuntimeSetupTests(unittest.TestCase):
                 return original(path)
 
             with patch.object(Path, "read_bytes", reject_unbounded_manifest):
-                runtime_setup.rollback_runtime(root, preflight=lambda *_: None)
+                build.rollback_runtime(root, preflight=lambda *_: None)
 
     def test_rollback_rejects_a_profile_mutated_by_child_preflight(self):
-        from automatic_stratagems import runtime_setup
+        from automatic_stratagems import build
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "plugin"
             artifacts = Path(directory) / "artifacts"
             lock_path = self.make_sources_and_lock(artifacts, root)
-            runtime_setup.install_runtime(
+            build.install_runtime(
                 root, lock_path=lock_path, artifact_dir=artifacts,
                 offline=True, preflight=lambda *_: None,
             )
             lock = json.loads(lock_path.read_text())
             lock["release"] = 2
             lock_path.write_text(json.dumps(lock))
-            runtime_setup.install_runtime(
+            build.install_runtime(
                 root, lock_path=lock_path, artifact_dir=artifacts,
                 offline=True, preflight=lambda *_: None,
             )
@@ -702,7 +702,7 @@ class RuntimeSetupTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 scanner_runtime.ScanSetupError, "child preflight"
             ):
-                runtime_setup.rollback_runtime(root, preflight=mutating_preflight)
+                build.rollback_runtime(root, preflight=mutating_preflight)
             self.assertEqual(activation_path.read_bytes(), original_activation)
 
     def make_sources_and_lock(self, artifacts, root, *, tesseract_symlink=False):

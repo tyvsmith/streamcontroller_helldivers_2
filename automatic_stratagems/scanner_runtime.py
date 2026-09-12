@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib
-import importlib.metadata
 import json
 import os
 from pathlib import Path
@@ -124,6 +123,8 @@ def scanner_preflight_command(
 
 def verify_python_dependencies(profile: str) -> dict[str, str]:
     """Import and verify the exact dependency set in the scanner child."""
+    import importlib.metadata
+
     expected = _PYTHON_PROFILES.get(profile)
     if expected is None:
         raise ScanSetupError(f"Unknown scanner dependency profile: {profile}")

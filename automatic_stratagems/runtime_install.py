@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Callable, Mapping
 import venv
 
-from .runtime_profile import FLATPAK_INFO, SCANNER_VENV, ScanSetupError
-from .runtime_setup import atomic_json, check_runtime, install_runtime
+from .runtime_profile import FLATPAK_INFO, SCANNER_VENV, ScanSetupError, atomic_json
 from .scanner_runtime import run_captured
 from .shared.bounded_json import read_bounded_json
+from .verify import check_runtime
 
 
 FEATURE_SETTING = "automatic_stratagems_enabled"
@@ -31,6 +31,12 @@ MAX_ERROR_CHARACTERS = 1024
 REQUIREMENTS = "automatic_stratagems/requirements.txt"
 PIP_TIMEOUT_SECONDS = 1800
 MAX_PIP_OUTPUT_BYTES = 1024 * 1024
+
+
+def install_runtime(root: Path) -> Path:
+    """Install the locked Flatpak payload, importing its heavy build code lazily."""
+    from . import build
+    return build.install_runtime(root)
 
 
 def feature_enabled(settings: Mapping) -> bool:

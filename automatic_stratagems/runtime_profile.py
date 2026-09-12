@@ -13,6 +13,7 @@ import sys
 from types import MappingProxyType
 from typing import Mapping
 
+from .shared.fs import atomic_json as _atomic_json
 from .shared.fs import read_capped
 
 
@@ -29,6 +30,15 @@ SCANNER_VENV = "automatic_stratagems/.venv"
 
 class ScanSetupError(RuntimeError):
     """The scanner child runtime is absent, corrupt, or incompatible."""
+
+
+def atomic_json(path: Path, value: dict) -> None:
+    """Replace one small bounded JSON record atomically and durably."""
+    _atomic_json(
+        path, value, max_bytes=MAX_ACTIVATION_BYTES,
+        too_large=lambda: ScanSetupError("Scanner runtime record is too large"),
+        short_write_message="short write while activating scanner runtime",
+    )
 
 
 def _python_abi() -> str:

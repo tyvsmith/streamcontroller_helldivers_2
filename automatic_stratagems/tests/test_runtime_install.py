@@ -277,6 +277,30 @@ class InstallHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), '[]')
 
+    def test_importing_runtime_install_avoids_the_build_only_modules(self):
+        script = ('import sys\n'
+                  'import automatic_stratagems.runtime_install\n'
+                  "print(sorted(name for name in ('urllib.request', 'tarfile', 'zipfile')"
+                  " if name in sys.modules))\n")
+        result = subprocess.run(
+            [sys.executable, '-c', script], capture_output=True, text=True,
+            cwd=str(Path(runtime_install.__file__).resolve().parents[1]),
+            timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), '[]')
+
+    def test_importing_verify_avoids_the_build_only_modules(self):
+        script = ('import sys\n'
+                  'import automatic_stratagems.verify\n'
+                  "print(sorted(name for name in ('urllib.request', 'tarfile', 'zipfile')"
+                  " if name in sys.modules))\n")
+        result = subprocess.run(
+            [sys.executable, '-c', script], capture_output=True, text=True,
+            cwd=str(Path(runtime_install.__file__).resolve().parents[1]),
+            timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), '[]')
+
     def test_plugin_settings_follow_a_symlinked_plugin_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             checkout = Path(directory) / 'checkout'

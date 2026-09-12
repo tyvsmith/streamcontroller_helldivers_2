@@ -9,13 +9,13 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from automatic_stratagems.runtime_setup import (  # noqa: E402
+from automatic_stratagems.build import (  # noqa: E402
     DEFAULT_LOCK,
-    check_runtime,
     install_runtime,
     rollback_runtime,
 )
 from automatic_stratagems.scanner_runtime import ScanSetupError  # noqa: E402
+from automatic_stratagems.verify import check_runtime  # noqa: E402
 
 
 def main(argv=None):
