@@ -31,7 +31,16 @@ PLUGIN_MODULES = (
     'automatic_stratagems.temporary_scan_page',
     'automatic_stratagems.provision.runtime_install',
     'automatic_stratagems.provision.verify',
+    'automatic_stratagems.scanner.errors',
     'automatic_stratagems.scanner.screenshot_capture',
+)
+
+# Scanner files the plugin process reaches through scan_runner's lazy
+# screenshot source resolution; the rest of scanner/ runs only in the child.
+PLUGIN_REACHABLE_SCANNER_FILES = (
+    'scanner/errors.py',
+    'scanner/screenshot_capture.py',
+    'scanner/capture/screenshot_*.py',
 )
 
 IMPORT_SCRIPT = '''
@@ -70,7 +79,9 @@ class PluginPackageIdentityTests(unittest.TestCase):
         # Lazy imports inside functions run in the plugin process too, so this
         # also covers code the import test above never executes.
         files = sorted([*FEATURE.glob('*.py'), *(FEATURE / 'provision').glob('*.py'),
-                        *(FEATURE / 'shared').glob('*.py')])
+                        *(FEATURE / 'shared').glob('*.py'),
+                        *(path for pattern in PLUGIN_REACHABLE_SCANNER_FILES
+                          for path in FEATURE.glob(pattern))])
         offenders = []
         for path in files:
             for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):

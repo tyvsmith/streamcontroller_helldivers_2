@@ -97,7 +97,7 @@ def _stable_fingerprint(path, expected, cancel_event=None, deadline=None):
 
 def _fingerprint_descriptor(descriptor, expected, cancel_event=None,
                             deadline=None):
-    from ..image_decode import MAX_ENCODED_IMAGE_BYTES
+    from .command import MAX_ENCODED_IMAGE_BYTES
     before = os.fstat(descriptor)
     if (_metadata_snapshot(before)[:len(expected)] != expected or
             not stat.S_ISREG(before.st_mode) or
