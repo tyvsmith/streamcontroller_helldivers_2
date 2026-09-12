@@ -38,6 +38,8 @@ class Scope:
 ROOT = Path(__file__).resolve().parents[2]
 
 RULES: tuple[Scope, ...] = (
+    # Host scripts and the install hook both execute the package __init__.
+    Scope("automatic_stratagems/__init__.py", "file", ()),
     Scope("automatic_stratagems/shared", "dir",
           ("automatic_stratagems.shared",)),
     Scope("automatic_stratagems/hostexec", "dir",
@@ -133,7 +135,12 @@ def _check_file(path: Path, root: Path, rule: Scope):
     """Yields (path_str, line, message) violations for a single file."""
     display = path.relative_to(root).as_posix()
     try:
-        tree = ast.parse(path.read_text(), filename=display)
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        yield display, 0, f"{display}:0: cannot read: {error}"
+        return
+    try:
+        tree = ast.parse(source, filename=display)
     except SyntaxError as error:
         line = error.lineno or 0
         yield display, line, f"{display}:{line}: syntax error: {error.msg}"

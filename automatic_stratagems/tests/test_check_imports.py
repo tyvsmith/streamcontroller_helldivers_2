@@ -61,12 +61,33 @@ class CheckImportsToolTests(unittest.TestCase):
     # -- passing cases --------------------------------------------------
 
     def test_stdlib_only_shared_hostexec_provision_and_install_hook_pass(self):
+        write(self.root, "automatic_stratagems/__init__.py", "")
         write(self.root, "automatic_stratagems/shared/fs.py", "import os\nimport json\n")
         write(self.root, "automatic_stratagems/hostexec/run.py", "import subprocess\n")
         write(self.root, "automatic_stratagems/provision/setup.py", "import shutil\n")
         write(self.root, "__install__.py", "import sys\n")
         out = self.assertPasses()
-        self.assertIn("4 files OK", out)
+        self.assertIn("5 files OK", out)
+
+    def test_package_init_run_by_host_scripts_and_install_hook_is_stdlib_only(self):
+        write(self.root, "automatic_stratagems/__init__.py", "import gi\n")
+        out = self.assertFails("automatic_stratagems/__init__.py")
+        self.assertIn("automatic_stratagems/__init__.py:1", out)
+        self.assertIn("gi", out)
+
+    def test_package_init_may_not_import_feature_modules(self):
+        write(self.root, "automatic_stratagems/__init__.py", "from . import scanner\n")
+        out = self.assertFails("automatic_stratagems/__init__.py")
+        self.assertIn("automatic_stratagems.scanner", out)
+
+    def test_undecodable_file_is_reported_and_later_files_still_checked(self):
+        (self.root / "automatic_stratagems/shared").mkdir(parents=True)
+        (self.root / "automatic_stratagems/shared/a_binary.py").write_bytes(b"\xff\xfe\x00")
+        write(self.root, "automatic_stratagems/shared/z_bad.py", "import numpy\n")
+        out = self.assertFails("automatic_stratagems/shared")
+        self.assertIn("automatic_stratagems/shared/a_binary.py", out)
+        self.assertIn("cannot read", out)
+        self.assertIn("numpy", out)
 
     def test_future_annotations_import_passes(self):
         write(self.root, "automatic_stratagems/shared/fs.py",
@@ -229,13 +250,14 @@ class CheckImportsSubprocessTests(unittest.TestCase):
         self.assertIn("numpy", result.stdout)
 
     def test_no_arguments_checks_every_rule(self):
+        write(self.root, "automatic_stratagems/__init__.py", "")
         write(self.root, "automatic_stratagems/shared/fs.py", "import os\n")
         write(self.root, "automatic_stratagems/hostexec/run.py", "import subprocess\n")
         write(self.root, "automatic_stratagems/provision/setup.py", "import shutil\n")
         write(self.root, "__install__.py", "import sys\n")
         result = self.run_cli()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("4 files OK", result.stdout)
+        self.assertIn("5 files OK", result.stdout)
 
     def test_unknown_scope_exits_two(self):
         result = self.run_cli("nope")
