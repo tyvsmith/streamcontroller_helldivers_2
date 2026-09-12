@@ -27,6 +27,7 @@ generation stays in `update/`.
 | `session_registry.py` | session lookup by action context, context identity, restore and persistence |
 | `slot_reconciliation.py` | explicit slot reservation, automatic allocation from page topology, color filter reconciliation, redraw |
 | `scan_session.py`, `scan_state.py` | assignment and filter state machine, validated atomic persistence |
+| `generated_page_flow.py` | generated-page creation, cache reuse checks, Back, and deletion over `temporary_scan_page` |
 | `temporary_scan_page.py`, `scan_artwork.py` | owned generated pages and action presentation |
 | `capture_source.py` | capture defaults, normalized settings, binding identity, CLI arguments |
 | `provision/` | runtime provisioning: `runtime_install` (single preparation path), `verify` (check and child preflight), `build` (install-time download, unpack, stage, activate, rollback), `runtime_profile`, `scanner_runtime` |
