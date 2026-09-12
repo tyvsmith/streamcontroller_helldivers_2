@@ -568,7 +568,7 @@ class RunnerTests(unittest.TestCase):
                 'XDG_SESSION_TYPE': 'wayland',
                 'XDG_CURRENT_DESKTOP': 'Hyprland',
                 'WAYLAND_DISPLAY': 'wayland-0'}, clear=True), \
-             patch('automatic_stratagems.scanner.game_capture.run_command',
+             patch('automatic_stratagems.scanner.capture.command.run_command',
                    return_value=b'') as command:
             scan_game.check_capture_setup('gamescope')
         argv = command.call_args.args[0]
@@ -591,7 +591,7 @@ class RunnerTests(unittest.TestCase):
                 'XDG_SESSION_TYPE': 'wayland',
                 'XDG_CURRENT_DESKTOP': 'Hyprland',
                 'WAYLAND_DISPLAY': 'wayland-0'}, clear=True), \
-             patch('automatic_stratagems.scanner.game_capture.run_command',
+             patch('automatic_stratagems.scanner.capture.command.run_command',
                    return_value=b'') as command:
             scan_game.check_capture_setup('gamescope')
         self.assertIn('/usr/bin/python3', command.call_args.args[0][-3])
@@ -606,7 +606,7 @@ class RunnerTests(unittest.TestCase):
              patch.object(scan_game.shutil, 'which',
                           side_effect=lambda value: ('/host/' + value
                                                      if value in available else None)), \
-             patch('automatic_stratagems.scanner.game_capture.run_command') as command:
+             patch('automatic_stratagems.scanner.capture.command.run_command') as command:
             scan_game.check_capture_setup('gamescope')
         command.assert_not_called()
 

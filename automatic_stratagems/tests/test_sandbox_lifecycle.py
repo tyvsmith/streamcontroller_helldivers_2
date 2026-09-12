@@ -267,7 +267,7 @@ class SandboxLifecycleTests(ActionTestHarness, unittest.TestCase):
     def run_host_probe(self, scenario, *, timeout=5, stdout_limit=64 * 1024,
                        stderr_limit=64 * 1024, cancel_event=None, arguments=()):
         from automatic_stratagems import host_commands
-        from automatic_stratagems.scanner import game_capture
+        from automatic_stratagems.scanner.capture import command as capture_command
 
         command = [
             "/usr/bin/python3", str(Path(sandbox_support.__file__).resolve()),
@@ -277,7 +277,7 @@ class SandboxLifecycleTests(ActionTestHarness, unittest.TestCase):
         with host_commands.create_host_job(base=base, hard_timeout=10) as job:
             job_path = job.path
             with patch.dict(os.environ, host_commands.host_job_environment(job)):
-                result = game_capture.run_command(
+                result = capture_command.run_command(
                     command, host=True, operation=f"test-{scenario}",
                     host_env=self.host_environment(scenario), timeout=timeout,
                     stdout_limit=stdout_limit, stderr_limit=stderr_limit,
@@ -287,7 +287,7 @@ class SandboxLifecycleTests(ActionTestHarness, unittest.TestCase):
         return result
 
     def test_03_real_host_transport_preserves_argv_and_failure_boundaries(self):
-        from automatic_stratagems.scanner.game_capture import ScanError
+        from automatic_stratagems.scanner.errors import ScanError
 
         arguments = ("", "space value", "$(touch /tmp/never)", ";", "*", "quote'\"")
         output = self.run_host_probe("complete", arguments=arguments)

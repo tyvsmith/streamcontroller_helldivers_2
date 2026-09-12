@@ -15,7 +15,7 @@ from PIL import Image
 from automatic_stratagems import host_commands as hc
 from automatic_stratagems.hostexec import gamescope_flatpak as gf
 from automatic_stratagems.scanner.capture.gamescope import capture_into_shared_path
-from automatic_stratagems.scanner.game_capture import ScanError
+from automatic_stratagems.scanner.errors import ScanError
 from automatic_stratagems.shared.gamescope_target import FlatpakGamescopeTarget
 
 
@@ -221,7 +221,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                 output = job.path / 'gamescope-test' / 'capture.png'
                 output.parent.mkdir(mode=0o700)
                 with patch.dict(os.environ, hc.host_job_environment(job)), \
-                     patch('automatic_stratagems.scanner.game_capture.run_command',
+                     patch('automatic_stratagems.scanner.capture.command.run_command',
                            return_value=b'') as run:
                     capture_into_shared_path(
                         target, output, timeout=1.25, deadline=123.5,
@@ -248,7 +248,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                 output = job.path / 'gamescope-test' / 'capture.png'
                 output.parent.mkdir(mode=0o700)
                 with patch.dict(os.environ, hc.host_job_environment(job)), \
-                     patch('automatic_stratagems.scanner.game_capture.run_command',
+                     patch('automatic_stratagems.scanner.capture.command.run_command',
                            return_value=b'') as run, \
                      patch.object(gf.time, 'monotonic', return_value=100):
                     capture_into_shared_path(
@@ -267,7 +267,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                 output = job.path / 'gamescope-test' / 'capture.png'
                 output.parent.mkdir(mode=0o700)
                 with patch.dict(os.environ, hc.host_job_environment(job)), \
-                     patch('automatic_stratagems.scanner.game_capture.run_command',
+                     patch('automatic_stratagems.scanner.capture.command.run_command',
                            side_effect=[CancelledError(), b'']) as run, \
                      self.assertRaises(CancelledError):
                     capture_into_shared_path(
@@ -288,7 +288,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                 output = job.path / 'gamescope-test' / 'capture.png'
                 output.parent.mkdir(mode=0o700)
                 with patch.dict(os.environ, hc.host_job_environment(job)), \
-                     patch('automatic_stratagems.scanner.game_capture.run_command',
+                     patch('automatic_stratagems.scanner.capture.command.run_command',
                            side_effect=hc.HostCleanupUnconfirmed(
                                'cleanup unconfirmed')) as run, \
                      self.assertRaises(hc.HostCleanupUnconfirmed):
@@ -307,7 +307,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                 output.parent.mkdir(mode=0o700)
                 cleanup = hc.HostCleanupUnconfirmed('cleanup unconfirmed')
                 with patch.dict(os.environ, hc.host_job_environment(job)), \
-                     patch('automatic_stratagems.scanner.game_capture.run_command',
+                     patch('automatic_stratagems.scanner.capture.command.run_command',
                            side_effect=[CancelledError(), cleanup]), \
                      self.assertRaises(hc.HostCleanupUnconfirmed) as raised:
                     capture_into_shared_path(
@@ -324,7 +324,7 @@ class FlatpakGamescopeTests(unittest.TestCase):
                 output = job.path / 'gamescope-test' / 'capture.png'
                 output.parent.mkdir(mode=0o700)
                 with patch.dict(os.environ, hc.host_job_environment(job)), \
-                     patch('automatic_stratagems.scanner.game_capture.run_command',
+                     patch('automatic_stratagems.scanner.capture.command.run_command',
                            side_effect=[CancelledError(),
                                         ScanError('cleanup failed')]), \
                      self.assertRaises(hc.HostCommandError) as raised:

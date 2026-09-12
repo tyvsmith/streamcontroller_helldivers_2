@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from automatic_stratagems.scanner.game_capture import ScanError
+from automatic_stratagems.scanner.errors import ScanError
 from automatic_stratagems.scanner.scan_game import main, rectangle, detect
 
 

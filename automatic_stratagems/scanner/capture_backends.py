@@ -6,8 +6,9 @@ from pathlib import Path
 import stat
 import time
 
-from .game_capture import (MAX_ENCODED_IMAGE_BYTES, ScanError, decode_image,
-                           remaining_timeout)
+from .capture.command import remaining_timeout
+from .errors import ScanError
+from .image_decode import MAX_ENCODED_IMAGE_BYTES, decode_image
 from ..shared.fs import check_cancel as _check_cancel
 from ..shared.fs import (check_deadline, file_stamp, poll_deadline,
                          read_capped, wait_for_stable_stamp)
@@ -81,7 +82,7 @@ def gamescope_capture_target(deadline=None, cancel_event=None):
 
 def capture_gamescope(cancel_event=None, deadline=None):
     from automatic_stratagems.host_commands import shared_host_directory
-    from .game_capture import run_command
+    from .capture.command import run_command
 
     _check_cancel(cancel_event)
     _check_deadline(deadline)

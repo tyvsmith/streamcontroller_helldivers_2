@@ -11,7 +11,7 @@ from concurrent.futures import CancelledError
 from unittest.mock import patch
 
 from automatic_stratagems import host_commands as hc
-from automatic_stratagems.scanner import game_capture as gc
+from automatic_stratagems.scanner.capture import command as gc
 from automatic_stratagems.tests.process_support import process_is_live
 
 

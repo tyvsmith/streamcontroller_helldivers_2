@@ -47,7 +47,7 @@ def _script_path(config):
 
 
 def _run_script(config, cancel_event=None, deadline=None):
-    from ..game_capture import remaining_timeout, run_command
+    from .command import remaining_timeout, run_command
     script = _script_path(config)
     run_command(
         [str(script)], timeout=remaining_timeout(deadline, 15),
@@ -112,7 +112,7 @@ def _capture_hotkey(config, receive, cancel_event=None, deadline=None):
     except (CancelledError, KeyboardInterrupt, SystemExit):
         raise
     except Exception as error:
-        from ..game_capture import ScanError
+        from ..errors import ScanError
         if isinstance(error, ScanError):
             raise
         raise _scan_error(f"Screenshot hotkey failed: {error}", error)

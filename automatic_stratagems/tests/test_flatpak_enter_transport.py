@@ -327,7 +327,8 @@ def _entered_command(target_pid, scenario, directory):
 
 def _run_scenario(target, root, scenario):
     from automatic_stratagems import host_commands
-    from automatic_stratagems.scanner import game_capture
+    from automatic_stratagems.scanner.capture import command as capture_command
+    from automatic_stratagems.scanner.errors import ScanError
 
     directory = root / scenario
     directory.mkdir()
@@ -336,7 +337,7 @@ def _run_scenario(target, root, scenario):
     auditor = None
     audit_errors = []
     identities = {}
-    real_popen = game_capture.subprocess.Popen
+    real_popen = capture_command.subprocess.Popen
     launched = []
 
     def audit_after_ready(action=None):
@@ -377,7 +378,7 @@ def _run_scenario(target, root, scenario):
             process = real_popen(*args, **kwargs)
             launched.append(process)
             return process
-        popen_patch = patch.object(game_capture.subprocess, "Popen",
+        popen_patch = patch.object(capture_command.subprocess, "Popen",
                                    side_effect=recording_popen)
 
     try:
@@ -406,7 +407,7 @@ def _run_scenario(target, root, scenario):
 
                 command = _entered_command(target["pid"], scenario, directory)
                 if scenario == "success":
-                    output = game_capture.run_command(
+                    output = capture_command.run_command(
                         command, host=True, operation="dummytransport-success",
                         timeout=5,
                     )
@@ -416,7 +417,7 @@ def _run_scenario(target, root, scenario):
                     outcome = "success"
                 elif scenario == "cancel":
                     try:
-                        game_capture.run_command(
+                        capture_command.run_command(
                             command, host=True,
                             operation="dummytransport-cancel", timeout=5,
                             cancel_event=cancel,
@@ -427,14 +428,14 @@ def _run_scenario(target, root, scenario):
                         raise AssertionError("dummytransport cancellation returned")
                 else:
                     try:
-                        game_capture.run_command(
+                        capture_command.run_command(
                             command, host=True,
                             operation=f"dummytransport-{scenario}",
                             timeout=.2 if scenario == "timeout" else 5,
                             stdout_limit=(1024 if scenario == "overflow"
                                           else None),
                         )
-                    except game_capture.ScanError as error:
+                    except ScanError as error:
                         expected = ("timed out" if scenario == "timeout"
                                     else "stdout exceeded"
                                     if scenario == "overflow" else "failed")

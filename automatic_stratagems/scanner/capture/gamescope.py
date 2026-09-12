@@ -13,7 +13,8 @@ from automatic_stratagems.shared.gamescope_target import (
 def resolve_gamescope_capture_target(timeout=5, cancel_event=None):
     """Classify the host-native or Steam-Flatpak Gamescope capture target."""
     from automatic_stratagems.host_commands import HostCleanupUnconfirmed
-    from ..game_capture import ScanError, run_command
+    from ..errors import ScanError
+    from .command import run_command
     command = ['/usr/bin/python3', str(hostexec.script('host_metadata.py')),
                '--capture-target']
     try:
@@ -51,7 +52,7 @@ def capture_into_shared_path(target, output, *, timeout, deadline,
     from automatic_stratagems.host_commands import (HostArtifactCleanupError,
                                                     HostCleanupUnconfirmed,
                                                     _job_from_environment)
-    from ..game_capture import run_command
+    from .command import run_command
     job = _job_from_environment()
     if deadline is None:
         deadline = time.monotonic() + timeout

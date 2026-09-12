@@ -1,6 +1,5 @@
-"""Bounded command execution and image decoding for scanner capture."""
+"""Bounded command execution for scanner capture."""
 
-import io
 import os
 from pathlib import Path
 import shutil
@@ -9,22 +8,16 @@ import threading
 import time
 from concurrent.futures import CancelledError
 
-from PIL import Image
+from ..errors import ScanError
 
 # Readers look this name up at start so tests can replace the drain.
-from ..shared.fs import read_bounded_stream as _read_bounded
+from ...shared.fs import read_bounded_stream as _read_bounded
 
 
 MAX_ENCODED_IMAGE_BYTES = 64 * 1024 * 1024
-MAX_IMAGE_DIMENSION = 16_384
-MAX_IMAGE_PIXELS = 40_000_000
 MAX_COMMAND_STDOUT_BYTES = MAX_ENCODED_IMAGE_BYTES
 MAX_COMMAND_STDERR_BYTES = 256 * 1024
 NATIVE_SETSID = "/usr/bin/setsid"
-
-
-class ScanError(Exception):
-    pass
 
 
 def remaining_timeout(deadline, maximum):
@@ -156,21 +149,3 @@ def run_command(command, timeout=15, *, stdout_limit=None, stderr_limit=None,
         detail = stderr.decode(errors="replace").strip()
         raise ScanError(f"{command_name} failed: {detail}")
     return bytes(stdout)
-
-
-def decode_image(encoded, source):
-    if len(encoded) > MAX_ENCODED_IMAGE_BYTES:
-        raise ScanError(f"{source} encoded image is too large.")
-    try:
-        with Image.open(io.BytesIO(encoded)) as image:
-            width, height = image.size
-            if (width <= 0 or height <= 0 or
-                    max(width, height) > MAX_IMAGE_DIMENSION or
-                    width * height > MAX_IMAGE_PIXELS):
-                raise ScanError(f"{source} image dimensions are unsupported.")
-            image.load()
-            return image.convert("RGB")
-    except ScanError:
-        raise
-    except (Image.DecompressionBombError, OSError, ValueError) as error:
-        raise ScanError(f"{source} returned an unreadable image.") from error

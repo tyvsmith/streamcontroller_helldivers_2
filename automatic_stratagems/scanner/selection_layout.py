@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-from .game_capture import ScanError
+from .errors import ScanError
 
 
 def find_selection_band(im):

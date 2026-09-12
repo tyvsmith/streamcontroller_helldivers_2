@@ -9,8 +9,9 @@ import time
 
 from PIL import Image
 
-from .game_capture import (MAX_ENCODED_IMAGE_BYTES, MAX_IMAGE_DIMENSION,
-                           MAX_IMAGE_PIXELS, ScanError)
+from .errors import ScanError
+from .image_decode import (MAX_ENCODED_IMAGE_BYTES, MAX_IMAGE_DIMENSION,
+                           MAX_IMAGE_PIXELS)
 from ..shared.fs import check_cancel as _check_cancel
 from ..shared.fs import typed_file_stamp as _snapshot
 from ..shared.fs import check_deadline, poll_deadline, read_capped

@@ -5,7 +5,7 @@ import unittest
 
 from PIL import Image, ImageDraw
 
-from automatic_stratagems.scanner.game_capture import ScanError
+from automatic_stratagems.scanner.errors import ScanError
 from automatic_stratagems.scanner.selection_layout import (
     find_selection_band,
     selection_boxes,

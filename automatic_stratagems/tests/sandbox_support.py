@@ -169,7 +169,8 @@ def _host_cli(argv):
 def _scanner_wrapper(argv):
     """Run the real scanner with only its live acquisition commands replaced."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from automatic_stratagems.scanner import game_capture, scan_game
+    from automatic_stratagems.scanner import scan_game
+    from automatic_stratagems.scanner.capture import command as capture_command
 
     _append_json(os.environ.get(AUDIT_ENV), {
         "event": "scanner-wrapper-started",
@@ -179,7 +180,7 @@ def _scanner_wrapper(argv):
         "tesseract": shutil.which("tesseract"),
         "time_ns": time.time_ns(),
     })
-    original = game_capture.run_command
+    original = capture_command.run_command
     support = str(Path(__file__).resolve())
     forwarded = {
         name: os.environ[name]
@@ -196,11 +197,11 @@ def _scanner_wrapper(argv):
             command = ["/usr/bin/python3", support, "host-cli", "screenshot", str(output)]
         return original(command, *args, **kwargs)
 
-    game_capture.run_command = run_command
+    capture_command.run_command = run_command
     try:
         return scan_game.main(argv)
     finally:
-        game_capture.run_command = original
+        capture_command.run_command = original
 
 
 def _descendants(root_pid):

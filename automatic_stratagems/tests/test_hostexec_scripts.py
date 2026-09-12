@@ -61,7 +61,7 @@ class HostexecScriptTests(unittest.TestCase):
 
     def test_capture_target_resolution_launches_the_hostexec_script(self):
         with patch(
-                'automatic_stratagems.scanner.game_capture.run_command',
+                'automatic_stratagems.scanner.capture.command.run_command',
                 return_value=b'{"kind":"native","socket":"/run/user/1000/gamescope-2"}'
         ) as run:
             sandbox_gamescope.resolve_gamescope_capture_target()
@@ -87,7 +87,7 @@ class HostexecScriptTests(unittest.TestCase):
                 output = job.path / 'gamescope-test' / 'capture.png'
                 output.parent.mkdir(mode=0o700)
                 with patch.dict(os.environ, hc.host_job_environment(job)), \
-                     patch('automatic_stratagems.scanner.game_capture.run_command',
+                     patch('automatic_stratagems.scanner.capture.command.run_command',
                            return_value=b'') as run:
                     sandbox_gamescope.capture_into_shared_path(
                         target, output, timeout=1, deadline=123.5)

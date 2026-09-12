@@ -31,8 +31,10 @@ class ScreenshotCaptureTests(unittest.TestCase):
             plugin_module('automatic_stratagems.scanner.capture.screenshot_trigger'))
         cls.detect = importlib.import_module(
             plugin_module('automatic_stratagems.scanner.capture.screenshot_detect'))
-        cls.game_capture = importlib.import_module(
-            plugin_module('automatic_stratagems.scanner.game_capture'))
+        cls.errors = importlib.import_module(
+            plugin_module('automatic_stratagems.scanner.errors'))
+        cls.command = importlib.import_module(
+            plugin_module('automatic_stratagems.scanner.capture.command'))
 
     def setUp(self):
         self.temporary = TemporaryDirectory()
@@ -190,7 +192,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         for directories in ([], [first, second]):
             with self.subTest(count=len(directories)), \
                  patch.object(self.source, '_steam_directories', return_value=directories), \
-                 self.assertRaises(self.game_capture.ScanError):
+                 self.assertRaises(self.errors.ScanError):
                 self.capture.resolve_source(config)
 
     def test_public_steam_managed_predicate_uses_discovered_directories(self):
@@ -206,7 +208,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         (userdata / 'two').mkdir()
         with patch.object(self.source.Path, 'home', return_value=self.root), \
              patch.object(self.source, 'MAX_DIRECTORY_ENTRIES', 1), \
-             self.assertRaisesRegex(self.game_capture.ScanError, 'too many'):
+             self.assertRaisesRegex(self.errors.ScanError, 'too many'):
             self.source._steam_directories()
 
     def test_check_setup_rejects_invalid_config_without_triggering(self):
@@ -222,7 +224,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
              patch.object(self.capture, '_capture_hotkey') as hotkey:
             for config in invalid:
                 with self.subTest(config=config), self.assertRaises(
-                        self.game_capture.ScanError):
+                        self.errors.ScanError):
                     self.capture.check_screenshot_setup(config)
         script.assert_not_called()
         hotkey.assert_not_called()
@@ -232,18 +234,18 @@ class ScreenshotCaptureTests(unittest.TestCase):
         self.capture.check_screenshot_setup(
             self.config(kind='file', path=str(target), trigger='script',
                         script=sys.executable))
-        with self.assertRaises(self.game_capture.ScanError):
+        with self.assertRaises(self.errors.ScanError):
             self.capture.check_screenshot_setup(
                 self.config(kind='file', path=str(target), trigger='none'))
 
     def test_check_setup_rejects_unsupported_explicit_and_detected_files(self):
         unsupported = self.root / 'capture.txt'
-        with self.assertRaisesRegex(self.game_capture.ScanError, 'PNG or JPEG'):
+        with self.assertRaisesRegex(self.errors.ScanError, 'PNG or JPEG'):
             self.capture.check_screenshot_setup(self.config(
                 kind='file', path=str(unsupported), trigger='script',
                 script=sys.executable))
         unsupported.write_text('not an image')
-        with self.assertRaisesRegex(self.game_capture.ScanError, 'PNG or JPEG'):
+        with self.assertRaisesRegex(self.errors.ScanError, 'PNG or JPEG'):
             self.capture.check_screenshot_setup(self.config(
                 kind='path', path=str(unsupported), trigger='script',
                 script=sys.executable))
@@ -256,7 +258,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         self.assertEqual(metadata['selection'], 'file')
         repeated = self.config(kind='file', path=str(target),
                                previous_fingerprint=metadata['fingerprint'])
-        with self.assertRaisesRegex(self.game_capture.ScanError, 'not changed'):
+        with self.assertRaisesRegex(self.errors.ScanError, 'not changed'):
             self.capture.capture_screenshot(repeated)
         image, again = self.capture.capture_screenshot(
             {**repeated, 'allow_rescan': True})
@@ -286,7 +288,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
                              script=sys.executable, allow_rescan=True)
         with patch.object(self.capture, '_run_script'), \
              patch.object(self.detect, 'WAIT_SECONDS', .08), \
-             self.assertRaisesRegex(self.game_capture.ScanError, 'new screenshot'):
+             self.assertRaisesRegex(self.errors.ScanError, 'new screenshot'):
             self.capture.capture_screenshot(config)
 
     def test_triggered_overwrite_is_accepted_but_never_deletable(self):
@@ -321,7 +323,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         self.addCleanup(os.close, descriptor)
         expected = self.files._metadata_snapshot(os.fstat(descriptor))
         with patch.object(self.files.os, 'read', return_value=b'x') as read, \
-             self.assertRaisesRegex(self.game_capture.ScanError, 'changed'):
+             self.assertRaisesRegex(self.errors.ScanError, 'changed'):
             self.files._fingerprint_descriptor(descriptor, expected)
         self.assertEqual(read.call_count, 2)
 
@@ -340,7 +342,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
 
         with patch.object(image_source, 'read_image_source',
                           side_effect=replace_after_read), \
-             self.assertRaisesRegex(self.game_capture.ScanError, 'changed'):
+             self.assertRaisesRegex(self.errors.ScanError, 'changed'):
             self.detect._read_triggered_candidate(
                 target, 'file', self.config(), False, None, None)
 
@@ -352,7 +354,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
             self.image('two.jpg')
 
         with patch.object(self.capture, '_run_script', side_effect=trigger), \
-             self.assertRaisesRegex(self.game_capture.ScanError, 'Multiple new'):
+             self.assertRaisesRegex(self.errors.ScanError, 'Multiple new'):
             self.capture.capture_screenshot(config)
 
     def test_trigger_rejects_new_symlink_candidate(self):
@@ -362,7 +364,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         with patch.object(self.capture, '_run_script', side_effect=lambda *_a, **_k:
                           (self.root / 'linked.png').symlink_to(outside)), \
              patch.object(self.detect, 'WAIT_SECONDS', .05), \
-             self.assertRaises(self.game_capture.ScanError):
+             self.assertRaises(self.errors.ScanError):
             self.capture.capture_screenshot(config)
 
     def test_path_trigger_detects_folder_and_reports_folder_selection(self):
@@ -377,7 +379,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         self.image('two.png')
         config = self.config(kind='folder', trigger='script', script=sys.executable)
         with patch.object(self.files, 'MAX_DIRECTORY_ENTRIES', 1), \
-             self.assertRaisesRegex(self.game_capture.ScanError, 'too many'):
+             self.assertRaisesRegex(self.errors.ScanError, 'too many'):
             self.capture.capture_screenshot(config)
 
     def test_cancellation_during_snapshot_prevents_trigger(self):
@@ -430,7 +432,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
                           side_effect=lambda *_a, **_k: self.image('one.png')), \
              patch.object(self.detect, '_read_triggered_candidate',
                           side_effect=read_then_publish_second), \
-             self.assertRaisesRegex(self.game_capture.ScanError, 'Multiple new'):
+             self.assertRaisesRegex(self.errors.ScanError, 'Multiple new'):
             self.capture.capture_screenshot(config)
         self.assertEqual(len(self.cleanup._CLEANUP_RECORDS), records)
 
@@ -440,7 +442,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
                              script=sys.executable)
         with patch.object(self.capture, '_run_script'), \
              patch.object(self.detect, 'WAIT_SECONDS', .05), \
-             self.assertRaisesRegex(self.game_capture.ScanError, 'new screenshot'):
+             self.assertRaisesRegex(self.errors.ScanError, 'new screenshot'):
             self.capture.capture_screenshot(config)
         cancelled = threading.Event()
         with patch.object(self.capture, '_run_script',
@@ -457,12 +459,12 @@ class ScreenshotCaptureTests(unittest.TestCase):
         script.chmod(0o700)
         config = self.config(kind='file', path=str(self.root / 'future.png'),
                              trigger='script', script=str(script))
-        run_command = self.game_capture.run_command
+        run_command = self.command.run_command
         def run_locally(command, **kwargs):
             kwargs['host'] = False
             return run_command(command, **kwargs)
         # Exercise executable argv locally; real host transport has its own suite.
-        with patch.object(self.game_capture, 'run_command', side_effect=run_locally):
+        with patch.object(self.command, 'run_command', side_effect=run_locally):
             self.capture._run_script(config, None, time.monotonic() + 3)
         self.assertEqual(json.loads(output.read_text()), [str(script)])
 
@@ -472,7 +474,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         script.chmod(0o700)
         config = self.config(kind='file', path=str(self.root / 'future.png'),
                              trigger='script', script=str(script))
-        with patch.object(self.game_capture, 'run_command') as run:
+        with patch.object(self.command, 'run_command') as run:
             self.capture._run_script(config, None, time.monotonic() + 2)
         run.assert_called_once()
         self.assertEqual(run.call_args.args[0], [str(script)])
@@ -537,7 +539,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
                 self.config(hotkey='KEY_MACRO1'), lambda: ('image', {}))
         self.assertEqual(evdev.UInput.call_args.args[0], {1: [656]})
         with patch.dict(sys.modules, {'evdev': evdev}), \
-             self.assertRaises(self.game_capture.ScanError):
+             self.assertRaises(self.errors.ScanError):
             self.capture._key_codes('KEY_MAX')
 
     def test_hotkey_partial_failure_still_attempts_every_reverse_release(self):
@@ -558,7 +560,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         with patch.dict(sys.modules, {'evdev': evdev}), \
              patch.object(self.capture.os, 'access', return_value=True), \
              patch.object(self.trigger, '_cancellable_sleep'), \
-             self.assertRaisesRegex(self.game_capture.ScanError, 'write failed'):
+             self.assertRaisesRegex(self.errors.ScanError, 'write failed'):
             self.capture.capture_screenshot(self.config(
                 kind='folder', trigger='hotkey', hotkey='KEY_LEFTCTRL+KEY_F12'))
         self.assertEqual(events, [(29, 1), (88, 1), (88, 0), (29, 0)])

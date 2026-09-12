@@ -256,7 +256,7 @@ class CaptureBackendsTests(unittest.TestCase):
                           side_effect=tempfile.TemporaryDirectory), \
              patch.object(cb, 'gamescope_capture_target',
                           return_value={'kind': 'native', 'socket': '/run/user/1000/gamescope-2'}), \
-             patch('automatic_stratagems.scanner.game_capture.run_command',
+             patch('automatic_stratagems.scanner.capture.command.run_command',
                    side_effect=command):
             image, info = cb.capture_gamescope()
         self.assertEqual(image.size, (100, 100))
@@ -279,7 +279,7 @@ class CaptureBackendsTests(unittest.TestCase):
         with patch.object(hc, 'shared_host_directory',
                           side_effect=tempfile.TemporaryDirectory), \
              patch.object(cb, 'gamescope_capture_target', side_effect=socket), \
-             patch('automatic_stratagems.scanner.game_capture.run_command',
+             patch('automatic_stratagems.scanner.capture.command.run_command',
                    side_effect=command):
             cb.capture_gamescope(deadline=deadline)
         self.assertEqual(seen['socket_deadline'], deadline)
@@ -307,7 +307,7 @@ class CaptureBackendsTests(unittest.TestCase):
                      'FLATPAK_ID': 'com.core447.StreamController',
                      **hc.host_job_environment(job)}, clear=False), \
                  patch.object(cb, 'gamescope_capture_target', return_value={'kind': 'native', 'socket': 'gamescope-2'}), \
-                 patch('automatic_stratagems.scanner.game_capture.run_command') as run:
+                 patch('automatic_stratagems.scanner.capture.command.run_command') as run:
                 def write_image(args, **kwargs):
                     path = Path(args[-2])
                     self.assertTrue(path.is_relative_to(job.path))
@@ -354,7 +354,7 @@ class CaptureBackendsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as base:
             with hc.create_host_job(base=Path(base), hard_timeout=5) as job, \
                  patch.dict(os.environ, hc.host_job_environment(job)), \
-                 patch('automatic_stratagems.scanner.game_capture.run_command',
+                 patch('automatic_stratagems.scanner.capture.command.run_command',
                        side_effect=command):
                 image, info = cb.capture_gamescope(
                     deadline=deadline, cancel_event=cancelled)
@@ -389,7 +389,7 @@ class CaptureBackendsTests(unittest.TestCase):
             with self.assertRaises(hc.HostArtifactCleanupError):
                 with hc.create_host_job(base=Path(base), hard_timeout=5) as job, \
                      patch.dict(os.environ, hc.host_job_environment(job)), \
-                     patch('automatic_stratagems.scanner.game_capture.run_command',
+                     patch('automatic_stratagems.scanner.capture.command.run_command',
                            side_effect=command), \
                      patch('automatic_stratagems.scanner.screenshot_capture.capture_screenshot') as fallback:
                     cb.scan_live('auto', lambda image: self.report(),
@@ -401,7 +401,7 @@ class CaptureBackendsTests(unittest.TestCase):
     def test_metadata_cleanup_uncertainty_stops_before_capture(self):
         with patch('automatic_stratagems.scanner.capture.gamescope.resolve_gamescope_capture_target',
                    side_effect=hc.HostCleanupUnconfirmed('still running')), \
-             patch('automatic_stratagems.scanner.game_capture.run_command') as native, \
+             patch('automatic_stratagems.scanner.capture.command.run_command') as native, \
              self.assertRaises(hc.HostCleanupUnconfirmed):
             cb.capture_gamescope()
         native.assert_not_called()

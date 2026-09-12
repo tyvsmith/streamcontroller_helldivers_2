@@ -17,7 +17,7 @@ SUPPORTED_SUFFIXES = frozenset((".png", ".jpg", ".jpeg"))
 
 
 def _scan_error(message, cause=None):
-    from ..game_capture import ScanError
+    from ..errors import ScanError
     error = ScanError(message)
     if cause is not None:
         error.__cause__ = cause
@@ -64,7 +64,7 @@ def _directory_snapshot(directory, cancel_event=None, deadline=None):
         _check_deadline(deadline)
         return _metadata_snapshot(root)[:3], entries
     except Exception as error:
-        from ..game_capture import ScanError
+        from ..errors import ScanError
         if isinstance(error, ScanError):
             raise
         if isinstance(error, OSError):
@@ -89,7 +89,7 @@ def _stable_fingerprint(path, expected, cancel_event=None, deadline=None):
     except (CancelledError, KeyboardInterrupt, SystemExit):
         raise
     except Exception as error:
-        from ..game_capture import ScanError
+        from ..errors import ScanError
         if isinstance(error, ScanError):
             raise
         raise _scan_error(f"Cannot snapshot existing screenshot: {error}", error)
@@ -97,7 +97,7 @@ def _stable_fingerprint(path, expected, cancel_event=None, deadline=None):
 
 def _fingerprint_descriptor(descriptor, expected, cancel_event=None,
                             deadline=None):
-    from ..game_capture import MAX_ENCODED_IMAGE_BYTES
+    from ..image_decode import MAX_ENCODED_IMAGE_BYTES
     before = os.fstat(descriptor)
     if (_metadata_snapshot(before)[:len(expected)] != expected or
             not stat.S_ISREG(before.st_mode) or

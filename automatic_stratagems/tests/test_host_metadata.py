@@ -301,7 +301,7 @@ class HostMetadataTests(unittest.TestCase):
                 hm.flatpak_gamescope_target()
 
     def test_capture_target_response_must_be_an_object(self):
-        with patch('automatic_stratagems.scanner.game_capture.run_command',
+        with patch('automatic_stratagems.scanner.capture.command.run_command',
                    return_value=b'[]'), \
              self.assertRaisesRegex(hm.HostMetadataError,
                                          'response is invalid'):

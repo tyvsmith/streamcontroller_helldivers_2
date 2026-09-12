@@ -22,7 +22,8 @@ from PIL import Image, ImageDraw
 
 from automatic_stratagems.host_commands import HostCommandError
 
-from .game_capture import MAX_ENCODED_IMAGE_BYTES, ScanError, decode_image
+from .errors import ScanError
+from .image_decode import MAX_ENCODED_IMAGE_BYTES, decode_image
 from .capture_backends import BACKENDS, scan_live
 from .icon_normalization import normalize_icon
 from .selection_layout import empty_tile, find_selection_band, selection_boxes
@@ -91,7 +92,7 @@ def check_capture_setup(backend, cancel_event=None):
     shared = os.environ.get(JOB_DIRECTORY_ENV, '')
     if not shared:
         raise ScanError('Host command job environment is unavailable.')
-    from .game_capture import run_command
+    from .capture.command import run_command
     run_command(['/usr/bin/sh', '-c', HOST_PREFLIGHT, 'hd2-capture-preflight',
                  shared, required, 'gamescopectl', '/usr/bin/flatpak'],
                 timeout=5, host=True,

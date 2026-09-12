@@ -149,7 +149,7 @@ def _wait_for_screenshot(config, selection, before, cancel_event=None,
             except (CancelledError, KeyboardInterrupt, SystemExit):
                 raise
             except Exception as error:
-                from ..game_capture import ScanError
+                from ..errors import ScanError
                 if not isinstance(error, ScanError):
                     raise
                 if "Multiple new screenshots" in str(error):
