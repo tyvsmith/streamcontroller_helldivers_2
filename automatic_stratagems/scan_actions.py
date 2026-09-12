@@ -25,10 +25,16 @@ from .scan_session import SLOT_COLORS, ScanSession
 from .scan_operation import ScanOperation, ScanPlan
 from . import session_registry
 from .session_registry import scan_group as _scan_group
+from . import slot_reconciliation
+from .slot_reconciliation import (
+    AUTOMATIC_ACTION_ID, configured_slot as _configured_slot,
+    resolved_layout as _resolved_layout,
+    settings_color_filter as _settings_color_filter,
+)
 from .scan_artwork import catalog_colors, badged_icon
 from .loading_animation import LoadingAnimation
 from .streamcontroller_adapter import (
-    page_action_records, source_action_address as _source_action_address,
+    source_action_address as _source_action_address,
 )
 from .temporary_scan_page import TemporaryScanPages
 from ..stratagem_execution import execute_stratagem
@@ -37,7 +43,6 @@ from ..stratagem_execution import execute_stratagem
 SOURCE_SETTING_KEYS = (
     'capture_backend',
 )
-AUTOMATIC_ACTION_ID = 'net_jslay_helldivers_2::AutomaticStratagem'
 SHUTDOWN_TIMEOUT_SECONDS = (FLATPAK_TERMINATE_GRACE_SECONDS
                             + TERMINATE_GRACE_SECONDS + 1)
 MAIN_CONTEXT_TIMEOUT_SECONDS = 5
@@ -50,40 +55,6 @@ class ScanAttempt:
     message: str
     session: object = None
     token: int | None = None
-
-
-def _configured_slot(settings):
-    try:
-        value = int(settings.get('slot', -1))
-    except (ValueError, TypeError):
-        return -1
-    return min(value, 99) if value > 0 else -1
-
-
-def _resolved_layout(action, group=None):
-    records = page_action_records(action, AUTOMATIC_ACTION_ID)
-    if records is None:
-        return None
-    group = _scan_group(action.get_settings()) if group is None else group
-    records = [record for record in records if _scan_group(record[1]) == group]
-    reserved = {_configured_slot(settings) for _, settings, _ in records}
-    reserved.discard(-1)
-    available = (slot for slot in range(1, 100) if slot not in reserved)
-    resolved = []
-    for position, settings, action_object in records:
-        slot = _configured_slot(settings)
-        if slot == -1:
-            try:
-                slot = next(available)
-            except StopIteration:
-                raise ValueError('No automatic slots remain') from None
-        resolved.append((position, settings, action_object, slot))
-    return resolved
-
-
-def _settings_color_filter(settings):
-    value = settings.get('color_filter', 'any')
-    return value if value in SLOT_COLORS else 'any'
 
 
 def scan_mode(action):
@@ -117,6 +88,7 @@ class ScanCoordinator:
     def __init__(self, plugin, state_dir=None):
         self.plugin = plugin
         self.registry = session_registry.SessionRegistry(plugin, state_dir)
+        self.reconciler = slot_reconciliation.SlotReconciler(self, AutomaticStratagem)
         self.actions = WeakSet()
         self.temporary_pages = None
         self.active_scans = {}
@@ -266,12 +238,7 @@ class ScanCoordinator:
         return self.registry.context_identity(context)
 
     def slot_filters(self, context, session):
-        slots = [a for a in self._attached_actions() if isinstance(a, AutomaticStratagem)
-                 and self.context(a) == context]
-        if slots:
-            return {slot: action.color_filter() for action in slots
-                    if (slot := action.slot()) is not None}
-        return {int(slot): row['filter'] for slot, row in session.checkpoint()['slots'].items()}
+        return self.reconciler.slot_filters(context, session)
 
     def persist(self, action, session):
         self.registry.persist(action, session)
@@ -495,51 +462,17 @@ class ScanCoordinator:
             self.reconcile_action(action)
 
     def configured_filters(self, context):
-        filters, _ = self._configured_filters(context)
-        return filters
+        return self.reconciler.configured_filters(context)
 
     def _configured_filters(self, context):
-        candidates = [candidate for candidate in self._attached_actions()
-                      if isinstance(candidate, AutomaticStratagem)
-                      and self.context(candidate) == context]
-        for candidate in candidates:
-            layout = _resolved_layout(candidate, context[2])
-            if layout is not None:
-                return ({slot: _settings_color_filter(settings)
-                         for _, settings, _, slot in layout}, True)
-        return ({slot: candidate.color_filter() for candidate in candidates
-                 if candidate.get_is_present()
-                 and (slot := candidate.slot()) is not None}, False)
+        return self.reconciler._configured_filters(context)
 
     def reconcile_action(self, action, *, old_context=None, old_slot=None):
-        context = self.context(action)
-        action._scan_context = context
-        session = self.session_for(context)
-        slot = action.slot()
-        if slot is None and old_slot is None:
-            return
-        affected = set() if slot is None else {slot}
-        if old_context == context and old_slot is not None:
-            affected.add(old_slot)
-        filters, authoritative = self._configured_filters(context)
-        if slot is not None:
-            filters[slot] = action.color_filter()
-        was_scanning = session.snapshot().status == 'scanning'
-        reconcile_all = authoritative and slot is not None
-        if session.reconcile(filters, affected=None if reconcile_all else affected):
-            if was_scanning:
-                self.cancel_context(context)
-            self.persist_context(context, session)
-            self.redraw(context)
+        self.reconciler.reconcile_action(
+            action, old_context=old_context, old_slot=old_slot)
 
     def redraw(self, context):
-        for action in self._attached_actions():
-            if (getattr(action, 'on_ready_called', False) and action.get_is_present()
-                    and self.context(action) == context):
-                try:
-                    action.render()
-                except Exception:
-                    log.exception('Unable to render scan action')
+        self.reconciler.redraw(context)
 
     def page_changed(self, controller, old_path, new_path):
         for (deck, path, group), session in list(self.sessions.items()):
