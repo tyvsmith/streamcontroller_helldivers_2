@@ -27,6 +27,10 @@ class ScreenshotCaptureTests(unittest.TestCase):
             plugin_module('automatic_stratagems.scanner.capture.screenshot_files'))
         cls.source = importlib.import_module(
             plugin_module('automatic_stratagems.scanner.capture.screenshot_source'))
+        cls.trigger = importlib.import_module(
+            plugin_module('automatic_stratagems.scanner.capture.screenshot_trigger'))
+        cls.detect = importlib.import_module(
+            plugin_module('automatic_stratagems.scanner.capture.screenshot_detect'))
         cls.game_capture = importlib.import_module(
             plugin_module('automatic_stratagems.scanner.game_capture'))
 
@@ -71,7 +75,8 @@ class ScreenshotCaptureTests(unittest.TestCase):
 
     def test_lower_capture_modules_never_import_the_facade(self):
         ast = __import__('ast')
-        for module in (self.cleanup, self.files, self.source):
+        for module in (self.cleanup, self.files, self.source, self.trigger,
+                       self.detect):
             tree = ast.parse(Path(module.__file__).read_text())
             imported = [
                 node.module or '' for node in ast.walk(tree)
@@ -85,18 +90,30 @@ class ScreenshotCaptureTests(unittest.TestCase):
                 self.assertFalse([name for name in imported
                                   if 'screenshot_capture' in name])
                 self.assertFalse(top & {'PIL', 'evdev'})
+        # Trigger and detect are siblings; neither needs the other.
+        trigger_source = Path(self.trigger.__file__).read_text()
+        detect_source = Path(self.detect.__file__).read_text()
+        self.assertNotIn('screenshot_detect', trigger_source)
+        self.assertNotIn('screenshot_trigger', detect_source)
 
     def test_facade_names_are_the_lower_module_objects(self):
-        for name in ('cleanup_screenshot', '_register_cleanup',
-                     '_steam_thumbnail_snapshot'):
+        for name in ('cleanup_screenshot',):
             self.assertIs(getattr(self.capture, name), getattr(self.cleanup, name))
         for name in ('resolve_source', 'is_steam_managed'):
             self.assertIs(getattr(self.capture, name), getattr(self.source, name))
+        for name in ('_source_kind', '_trigger_snapshot', '_wait_for_screenshot'):
+            self.assertIs(getattr(self.capture, name), getattr(self.detect, name))
+        for name in ('_key_codes', '_script_path', '_run_script', '_capture_hotkey'):
+            self.assertIs(getattr(self.capture, name), getattr(self.trigger, name))
         # No stale facade copies that a patch could target without effect.
         for name in ('_CLEANUP_LOCK', '_CLEANUP_RECORDS', 'THUMBNAIL_WAIT_SECONDS',
                      '_steam_directories', '_wait_for_steam_thumbnail',
                      '_delete_cleanup_pairs', '_fingerprint_descriptor',
-                     'MAX_DIRECTORY_ENTRIES'):
+                     'MAX_DIRECTORY_ENTRIES', '_register_cleanup',
+                     '_steam_thumbnail_snapshot', 'WAIT_SECONDS',
+                     'MAX_CAPTURE_OUTPUT_BYTES', '_read_triggered_candidate',
+                     '_cancellable_sleep', '_absolute', '_directory_snapshot',
+                     '_stable_fingerprint', 'SUPPORTED_SUFFIXES'):
             self.assertFalse(hasattr(self.capture, name), name)
 
     def registered(self, config, name='new.png', newly_created=True, steam=None):
@@ -268,7 +285,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         config = self.config(kind='file', path=str(target), trigger='script',
                              script=sys.executable, allow_rescan=True)
         with patch.object(self.capture, '_run_script'), \
-             patch.object(self.capture, 'WAIT_SECONDS', .08), \
+             patch.object(self.detect, 'WAIT_SECONDS', .08), \
              self.assertRaisesRegex(self.game_capture.ScanError, 'new screenshot'):
             self.capture.capture_screenshot(config)
 
@@ -324,7 +341,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         with patch.object(image_source, 'read_image_source',
                           side_effect=replace_after_read), \
              self.assertRaisesRegex(self.game_capture.ScanError, 'changed'):
-            self.capture._read_triggered_candidate(
+            self.detect._read_triggered_candidate(
                 target, 'file', self.config(), False, None, None)
 
     def test_trigger_rejects_multiple_new_images(self):
@@ -344,7 +361,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
                              script=sys.executable)
         with patch.object(self.capture, '_run_script', side_effect=lambda *_a, **_k:
                           (self.root / 'linked.png').symlink_to(outside)), \
-             patch.object(self.capture, 'WAIT_SECONDS', .05), \
+             patch.object(self.detect, 'WAIT_SECONDS', .05), \
              self.assertRaises(self.game_capture.ScanError):
             self.capture.capture_screenshot(config)
 
@@ -401,7 +418,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
     def test_late_ambiguous_image_publishes_no_cleanup_provenance(self):
         config = self.config(kind='folder', trigger='script', script=sys.executable,
                              delete_after_scan=True)
-        original = self.capture._read_triggered_candidate
+        original = self.detect._read_triggered_candidate
 
         def read_then_publish_second(*args, **kwargs):
             result = original(*args, **kwargs)
@@ -411,7 +428,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         records = len(self.cleanup._CLEANUP_RECORDS)
         with patch.object(self.capture, '_run_script',
                           side_effect=lambda *_a, **_k: self.image('one.png')), \
-             patch.object(self.capture, '_read_triggered_candidate',
+             patch.object(self.detect, '_read_triggered_candidate',
                           side_effect=read_then_publish_second), \
              self.assertRaisesRegex(self.game_capture.ScanError, 'Multiple new'):
             self.capture.capture_screenshot(config)
@@ -422,7 +439,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         config = self.config(kind='file', path=str(target), trigger='script',
                              script=sys.executable)
         with patch.object(self.capture, '_run_script'), \
-             patch.object(self.capture, 'WAIT_SECONDS', .05), \
+             patch.object(self.detect, 'WAIT_SECONDS', .05), \
              self.assertRaisesRegex(self.game_capture.ScanError, 'new screenshot'):
             self.capture.capture_screenshot(config)
         cancelled = threading.Event()
@@ -490,12 +507,12 @@ class ScreenshotCaptureTests(unittest.TestCase):
 
         def wait(*_args, **_kwargs):
             self.image('new.png')
-            return self.capture._read_triggered_candidate(
+            return self.detect._read_triggered_candidate(
                 target, 'folder', config, True, None, None)
 
         with patch.dict(sys.modules, {'evdev': evdev}), \
              patch.object(self.capture.os, 'access', return_value=True), \
-             patch.object(self.capture, '_cancellable_sleep'), \
+             patch.object(self.trigger, '_cancellable_sleep'), \
              patch.object(self.capture, '_wait_for_screenshot', side_effect=wait):
             self.capture.capture_screenshot(config)
         writes = [event[1:] for event in events if event[0] == 'write']
@@ -515,7 +532,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
             EV_KEY=1, KEY_MACRO1=656, KEY_MAX=767, KEY_CNT=768)
         evdev.UInput = Mock(return_value=Keyboard())
         with patch.dict(sys.modules, {'evdev': evdev}), \
-             patch.object(self.capture, '_cancellable_sleep'):
+             patch.object(self.trigger, '_cancellable_sleep'):
             self.capture._capture_hotkey(
                 self.config(hotkey='KEY_MACRO1'), lambda: ('image', {}))
         self.assertEqual(evdev.UInput.call_args.args[0], {1: [656]})
@@ -540,7 +557,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         evdev.UInput = Mock(return_value=Keyboard())
         with patch.dict(sys.modules, {'evdev': evdev}), \
              patch.object(self.capture.os, 'access', return_value=True), \
-             patch.object(self.capture, '_cancellable_sleep'), \
+             patch.object(self.trigger, '_cancellable_sleep'), \
              self.assertRaisesRegex(self.game_capture.ScanError, 'write failed'):
             self.capture.capture_screenshot(self.config(
                 kind='folder', trigger='hotkey', hotkey='KEY_LEFTCTRL+KEY_F12'))
@@ -562,7 +579,7 @@ class ScreenshotCaptureTests(unittest.TestCase):
         records = sys.modules[cleanup.__module__]._CLEANUP_RECORDS
         self.assertIs(cleanup.__globals__['_CLEANUP_RECORDS'], records)
         self.assertIs(
-            self.capture._register_cleanup.__globals__['_CLEANUP_RECORDS'], records)
+            self.cleanup._register_cleanup.__globals__['_CLEANUP_RECORDS'], records)
         self.assertIs(getattr(self.capture, '_CLEANUP_RECORDS', records), records)
         config = self.config(kind='folder', trigger='script', script=sys.executable,
                              delete_after_scan=True)
