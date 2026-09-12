@@ -369,6 +369,13 @@ Run the feature and ordinary key-mapping regressions with:
 .venv/bin/python automatic_stratagems/tools/check
 ```
 
+Check that the install hook, runtime provisioning, and host scripts import only
+the standard library:
+
+```sh
+python3 automatic_stratagems/tools/check-imports
+```
+
 Validate the Flatpak boundary with isolated data and saved fixtures:
 
 ```sh

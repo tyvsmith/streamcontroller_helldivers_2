@@ -24,9 +24,31 @@ generation stays in `update/`.
 | `scan_session.py`, `scan_state.py` | assignment and filter state machine, validated atomic persistence |
 | `temporary_scan_page.py`, `scan_artwork.py` | owned generated pages and action presentation |
 | `capture_source.py` | capture defaults, normalized settings, binding identity, CLI arguments |
-| `scanner_runtime.py`, `runtime_profile.py`, `runtime_setup.py` | child environment selection and explicit dependency setup/check/rollback |
+| `provision/` | runtime preparation: `runtime_install` (single preparation path), `verify` (check and child preflight), `build` (install-time download, unpack, stage, activate, rollback), `runtime_profile`, `scanner_runtime` |
 | `scan_runner.py`, `host_commands.py` | bounded scanner execution, host command ownership, cleanup, report validation |
-| `scanner/` | capture, image decoding, layout detection, recognition, OCR, caches, JSON reports |
+| `hostexec/` | scripts the host `/usr/bin/python3` runs outside the sandbox: Gamescope target lookup, Flatpak Steam capture and cleanup |
+| `shared/` | standard-library helpers every context imports: atomic writes, bounded reads, stability polling, host-job identity, Gamescope target schema |
+| `scanner/` | capture (`scanner/capture/` launches hostexec scripts), image decoding, layout detection, recognition, OCR, caches, JSON reports |
+
+## Execution contexts
+
+The feature runs in five contexts with different dependency budgets. Three must
+stay standard-library only, and `tools/check-imports` fails on any other import in
+their files.
+
+| Context | Interpreter | May import | Files |
+| --- | --- | --- | --- |
+| Plugin | StreamController's Python, with GTK | plugin modules | root `main.py`, feature modules |
+| Scanner child | owned venv or Flatpak profile | OpenCV, NumPy, Pillow, evdev | `scanner/` |
+| Host scripts | host `/usr/bin/python3`, outside the sandbox | stdlib, `shared/`, `hostexec/` | `hostexec/` |
+| Install hook | StreamController's Python, before the plugin loads | stdlib, `shared/`, `provision/` | `__install__.py`, `provision/` |
+| Tooling | developer interpreter | anything | `tools/`, `tests/` |
+
+`shared/` and the package `__init__.py` import only the standard library. The
+install hook swallows every exception, so a stray import there would install
+cleanly and never scan; the import check is what catches it. Each host script
+inserts the plugin root on `sys.path` once before its first repository import,
+and a test runs every script with `-I -S` to prove it loads.
 
 ## Scan flow
 
@@ -110,8 +132,9 @@ process/socket/file operations, and a configured screenshot script.
 
 ### Gamescope
 
-`host_metadata.py` associates the Helldivers process with a unique Gamescope
-socket using process ancestry and socket ownership. Ambiguity rejects capture;
+`hostexec/host_metadata.py` runs on the host, launched by
+`scanner/capture/gamescope.py`, and associates the Helldivers process with a
+unique Gamescope socket using process ancestry and socket ownership. Ambiguity rejects capture;
 there is no foreground-window check or arbitrary socket fallback.
 
 - Native Gamescope: invoke its capture CLI through the bounded host runner
@@ -119,7 +142,7 @@ there is no foreground-window check or arbitrary socket fallback.
   then invoke its capture CLI through `flatpak enter`
 
 For Flatpak Steam, its private cache may be inaccessible to StreamController.
-`gamescope_flatpak.py` uses a bounded host file operation to wait for the new
+`hostexec/gamescope_flatpak.py` uses a bounded host file operation to wait for the new
 capture and copy encoded bytes into the shared job directory. Host Python reads
 metadata and bytes; it never decodes images or performs recognition. Cleanup
 revalidates recorded file/directory identities. Unconfirmed cleanup stops fallback
@@ -210,6 +233,12 @@ bound JSON bytes and depth.
 SQLite recognition cache stores trusted exact matches, keyed by consumed image
 features, candidate/context data, and a fingerprint of matcher code, catalog,
 references, and library versions. Read/parse/storage failures become misses.
+The fingerprint lists the matcher modules that turn hashed inputs into stored
+results: `stratagem_detection`, `icon_normalization`, `mission_references`,
+`colorless_icons`, and `mission_layout`. Layout code such as `selection_layout.py`
+runs before keying and its effect is already in the hashed pixels, so it is not
+listed. Renaming a listed file without updating `scanner_cache` silently disables
+the cache.
 
 Routine scans retain no diagnostic screenshots. Explicit debug output is private
 user data. Runner-managed diagnostics prune eligible completed runs while
@@ -263,7 +292,7 @@ Real import/OCR checks validate setup. Only child environment variables change;
 plugin startup and scanning never install dependencies or use a host recognition
 environment.
 
-`runtime_install.ensure_scanner_runtime` is the single preparation path. It
+`provision.runtime_install.ensure_scanner_runtime` is the single preparation path. It
 verifies the resolved runtime first, installs once when that fails, verifies the
 result, and records `state`, `profile`, `error`, and `updated_at` in ignored
 `automatic_stratagems/runtime/setup-status.json`. It prepares nothing while the
@@ -275,7 +304,9 @@ switch and its **Scanner setup** row, and a scan whose setup check failed. That
 last caller prepares the runtime in place of scanning and asks for another scan,
 so scanning still never installs. Installation is idempotent: Flatpak profiles are
 content-addressed and reused, and the native environment is rebuilt whenever it
-cannot be verified.
+cannot be verified. The plugin imports only the verification path;
+`provision/build.py` and its download and archive modules load only when an
+installation runs.
 
 Tests cover sessions/actions, persistence, generated pages, stale completion,
 input ownership, process cleanup, recognition, and negative screenshots. The

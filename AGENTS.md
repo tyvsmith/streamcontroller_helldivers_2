@@ -47,7 +47,7 @@ main.py             # Plugin entry point
 └── HellDiversPlugin       # Plugin base with settings UI
 
 __install__.py      # StreamController store install/update hook
-└── automatic_stratagems.runtime_install.ensure_scanner_runtime
+└── automatic_stratagems.provision.runtime_install.ensure_scanner_runtime
 ```
 
 `__install__.py` runs with StreamController's interpreter after every store
@@ -57,6 +57,11 @@ stratagems are switched on, and always exits successfully. The same
 `ensure_scanner_runtime` call backs the settings switch, the **Scanner setup**
 row, and a scan whose setup check failed. Never install dependencies at plugin
 startup or during a scan.
+
+The hook, `automatic_stratagems/provision/`, `automatic_stratagems/shared/`, and
+`automatic_stratagems/hostexec/` may import only the standard library and their
+allowed sibling packages. Run `automatic_stratagems/tools/check-imports` after
+touching them; see the architecture doc's execution contexts.
 
 ### Update Module Structure
 
