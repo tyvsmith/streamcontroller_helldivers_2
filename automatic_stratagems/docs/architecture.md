@@ -169,12 +169,14 @@ GUI actions do not persist last-image fingerprints. Each triggered scan proves
 freshness from its own before-and-after snapshot. Offline CLI capture retains its
 previous-fingerprint and explicit rescan controls.
 
-`scanner/screenshot_capture.py` snapshots the directory before triggering capture and
-accepts one stable new or changed PNG/JPEG. `scanner/capture/screenshot_source.py`
+`scanner/screenshot_capture.py` orchestrates one capture: it snapshots the
+directory, triggers the capture through `scanner/capture/screenshot_trigger.py`
+(script or hotkey), and accepts one stable new or changed PNG/JPEG through
+`scanner/capture/screenshot_detect.py`. `scanner/capture/screenshot_source.py`
 resolves and validates the configured folder, and `scanner/capture/screenshot_files.py`
 holds the bounded directory and fingerprint reads that detection and cleanup share.
-Blank paths resolve the Helldivers
-Steam screenshot directory for native or Flatpak Steam; multiple candidates
+Blank paths resolve the Helldivers Steam screenshot directory for native or
+Flatpak Steam; multiple candidates
 require explicit selection. Symlinks, ambiguous captures, and incomplete reads
 are rejected. Typing a path does not grant sandbox access. The user must configure
 a trigger that saves the complete game window; the plugin does not check focus.
