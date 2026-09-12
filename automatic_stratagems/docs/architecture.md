@@ -20,9 +20,10 @@ generation stays in `update/`.
 | `integration.py`, `visibility.py` | action registration, chooser visibility, runtime preparation threading, lifecycle hooks |
 | `settings_rows.py` | Adwaita rows for the feature switch, scanner setup, workers, and screenshot capture, and the settings they save |
 | `streamcontroller_adapter.py` | validated StreamController page action records, registration, and UI compatibility seams |
-| `scan_actions.py` | action behavior, scan coordination, GTK completion |
+| `scan_actions.py` | action behavior, scan coordination |
 | `runtime_preparation.py` | runtime preparation for the settings button and failed scans, and the failed scan's message |
 | `page_attempts.py` | each action's generated-page attempt record: start, session binding, finish, cancel |
+| `scan_lifecycle.py` | active scans, worker execution, GTK completion, cancellation, disconnect, removal, shutdown |
 | `scan_operation.py` | immutable scan plan, cancellation, worker ownership, constructor-bound finalization |
 | `session_registry.py` | session lookup by action context, context identity, restore and persistence |
 | `slot_reconciliation.py` | explicit slot reservation, automatic allocation from page topology, color filter reconciliation, redraw |
@@ -269,8 +270,9 @@ Screenshot cleanup retains or restores uncertain files without a durable record.
 
 The input lock covers setup, capture, recognition, and cleanup, excluding ordinary
 key injection throughout. `ScanOperation` binds one finalizer at construction and
-invokes it once. `ScanCoordinator` retains resource policy through preparation,
-preflight continuation, worker execution, and GTK completion. GTK completion never
+invokes it once. `ScanCoordinator` retains resource policy through preparation, and
+`scan_lifecycle.py` through preflight continuation, worker execution, and GTK
+completion. GTK completion never
 releases process ownership. Shutdown cancels work, disconnects supported hooks,
 and makes queued callbacks inert; its bounded join can report unfinished cleanup.
 

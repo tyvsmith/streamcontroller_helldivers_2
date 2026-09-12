@@ -107,8 +107,8 @@ class ReplayLifecycleTests(ActionTestHarness, unittest.TestCase):
             patch.object(scan_runner, 'scan_command', return_value=command),
             patch.object(scan_runner.subprocess, 'Popen', side_effect=launch),
             patch.object(self.mod, 'Thread', side_effect=thread),
-            patch.object(self.mod, 'run_scan', side_effect=scan_runner.run_scan),
-            patch.object(self.mod.GLib, 'idle_add',
+            patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=scan_runner.run_scan),
+            patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                          side_effect=lambda callback, *args: self.queued.put((callback, args)) or 1),
         ):
             replacement.start()

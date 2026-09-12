@@ -50,9 +50,9 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         action.on_ready_called = True
         session = self.coordinator.session(action)
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'catalog_colors', return_value={}), \
-             patch.object(self.mod, 'run_scan', return_value={'status':'matched', 'rows':[{'id':'A'}]}), \
-             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f,*args:f(*args)):
+             patch.object(self.mod.scan_lifecycle, 'catalog_colors', return_value={}), \
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={'status':'matched', 'rows':[{'id':'A'}]}), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f,*args:f(*args)):
             self.coordinator.start(action, replace=True)
             worker = thread.call_args.kwargs['target']
             self.assertTrue(self.plugin.input_lock.locked())
@@ -136,8 +136,8 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         action.on_ready_called = True
         self.coordinator.actions.add(action)
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
-             patch.object(self.mod.GLib, 'idle_add', side_effect=RuntimeError('queue closed')):
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=RuntimeError('queue closed')):
             self.coordinator.start(action, replace=True)
             action.render.reset_mock()
             thread.call_args.kwargs['target']()
@@ -161,8 +161,8 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
                  interpreter=Path(sys.executable), env={}, profile='native',
                  runtime_root=None)), \
              patch.object(scan_runner, 'scan_command', return_value=command), \
-             patch.object(self.mod, 'run_scan', side_effect=scan_runner.run_scan), \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=scan_runner.run_scan), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: queued.append((callback, args)) or 1):
             self.plugin.PATH = directory
             self.coordinator.start(action, replace=True)
@@ -187,8 +187,8 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
                      interpreter=Path(sys.executable), env={}, profile='native',
                      runtime_root=None)), \
                  patch.object(scan_runner, 'scan_command', return_value=command), \
-                 patch.object(self.mod, 'run_scan', side_effect=scan_runner.run_scan), \
-                 patch.object(self.mod.GLib, 'idle_add', return_value=1):
+                 patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=scan_runner.run_scan), \
+                 patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', return_value=1):
                 self.plugin.PATH = directory
                 self.coordinator.start(action, replace=True)
                 deadline = time.monotonic() + 3
@@ -216,8 +216,8 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
                      interpreter=Path(sys.executable), env={}, profile='native',
                      runtime_root=None)), \
                  patch.object(scan_runner, 'scan_command', return_value=command), \
-                 patch.object(self.mod, 'run_scan', side_effect=scan_runner.run_scan), \
-                 patch.object(self.mod.GLib, 'idle_add', return_value=1):
+                 patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=scan_runner.run_scan), \
+                 patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', return_value=1):
                 self.plugin.PATH = directory
                 self.coordinator.start(action, replace=True)
                 deadline = time.monotonic() + 3
@@ -313,9 +313,9 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         action.on_ready_called = True
         self.coordinator.actions.add(action)
         queued = []
-        with patch.object(self.mod, 'run_scan',
+        with patch.object(self.mod.scan_lifecycle, 'run_scan',
                           return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: queued.append((callback, args)) or 1):
             self.coordinator.start(action, replace=True)
             self.wait_for_input_release()
@@ -366,7 +366,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         slot.on_ready_called=True; slot.render=Mock()
         self.coordinator.actions.add(slot)
         report={'status':'matched','rows':[{'id':'A'}]}
-        with patch.object(self.mod,'Thread') as thread, patch.object(self.mod,'run_scan',return_value=report) as scan, patch.object(self.mod.GLib,'idle_add',side_effect=lambda f,*args:f(*args)):
+        with patch.object(self.mod,'Thread') as thread, patch.object(self.mod.scan_lifecycle,'run_scan',return_value=report) as scan, patch.object(self.mod.scan_lifecycle.GLib,'idle_add',side_effect=lambda f,*args:f(*args)):
             thread.side_effect=lambda **kw: types.SimpleNamespace(start=kw['target'])
             self.coordinator.start(a)
             scan.assert_called_once_with('/tmp/plugin', backend='gamescope', workers=2,
@@ -387,7 +387,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         slot.on_ready_called=True; slot.render=Mock()
         self.coordinator.actions.add(slot)
         s=self.coordinator.session(a); t=s.begin([1]); s.finish(t,{'status':'matched','rows':[{'id':'A'}]},self.plugin.stratagems)
-        with patch.object(self.mod,'Thread') as thread, patch.object(self.mod,'run_scan',side_effect=ValueError('Focus game')), patch.object(self.mod.GLib,'idle_add',side_effect=lambda f,*args:f(*args)):
+        with patch.object(self.mod,'Thread') as thread, patch.object(self.mod.scan_lifecycle,'run_scan',side_effect=ValueError('Focus game')), patch.object(self.mod.scan_lifecycle.GLib,'idle_add',side_effect=lambda f,*args:f(*args)):
             thread.side_effect=lambda **kw: types.SimpleNamespace(start=kw['target'])
             self.coordinator.start(a)
         self.assertEqual(s.snapshot().status,'failed')
@@ -414,8 +414,8 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         report = {'status': 'no_detections', 'rows': [], 'source': metadata}
 
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', return_value=report) as scan, \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report) as scan, \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: callback(*args)):
             thread.side_effect = lambda **kwargs: types.SimpleNamespace(
                 start=kwargs['target'])
@@ -448,8 +448,8 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         }
         queued = []
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', return_value=report), \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args:
                           queued.append((callback, args)) or 1):
             self.coordinator.start(action, replace=True)
@@ -492,11 +492,11 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.actions.add(slot)
         prepared = {'state': 'installed', 'profile': 'native', 'error': None}
 
-        with patch.object(self.mod.runtime_preparation, 'ensure_scanner_runtime',
+        with patch.object(self.mod.scan_lifecycle.runtime_preparation, 'ensure_scanner_runtime',
                           return_value=prepared) as ensure:
             self.synchronous_scan(
                 action,
-                error=self.mod.ScanSetupError('Scanner Python is missing'))
+                error=self.mod.scan_lifecycle.ScanSetupError('Scanner Python is missing'))
 
         ensure.assert_called_once_with(
             self.plugin.PATH, {'automatic_stratagems_enabled': True})
@@ -511,10 +511,10 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         prepared = {'state': 'error', 'profile': 'flatpak',
                     'error': 'Cannot download scanner runtime source'}
 
-        with patch.object(self.mod.runtime_preparation, 'ensure_scanner_runtime',
+        with patch.object(self.mod.scan_lifecycle.runtime_preparation, 'ensure_scanner_runtime',
                           return_value=prepared):
             self.synchronous_scan(
-                action, error=self.mod.ScanSetupError('runtime is absent'))
+                action, error=self.mod.scan_lifecycle.ScanSetupError('runtime is absent'))
 
         self.assertIn('Cannot download scanner runtime source',
                       self.coordinator.session(action).snapshot().message)
@@ -525,11 +525,11 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.actions.add(slot)
         prepared = {'state': 'ready', 'profile': 'flatpak', 'error': None}
 
-        with patch.object(self.mod.runtime_preparation, 'ensure_scanner_runtime',
+        with patch.object(self.mod.scan_lifecycle.runtime_preparation, 'ensure_scanner_runtime',
                           return_value=prepared):
             self.synchronous_scan(
                 action,
-                error=self.mod.ScanSetupError(
+                error=self.mod.scan_lifecycle.ScanSetupError(
                     'Capture prerequisites are unavailable'))
 
         self.assertEqual(self.coordinator.session(action).snapshot().message,
@@ -540,7 +540,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         slot = self.rendering_action(self.mod.AutomaticStratagem)
         self.coordinator.actions.add(slot)
 
-        with patch.object(self.mod.runtime_preparation, 'ensure_scanner_runtime') as ensure:
+        with patch.object(self.mod.scan_lifecycle.runtime_preparation, 'ensure_scanner_runtime') as ensure:
             self.synchronous_scan(action, error=RuntimeError('scanner crashed'))
 
         ensure.assert_not_called()

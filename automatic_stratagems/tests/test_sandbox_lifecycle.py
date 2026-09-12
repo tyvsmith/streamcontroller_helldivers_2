@@ -152,7 +152,7 @@ class SandboxLifecycleTests(ActionTestHarness, unittest.TestCase):
         script = self.root / 'fixture-trigger'
         script.write_text('#!/bin/sh\nexit 0\n')
         script.chmod(0o700)
-        scan_runner_globals = self.mod.run_scan.__globals__
+        scan_runner_globals = self.mod.scan_lifecycle.run_scan.__globals__
         self.plugin.get_settings = lambda: {
             'automatic_stratagems_enabled': True,
             'screenshot_trigger': 'script', 'screenshot_script': str(script),
@@ -214,7 +214,7 @@ class SandboxLifecycleTests(ActionTestHarness, unittest.TestCase):
 
         for replacement in (
                 patch.object(self.mod, "Thread", side_effect=thread),
-                patch.object(self.mod.GLib, "idle_add", side_effect=lambda callback, *args:
+                patch.object(self.mod.scan_lifecycle.GLib, "idle_add", side_effect=lambda callback, *args:
                              self.queued.put((callback, args)) or 1),
                 patch.dict(scan_runner_globals, {
                     "scan_command": Mock(side_effect=scanner_command)})):

@@ -127,9 +127,9 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.back(back)
         queued = []
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', return_value={
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={
                  'status': 'matched', 'rows': [{'id': 'B'}]}), \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: queued.append((callback, args)) or 1):
             self.coordinator.start(second, replace=True)
             thread.call_args.kwargs['target']()
@@ -212,10 +212,10 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         before = state.read_bytes()
 
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'check_scan_setup', create=True,
+             patch.object(self.mod.scan_lifecycle, 'check_scan_setup', create=True,
                           side_effect=RuntimeError('missing sandbox OCR')), \
-             patch.object(self.mod, 'run_scan') as scan, \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle, 'run_scan') as scan, \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: callback(*args)):
             thread.side_effect = lambda **kwargs: types.SimpleNamespace(
                 start=kwargs['target'])
@@ -250,12 +250,12 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
             return {'status': 'matched', 'rows': [{'id': 'A'}]}
 
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'check_scan_setup', create=True,
+             patch.object(self.mod.scan_lifecycle, 'check_scan_setup', create=True,
                           side_effect=preflight), \
              patch.object(self.coordinator, 'delete_cached_page',
                           side_effect=delete_cached), \
-             patch.object(self.mod, 'run_scan', side_effect=scan), \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=scan), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: callback(*args)):
             thread.side_effect = lambda **kwargs: types.SimpleNamespace(
                 start=kwargs['target'])
@@ -309,11 +309,11 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
             return discard(path)
 
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'check_scan_setup', side_effect=preflight), \
-             patch.object(self.mod, 'run_scan', side_effect=scan), \
+             patch.object(self.mod.scan_lifecycle, 'check_scan_setup', side_effect=preflight), \
+             patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=scan), \
              patch.object(self.coordinator.temporary_pages, 'discard',
                           side_effect=discard_cached), \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: callback(*args)):
             thread.side_effect = lambda **kwargs: types.SimpleNamespace(
                 start=kwargs['target'])
@@ -362,9 +362,9 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
             return report
 
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'check_scan_setup'), \
-             patch.object(self.mod, 'run_scan', side_effect=load_then_report), \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle, 'check_scan_setup'), \
+             patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=load_then_report), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: callback(*args)):
             thread.side_effect = lambda **kwargs: types.SimpleNamespace(
                 start=kwargs['target'])
@@ -554,7 +554,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         self.plugin_settings['screenshot_folder'] = str(root / 'other')
 
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan') as run:
+             patch.object(self.mod.scan_lifecycle, 'run_scan') as run:
             self.coordinator.start(scan, replace=True)
 
         thread.assert_not_called()
@@ -589,9 +589,9 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.back(back)
         queued = []
 
-        with patch.object(self.mod, 'check_scan_setup', create=True), \
-             patch.object(self.mod, 'run_scan') as scan, \
-             patch.object(self.mod.GLib, 'idle_add',
+        with patch.object(self.mod.scan_lifecycle, 'check_scan_setup', create=True), \
+             patch.object(self.mod.scan_lifecycle, 'run_scan') as scan, \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args:
                           queued.append((callback, args)) or 1):
             self.coordinator.start(action, replace=True, regenerate=True)
@@ -615,9 +615,9 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.back(back)
         queued = []
 
-        with patch.object(self.mod, 'check_scan_setup'), \
-             patch.object(self.mod, 'run_scan') as scan, \
-             patch.object(self.mod.GLib, 'idle_add',
+        with patch.object(self.mod.scan_lifecycle, 'check_scan_setup'), \
+             patch.object(self.mod.scan_lifecycle, 'run_scan') as scan, \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args:
                           queued.append((callback, args)) or 1):
             self.coordinator.start(action, replace=True, regenerate=True)
@@ -641,9 +641,9 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.back(back)
         queued = []
 
-        with patch.object(self.mod, 'check_scan_setup', create=True), \
-             patch.object(self.mod, 'run_scan') as scan, \
-             patch.object(self.mod.GLib, 'idle_add',
+        with patch.object(self.mod.scan_lifecycle, 'check_scan_setup', create=True), \
+             patch.object(self.mod.scan_lifecycle, 'run_scan') as scan, \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args:
                           queued.append((callback, args)) or 1):
             self.coordinator.start(action, replace=True, regenerate=True)
@@ -681,9 +681,9 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         self.plugin.input_lock = lock
         queued = []
 
-        with patch.object(self.mod, 'check_scan_setup'), \
-             patch.object(self.mod, 'run_scan') as scan, \
-             patch.object(self.mod.GLib, 'idle_add',
+        with patch.object(self.mod.scan_lifecycle, 'check_scan_setup'), \
+             patch.object(self.mod.scan_lifecycle, 'run_scan') as scan, \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args:
                           queued.append((callback, args)) or 1):
             self.coordinator.start(action, replace=True, regenerate=True)
@@ -708,11 +708,11 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         queued = []
 
         try:
-            with patch.object(self.mod, 'check_scan_setup'), \
-                 patch.object(self.mod, 'run_scan') as scan, \
-                 patch.object(self.mod, 'MAIN_CONTEXT_TIMEOUT_SECONDS',
+            with patch.object(self.mod.scan_lifecycle, 'check_scan_setup'), \
+                 patch.object(self.mod.scan_lifecycle, 'run_scan') as scan, \
+                 patch.object(self.mod.scan_lifecycle, 'MAIN_CONTEXT_TIMEOUT_SECONDS',
                               .05, create=True), \
-                 patch.object(self.mod.GLib, 'idle_add',
+                 patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                               side_effect=lambda callback, *args:
                               queued.append((callback, args)) or 1):
                 self.coordinator.start(action, replace=True, regenerate=True)
@@ -740,9 +740,9 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         with patch.object(self.coordinator.temporary_pages, 'discard',
                           side_effect=RuntimeError('delete failed')), \
              patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'check_scan_setup'), \
-             patch.object(self.mod, 'run_scan') as scan, \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle, 'check_scan_setup'), \
+             patch.object(self.mod.scan_lifecycle, 'run_scan') as scan, \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: callback(*args)):
             thread.side_effect = lambda **kwargs: types.SimpleNamespace(
                 start=kwargs['target'])
@@ -770,9 +770,9 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         queued = []
         report = {'status': 'matched', 'rows': [{'id': 'B'}]}
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'check_scan_setup'), \
-             patch.object(self.mod, 'run_scan', return_value=report), \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle, 'check_scan_setup'), \
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args:
                           (queued.append((callback, args)) or 1)
                           if args else callback()):
@@ -893,8 +893,8 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
                         'socket': '/run/gamescope.sock'}},
         ]
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', side_effect=reports), \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=reports), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args:
                           queued.append((callback, args)) or 1):
             self.coordinator.start(action, replace=True)
@@ -987,8 +987,8 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
             return report
 
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', side_effect=load_then_report) as run, \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=load_then_report) as run, \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: callback(*args)):
             thread.side_effect = lambda **kwargs: types.SimpleNamespace(
                 start=kwargs['target'])
@@ -1049,10 +1049,10 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         second = dict(first, mtime_ns=2, fingerprint='b' * 64)
 
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', return_value={
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={
                  'status': 'matched', 'rows': [{'id': 'A'}],
                  'source': second}) as scan, \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: callback(*args)):
             thread.side_effect = lambda **kwargs: types.SimpleNamespace(
                 start=kwargs['target'])
@@ -1082,7 +1082,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         Path(path).write_text(json.dumps(page))
 
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan') as scan:
+             patch.object(self.mod.scan_lifecycle, 'run_scan') as scan:
             self.coordinator.start(automatic, replace=True)
 
         thread.assert_not_called()
@@ -1103,7 +1103,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         Path(path).write_text(json.dumps(page))
 
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan') as scan:
+             patch.object(self.mod.scan_lifecycle, 'run_scan') as scan:
             self.coordinator.start(automatic, replace=True)
 
         thread.assert_not_called()
@@ -1130,8 +1130,8 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         path = self.deck.active_page.json_path
         scan = self.temporary_scan_action(path)
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', return_value=report), \
-             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
             self.coordinator.start(scan)
             self.assertTrue(self.plugin.input_lock.locked())
             back = self.action()
@@ -1151,8 +1151,8 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         launcher, root = self.temporary_setup()
         report = {'status': 'matched', 'rows': [{'id': 'A'}]}
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', return_value=report), \
-             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
             self.coordinator.start(launcher)
             self.coordinator.cancel_context(self.coordinator.context(launcher))
             thread.call_args.kwargs['target']()
@@ -1208,7 +1208,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         unrelated = self.action(); unrelated.get_settings.return_value = {'group': 'other'}
         separate = self.coordinator.session(unrelated)
         before = separate.snapshot()
-        with patch.object(self.mod, 'catalog_colors', return_value=colors), \
+        with patch.object(self.mod.scan_lifecycle, 'catalog_colors', return_value=colors), \
              patch.object(self.mod.session_registry, 'catalog_colors',
                           return_value=colors):
             self.synchronous_scan(launcher, {
@@ -1338,8 +1338,8 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         queued = []
         report = {'status': 'matched', 'rows': [{'id': 'A'}]}
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', return_value=report), \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: queued.append((callback, args)) or 1):
             self.coordinator.start(launcher, replace=True)
             thread.call_args.kwargs['target']()

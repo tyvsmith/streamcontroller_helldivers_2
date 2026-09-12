@@ -702,7 +702,7 @@ class ActionConfigurationTests(ActionTestHarness, unittest.TestCase):
         session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]},
                        self.plugin.stratagems)
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', side_effect=self.mod.CancelledError):
+             patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=self.mod.CancelledError):
             self.coordinator.start(scanner, replace=True)
             operation = self.coordinator.active_scans[self.coordinator.context(scanner)]
             self.coordinator.remove_action(first)

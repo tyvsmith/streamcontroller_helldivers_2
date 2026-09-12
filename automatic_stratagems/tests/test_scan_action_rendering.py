@@ -319,9 +319,9 @@ class ActionRenderingTests(ActionTestHarness, unittest.TestCase):
             self.coordinator.actions.add(registered)
         queued = []
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan',
+             patch.object(self.mod.scan_lifecycle, 'run_scan',
                           return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
-             patch.object(self.mod.GLib, 'idle_add',
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
                           side_effect=lambda callback, *args: queued.append((callback, args)) or 1):
             self.coordinator.start(action, replace=True)
             thread.call_args.kwargs['target']()
@@ -353,9 +353,9 @@ class ActionRenderingTests(ActionTestHarness, unittest.TestCase):
             action.on_ready_called = True
             self.coordinator.actions.add(action)
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', return_value={
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={
                  'status': 'no_detections', 'rows': []}), \
-             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
             self.coordinator.start(initiator, replace=True)
             thread.call_args.kwargs['target']()
 
@@ -500,8 +500,8 @@ class ActionRenderingTests(ActionTestHarness, unittest.TestCase):
         slot.on_ready_called = True
         self.coordinator.actions.add(slot)
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'run_scan', return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
-             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value={'status': 'matched', 'rows': [{'id': 'A'}]}), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
             self.coordinator.start(action, replace=True)
             self.coordinator.clear(action)
             self.assertTrue(self.plugin.input_lock.locked())

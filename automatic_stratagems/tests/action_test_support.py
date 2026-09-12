@@ -168,9 +168,9 @@ class ActionTestHarness:
     def synchronous_scan(self, action, report=None, error=None, *, replace=False,
                          regenerate=False):
         with patch.object(self.mod, 'Thread') as thread, \
-             patch.object(self.mod, 'check_scan_setup'), \
-             patch.object(self.mod, 'run_scan', return_value=report, side_effect=error), \
-             patch.object(self.mod.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
+             patch.object(self.mod.scan_lifecycle, 'check_scan_setup'), \
+             patch.object(self.mod.scan_lifecycle, 'run_scan', return_value=report, side_effect=error), \
+             patch.object(self.mod.scan_lifecycle.GLib, 'idle_add', side_effect=lambda f, *args: f(*args)):
             thread.side_effect = lambda **kw: types.SimpleNamespace(start=kw['target'])
             self.coordinator.start(action, replace=replace, regenerate=regenerate)
 
