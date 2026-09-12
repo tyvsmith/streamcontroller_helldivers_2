@@ -4,13 +4,13 @@ import os
 from threading import Thread
 from weakref import ref
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk
 from loguru import logger as log
 from src.backend.PluginManager.ActionHolder import ActionHolder
 from src.backend.PluginManager.InputBases import KeyAction
 
-from .provision.runtime_install import FEATURE_SETTING, read_status
 from . import runtime_preparation
+from . import settings_rows
 
 
 ACTION_SPECS = {
@@ -202,62 +202,23 @@ class AutomaticIntegration:
             self.enable_row.set_sensitive(False)
 
     def settings_rows(self):
-        enable = self._automatic_row()
-        self.settings_controls = [
-            self._setup_row(), self._workers_row(), self._screenshot_row()]
-        for row in self.settings_controls:
-            row.set_sensitive(self.coordinator.enabled)
-        return [enable, *self.settings_controls]
+        return settings_rows.build_settings_rows(self)
 
     def _save_setting(self, key, value):
-        settings = self.plugin.get_settings()
-        settings[key] = value
-        self.plugin.set_settings(settings)
+        settings_rows.save_setting(self.plugin, key, value)
 
     def _save_screenshot_setting(self, key, value):
-        before = self.screenshot_config(self.plugin.get_settings())
-        self._save_setting(key, value)
-        if self.screenshot_config(self.plugin.get_settings()) != before:
-            self.coordinator.screenshot_settings_changed()
+        settings_rows.save_screenshot_setting(self, key, value)
 
     def _automatic_row(self):
-        error = self.coordinator.compatibility_error
-        row = Adw.SwitchRow(
-            title="Enable automatic stratagems",
-            subtitle=(error or
-                      "Show automatic scan actions in the action chooser and enable "
-                      "screenshot scanning. Off by default."),
-        )
-        row.set_active(self.coordinator.enabled)
-        row.set_sensitive(error is None)
-        row.connect("notify::active", self._automatic_changed)
-        self.enable_row = row
-        return row
+        return settings_rows.build_enable_row(self)
 
     def setup_status_text(self):
         """Describe the last recorded scanner preparation for the settings row."""
-        record = read_status(self.plugin.PATH)
-        if record is None:
-            return "The scanner runtime has not been prepared yet."
-        state = record.get("state")
-        if state == "disabled":
-            return ("The scanner runtime is not prepared while automatic "
-                    "stratagems are switched off.")
-        if state == "error":
-            return f"Preparation failed: {record.get('error')}"
-        if state in ("ready", "installed"):
-            return (f"Ready: {record.get('profile')} runtime verified "
-                    f"{record.get('updated_at')}.")
-        return "The scanner runtime state is unknown."
+        return settings_rows.setup_status_text(self.plugin)
 
     def _setup_row(self):
-        row = Adw.ActionRow(title="Scanner setup",
-                            subtitle=self.setup_status_text())
-        button = Gtk.Button(label="Run setup", valign=Gtk.Align.CENTER)
-        button.connect("clicked", self.prepare_runtime)
-        row.add_suffix(button)
-        self.setup_row = row
-        return row
+        return settings_rows.build_setup_row(self)
 
     def prepare_runtime(self, *_arguments):
         """Install the scanner runtime once, off the main thread."""
@@ -298,130 +259,13 @@ class AutomaticIntegration:
             self.setup_row.set_subtitle(self.setup_status_text())
 
     def _automatic_changed(self, row, _property):
-        self._save_setting(FEATURE_SETTING, row.get_active())
-        self.coordinator.settings_changed()
-        for setting_row in self.settings_controls:
-            setting_row.set_sensitive(self.coordinator.enabled)
-        if self.chooser is not None:
-            try:
-                self.update_visibility(self.chooser, self.coordinator.enabled)
-            except Exception as error:
-                self.disable_compatibility(error)
-        if row.get_active():
-            self.prepare_runtime()
+        settings_rows.automatic_changed(self, row, _property)
 
     def _workers_row(self):
-        row = Adw.ActionRow(
-            title="Scan workers",
-            subtitle="Parallel icon matching. Default 2; use 1 to disable parallel matching.",
-        )
-        adjustment = Gtk.Adjustment(
-            value=self.scan_workers(
-                self.plugin.get_settings().get("scan_workers", 2)),
-            lower=1, upper=32, step_increment=1, page_increment=1,
-        )
-        spin = Gtk.SpinButton(
-            adjustment=adjustment, digits=0, valign=Gtk.Align.CENTER)
-        spin.connect(
-            "value-changed",
-            lambda widget: self._save_setting(
-                "scan_workers", widget.get_value_as_int()),
-        )
-        row.add_suffix(spin)
-        return row
+        return settings_rows.build_workers_row(self)
 
     def _screenshot_row(self):
-        settings = self.screenshot_config(self.plugin.get_settings())
-        section = Adw.ExpanderRow(
-            title="Screenshot capture",
-            subtitle="Configure the screenshot source used by Automatic and Screenshot scans",
-        )
-        trigger = Adw.ComboRow(
-            title="Trigger", subtitle="Choose how the screenshot is saved")
-        trigger.set_model(Gtk.StringList.new(["Hotkey", "Script"]))
-        trigger.set_selected(self.screenshot_triggers.index(settings["trigger"]))
-
-        hotkey = Adw.EntryRow(title="Screenshot keycode")
-        hotkey.set_text(settings["hotkey"])
-        hotkey.set_show_apply_button(True)
-        hotkey.set_visible(settings["trigger"] == "hotkey")
-        script = Adw.EntryRow(title="Absolute screenshot script path")
-        script.set_text(settings["script"])
-        script.set_show_apply_button(True)
-        script.set_visible(settings["trigger"] == "script")
-        folder = Adw.EntryRow(title="Screenshot folder (blank: Steam folder)")
-        folder.set_text(settings["path"])
-        folder.set_show_apply_button(True)
-        browse = Gtk.Button(label="Browse…", valign=Gtk.Align.CENTER)
-        folder.add_suffix(browse)
-        delete = Adw.SwitchRow(
-            title="Delete after successful scan",
-            subtitle="Remove the new screenshot and its matching Steam thumbnail after recognition",
-        )
-        delete.set_active(settings["delete_after_scan"])
-        help_row = Adw.ActionRow(
-            title="Screenshot setup",
-            subtitle=("Configure a hotkey or script that saves an image containing only "
-                      "the complete game window. The plugin does not check which application "
-                      "is focused. For hotkeys, focus the game before scanning. If using HDR, "
-                      "Gamescope or Steam in-game screenshots are preferred. Steam in-game "
-                      "screenshots require the Steam overlay to be enabled."),
-        )
-        for row in (trigger, hotkey, script, folder, delete, help_row):
-            section.add_row(row)
-
-        def trigger_changed(row, _property):
-            value = self.screenshot_triggers[row.get_selected()]
-            hotkey.set_visible(value == "hotkey")
-            script.set_visible(value == "script")
-            self._save_screenshot_setting("screenshot_trigger", value)
-
-        trigger.connect("notify::selected", trigger_changed)
-
-        def commit_entry(row, key, default=""):
-            value = row.get_text().strip() or default
-            if row.get_text() != value:
-                row.set_text(value)
-            self._save_screenshot_setting(key, value)
-
-        for row, key, default in (
-                (hotkey, "screenshot_hotkey", self.screenshot_hotkey),
-                (script, "screenshot_script", ""),
-                (folder, "screenshot_folder", "")):
-            row.connect(
-                "apply", lambda current, key=key, default=default:
-                commit_entry(current, key, default))
-            row.connect(
-                "entry-activated", lambda current, key=key, default=default:
-                commit_entry(current, key, default))
-        delete.connect(
-            "notify::active",
-            lambda row, _property: self._save_screenshot_setting(
-                "screenshot_delete", row.get_active()),
-        )
-
-        def browse_clicked(*_args):
-            dialog = Gtk.FileDialog.new()
-            dialog.set_title("Choose screenshot folder")
-            current = folder.get_text().strip()
-            if current:
-                dialog.set_initial_folder(
-                    Gio.File.new_for_path(os.path.expanduser(current)))
-
-            def chosen(current_dialog, result):
-                try:
-                    choice = current_dialog.select_folder_finish(result)
-                    path = choice.get_path()
-                except Exception:
-                    return
-                if isinstance(path, str) and path:
-                    folder.set_text(path)
-                    commit_entry(folder, "screenshot_folder")
-
-            dialog.select_folder(None, None, chosen)
-
-        browse.connect("clicked", browse_clicked)
-        return section
+        return settings_rows.build_screenshot_row(self)
 
     def shutdown(self, *, uninstall=False):
         self.closed = True

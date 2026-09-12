@@ -1,0 +1,213 @@
+"""Adwaita settings-row construction for the optional feature's plugin panel.
+
+Each `build_*` function builds one row (or row group) for
+`AutomaticIntegration.settings_rows` and stores any handle the integration
+needs later (`enable_row`, `setup_row`) directly on the integration object
+passed in. Persistence goes back through the integration's own
+`_save_setting`/`_save_screenshot_setting` methods so callers that replace
+those methods (tests included) keep intercepting saves.
+"""
+
+import os
+
+from gi.repository import Adw, Gio, Gtk
+
+from .provision.runtime_install import FEATURE_SETTING, read_status
+
+
+def build_settings_rows(integration):
+    """Build the rows for `AutomaticIntegration.settings_rows`."""
+    enable = build_enable_row(integration)
+    integration.settings_controls = [
+        build_setup_row(integration),
+        build_workers_row(integration),
+        build_screenshot_row(integration),
+    ]
+    for row in integration.settings_controls:
+        row.set_sensitive(integration.coordinator.enabled)
+    return [enable, *integration.settings_controls]
+
+
+def build_enable_row(integration):
+    error = integration.coordinator.compatibility_error
+    row = Adw.SwitchRow(
+        title="Enable automatic stratagems",
+        subtitle=(error or
+                  "Show automatic scan actions in the action chooser and enable "
+                  "screenshot scanning. Off by default."),
+    )
+    row.set_active(integration.coordinator.enabled)
+    row.set_sensitive(error is None)
+    row.connect("notify::active", integration._automatic_changed)
+    integration.enable_row = row
+    return row
+
+
+def setup_status_text(plugin):
+    """Describe the last recorded scanner preparation for the settings row."""
+    record = read_status(plugin.PATH)
+    if record is None:
+        return "The scanner runtime has not been prepared yet."
+    state = record.get("state")
+    if state == "disabled":
+        return ("The scanner runtime is not prepared while automatic "
+                "stratagems are switched off.")
+    if state == "error":
+        return f"Preparation failed: {record.get('error')}"
+    if state in ("ready", "installed"):
+        return (f"Ready: {record.get('profile')} runtime verified "
+                f"{record.get('updated_at')}.")
+    return "The scanner runtime state is unknown."
+
+
+def build_setup_row(integration):
+    row = Adw.ActionRow(title="Scanner setup",
+                        subtitle=setup_status_text(integration.plugin))
+    button = Gtk.Button(label="Run setup", valign=Gtk.Align.CENTER)
+    button.connect("clicked", integration.prepare_runtime)
+    row.add_suffix(button)
+    integration.setup_row = row
+    return row
+
+
+def automatic_changed(integration, row, _property):
+    integration._save_setting(FEATURE_SETTING, row.get_active())
+    integration.coordinator.settings_changed()
+    for setting_row in integration.settings_controls:
+        setting_row.set_sensitive(integration.coordinator.enabled)
+    if integration.chooser is not None:
+        try:
+            integration.update_visibility(
+                integration.chooser, integration.coordinator.enabled)
+        except Exception as error:
+            integration.disable_compatibility(error)
+    if row.get_active():
+        integration.prepare_runtime()
+
+
+def build_workers_row(integration):
+    row = Adw.ActionRow(
+        title="Scan workers",
+        subtitle="Parallel icon matching. Default 2; use 1 to disable parallel matching.",
+    )
+    adjustment = Gtk.Adjustment(
+        value=integration.scan_workers(
+            integration.plugin.get_settings().get("scan_workers", 2)),
+        lower=1, upper=32, step_increment=1, page_increment=1,
+    )
+    spin = Gtk.SpinButton(
+        adjustment=adjustment, digits=0, valign=Gtk.Align.CENTER)
+    spin.connect(
+        "value-changed",
+        lambda widget: integration._save_setting(
+            "scan_workers", widget.get_value_as_int()),
+    )
+    row.add_suffix(spin)
+    return row
+
+
+def build_screenshot_row(integration):
+    settings = integration.screenshot_config(integration.plugin.get_settings())
+    section = Adw.ExpanderRow(
+        title="Screenshot capture",
+        subtitle="Configure the screenshot source used by Automatic and Screenshot scans",
+    )
+    trigger = Adw.ComboRow(
+        title="Trigger", subtitle="Choose how the screenshot is saved")
+    trigger.set_model(Gtk.StringList.new(["Hotkey", "Script"]))
+    trigger.set_selected(integration.screenshot_triggers.index(settings["trigger"]))
+
+    hotkey = Adw.EntryRow(title="Screenshot keycode")
+    hotkey.set_text(settings["hotkey"])
+    hotkey.set_show_apply_button(True)
+    hotkey.set_visible(settings["trigger"] == "hotkey")
+    script = Adw.EntryRow(title="Absolute screenshot script path")
+    script.set_text(settings["script"])
+    script.set_show_apply_button(True)
+    script.set_visible(settings["trigger"] == "script")
+    folder = Adw.EntryRow(title="Screenshot folder (blank: Steam folder)")
+    folder.set_text(settings["path"])
+    folder.set_show_apply_button(True)
+    browse = Gtk.Button(label="Browse…", valign=Gtk.Align.CENTER)
+    folder.add_suffix(browse)
+    delete = Adw.SwitchRow(
+        title="Delete after successful scan",
+        subtitle="Remove the new screenshot and its matching Steam thumbnail after recognition",
+    )
+    delete.set_active(settings["delete_after_scan"])
+    help_row = Adw.ActionRow(
+        title="Screenshot setup",
+        subtitle=("Configure a hotkey or script that saves an image containing only "
+                  "the complete game window. The plugin does not check which application "
+                  "is focused. For hotkeys, focus the game before scanning. If using HDR, "
+                  "Gamescope or Steam in-game screenshots are preferred. Steam in-game "
+                  "screenshots require the Steam overlay to be enabled."),
+    )
+    for row in (trigger, hotkey, script, folder, delete, help_row):
+        section.add_row(row)
+
+    def trigger_changed(row, _property):
+        value = integration.screenshot_triggers[row.get_selected()]
+        hotkey.set_visible(value == "hotkey")
+        script.set_visible(value == "script")
+        integration._save_screenshot_setting("screenshot_trigger", value)
+
+    trigger.connect("notify::selected", trigger_changed)
+
+    def commit_entry(row, key, default=""):
+        value = row.get_text().strip() or default
+        if row.get_text() != value:
+            row.set_text(value)
+        integration._save_screenshot_setting(key, value)
+
+    for row, key, default in (
+            (hotkey, "screenshot_hotkey", integration.screenshot_hotkey),
+            (script, "screenshot_script", ""),
+            (folder, "screenshot_folder", "")):
+        row.connect(
+            "apply", lambda current, key=key, default=default:
+            commit_entry(current, key, default))
+        row.connect(
+            "entry-activated", lambda current, key=key, default=default:
+            commit_entry(current, key, default))
+    delete.connect(
+        "notify::active",
+        lambda row, _property: integration._save_screenshot_setting(
+            "screenshot_delete", row.get_active()),
+    )
+
+    def browse_clicked(*_args):
+        dialog = Gtk.FileDialog.new()
+        dialog.set_title("Choose screenshot folder")
+        current = folder.get_text().strip()
+        if current:
+            dialog.set_initial_folder(
+                Gio.File.new_for_path(os.path.expanduser(current)))
+
+        def chosen(current_dialog, result):
+            try:
+                choice = current_dialog.select_folder_finish(result)
+                path = choice.get_path()
+            except Exception:
+                return
+            if isinstance(path, str) and path:
+                folder.set_text(path)
+                commit_entry(folder, "screenshot_folder")
+
+        dialog.select_folder(None, None, chosen)
+
+    browse.connect("clicked", browse_clicked)
+    return section
+
+
+def save_setting(plugin, key, value):
+    settings = plugin.get_settings()
+    settings[key] = value
+    plugin.set_settings(settings)
+
+
+def save_screenshot_setting(integration, key, value):
+    before = integration.screenshot_config(integration.plugin.get_settings())
+    integration._save_setting(key, value)
+    if integration.screenshot_config(integration.plugin.get_settings()) != before:
+        integration.coordinator.screenshot_settings_changed()

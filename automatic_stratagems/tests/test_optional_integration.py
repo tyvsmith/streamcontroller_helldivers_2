@@ -278,6 +278,148 @@ class OptionalIntegrationTests(unittest.TestCase):
         hotkey.set_visible.assert_called_once_with(False)
         script.set_visible.assert_called_once_with(True)
 
+    def test_screenshot_folder_browse_saves_the_chosen_path(self):
+        module, plugin = self.import_without_automatic_actions()
+        plugin.get_settings = lambda: {'screenshot_folder': '/home/user/shots'}
+        saved = {}
+        plugin.set_settings = lambda updated: saved.update(updated)
+        integration = plugin._automatic_integration
+        integration.coordinator = Mock()
+        settings_rows = self.feature_namespace(integration)['settings_rows']
+
+        section, trigger = Mock(), Mock()
+        hotkey, script, folder = Mock(), Mock(), Mock()
+        text_state = {'value': ''}
+        folder.get_text.side_effect = lambda: text_state['value']
+        folder.set_text.side_effect = lambda value: text_state.__setitem__(
+            'value', value)
+        delete, browse, help_row = Mock(), Mock(), Mock()
+        dialog = Mock()
+        with patch.object(module.Adw, 'ExpanderRow', return_value=section), \
+             patch.object(module.Adw, 'ComboRow', return_value=trigger), \
+             patch.object(module.Adw, 'EntryRow',
+                          side_effect=[hotkey, script, folder]), \
+             patch.object(module.Adw, 'SwitchRow', return_value=delete), \
+             patch.object(module.Adw, 'ActionRow', return_value=help_row), \
+             patch.object(module.Gtk, 'Button', return_value=browse), \
+             patch.object(settings_rows.Gtk, 'FileDialog') as file_dialog_cls, \
+             patch.object(settings_rows.Gio, 'File') as gio_file_cls:
+            file_dialog_cls.new.return_value = dialog
+            integration._screenshot_row()
+
+            browse_clicked = browse.connect.call_args.args[1]
+            browse_clicked()
+
+            dialog.set_title.assert_called_once_with('Choose screenshot folder')
+            gio_file_cls.new_for_path.assert_called_once_with('/home/user/shots')
+            dialog.set_initial_folder.assert_called_once()
+            chosen = dialog.select_folder.call_args.args[2]
+
+            dialog.select_folder_finish.return_value = Mock(
+                get_path=Mock(return_value='/new/path'))
+            chosen(dialog, Mock())
+
+        self.assertEqual(text_state['value'], '/new/path')
+        self.assertEqual(saved.get('screenshot_folder'), '/new/path')
+
+    def test_screenshot_folder_browse_ignores_a_failed_or_empty_choice(self):
+        module, plugin = self.import_without_automatic_actions()
+        plugin.get_settings = lambda: {}
+        saved = {}
+        plugin.set_settings = lambda updated: saved.update(updated)
+        integration = plugin._automatic_integration
+        integration.coordinator = Mock()
+        settings_rows = self.feature_namespace(integration)['settings_rows']
+
+        section, trigger = Mock(), Mock()
+        hotkey, script, folder = Mock(), Mock(), Mock()
+        text_state = {'value': ''}
+        folder.get_text.side_effect = lambda: text_state['value']
+        folder.set_text.side_effect = lambda value: text_state.__setitem__(
+            'value', value)
+        delete, browse, help_row = Mock(), Mock(), Mock()
+        dialog = Mock()
+        with patch.object(module.Adw, 'ExpanderRow', return_value=section), \
+             patch.object(module.Adw, 'ComboRow', return_value=trigger), \
+             patch.object(module.Adw, 'EntryRow',
+                          side_effect=[hotkey, script, folder]), \
+             patch.object(module.Adw, 'SwitchRow', return_value=delete), \
+             patch.object(module.Adw, 'ActionRow', return_value=help_row), \
+             patch.object(module.Gtk, 'Button', return_value=browse), \
+             patch.object(settings_rows.Gtk, 'FileDialog') as file_dialog_cls, \
+             patch.object(settings_rows.Gio, 'File') as gio_file_cls:
+            file_dialog_cls.new.return_value = dialog
+            integration._screenshot_row()
+            folder.set_text.reset_mock()
+
+            browse_clicked = browse.connect.call_args.args[1]
+            browse_clicked()
+
+            gio_file_cls.new_for_path.assert_not_called()
+            chosen = dialog.select_folder.call_args.args[2]
+
+            dialog.select_folder_finish.side_effect = RuntimeError('cancelled')
+            chosen(dialog, Mock())
+
+        folder.set_text.assert_not_called()
+        self.assertNotIn('screenshot_folder', saved)
+
+    def test_automatic_row_shows_compatibility_error_and_disables_switch(self):
+        module, plugin = self.import_without_automatic_actions()
+        integration = plugin._automatic_integration
+        integration.coordinator = Mock(
+            enabled=False, compatibility_error='chooser unsupported')
+        row = Mock()
+
+        with patch.object(module.Adw, 'SwitchRow', return_value=row) as switch_row:
+            result = integration._automatic_row()
+
+        self.assertIs(result, row)
+        self.assertIs(integration.enable_row, row)
+        switch_row.assert_called_once_with(
+            title='Enable automatic stratagems', subtitle='chooser unsupported')
+        row.set_active.assert_called_once_with(False)
+        row.set_sensitive.assert_called_once_with(False)
+        row.connect.assert_called_once_with(
+            'notify::active', integration._automatic_changed)
+
+    def test_automatic_row_defaults_active_and_sensitive_without_error(self):
+        module, plugin = self.import_without_automatic_actions()
+        integration = plugin._automatic_integration
+        integration.coordinator = Mock(enabled=True, compatibility_error=None)
+        row = Mock()
+
+        with patch.object(module.Adw, 'SwitchRow', return_value=row) as switch_row:
+            integration._automatic_row()
+
+        self.assertIn(
+            'Show automatic scan actions',
+            switch_row.call_args.kwargs['subtitle'])
+        row.set_active.assert_called_once_with(True)
+        row.set_sensitive.assert_called_once_with(True)
+
+    def test_workers_row_shows_current_worker_count_and_saves_changes(self):
+        module, plugin = self.import_without_automatic_actions()
+        plugin.get_settings = lambda: {'scan_workers': 5}
+        saved = {}
+        plugin.set_settings = lambda updated: saved.update(updated)
+        integration = plugin._automatic_integration
+        integration.coordinator = Mock()
+        integration.scan_workers = lambda value: value
+
+        row, spin = Mock(), Mock()
+        with patch.object(module.Adw, 'ActionRow', return_value=row), \
+             patch.object(module.Gtk, 'Adjustment') as adjustment_cls, \
+             patch.object(module.Gtk, 'SpinButton', return_value=spin):
+            self.assertIs(integration._workers_row(), row)
+
+        adjustment_cls.assert_called_once_with(
+            value=5, lower=1, upper=32, step_increment=1, page_increment=1)
+        handler = spin.connect.call_args.args[1]
+        handler(Mock(get_value_as_int=Mock(return_value=8)))
+        self.assertEqual(saved.get('scan_workers'), 8)
+        row.add_suffix.assert_called_once_with(spin)
+
     def test_ordinary_actions_keep_missing_input_feedback(self):
         module, _ = self.import_without_automatic_actions()
         plugin = SimpleNamespace(ui=None, executing=False, input_lock=Mock())
@@ -513,7 +655,8 @@ class OptionalIntegrationTests(unittest.TestCase):
                   'error': 'Cannot download scanner runtime source',
                   'updated_at': '2026-09-12T00:00:00Z'}
 
-        with patch.dict(feature, {'read_status': lambda root: record}):
+        with patch.object(feature['settings_rows'], 'read_status',
+                          lambda root: record):
             text = integration.setup_status_text()
 
         self.assertIn('Cannot download scanner runtime source', text)
@@ -521,7 +664,8 @@ class OptionalIntegrationTests(unittest.TestCase):
     def test_the_setup_status_reports_a_runtime_that_was_never_prepared(self):
         _, integration, feature = self.prepared_integration()
 
-        with patch.dict(feature, {'read_status': lambda root: None}):
+        with patch.object(feature['settings_rows'], 'read_status',
+                          lambda root: None):
             text = integration.setup_status_text()
 
         self.assertIn('not been prepared', text)
@@ -529,11 +673,12 @@ class OptionalIntegrationTests(unittest.TestCase):
     def test_the_setup_row_prepares_the_scanner_runtime_on_demand(self):
         plugin, integration, feature = self.prepared_integration()
         button = Mock()
+        settings_rows = feature['settings_rows']
 
         ensure = Mock()
-        with patch.object(feature['Adw'], 'ActionRow', return_value=Mock()), \
-             patch.object(feature['Gtk'], 'Button', return_value=button), \
-             patch.dict(feature, {'read_status': lambda root: None}):
+        with patch.object(settings_rows.Adw, 'ActionRow', return_value=Mock()), \
+             patch.object(settings_rows.Gtk, 'Button', return_value=button), \
+             patch.object(settings_rows, 'read_status', lambda root: None):
             integration._setup_row()
         handler = button.connect.call_args.args[1]
 
