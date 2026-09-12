@@ -1,5 +1,4 @@
 """StreamController actions backed by persistent scan assignments."""
-from dataclasses import dataclass
 from pathlib import Path
 from concurrent.futures import CancelledError
 from functools import partial
@@ -16,6 +15,8 @@ from .capture_source import (
     operation_source, page_source_settings, source_identity, source_settings,
 )
 from .provision.runtime_install import feature_enabled
+from . import page_attempts
+from .page_attempts import ScanAttempt
 from . import runtime_preparation
 from .scan_runner import (FLATPAK_TERMINATE_GRACE_SECONDS,
                           TERMINATE_GRACE_SECONDS, ScanSetupError,
@@ -46,15 +47,6 @@ SOURCE_SETTING_KEYS = (
 SHUTDOWN_TIMEOUT_SECONDS = (FLATPAK_TERMINATE_GRACE_SECONDS
                             + TERMINATE_GRACE_SECONDS + 1)
 MAIN_CONTEXT_TIMEOUT_SECONDS = 5
-
-
-@dataclass(frozen=True)
-class ScanAttempt:
-    id: int
-    status: str
-    message: str
-    session: object = None
-    token: int | None = None
 
 
 def scan_mode(action):
@@ -153,45 +145,20 @@ class ScanCoordinator:
 
     @staticmethod
     def begin_page_attempt(action):
-        previous = getattr(action, '__dict__', {}).get('_scan_attempt')
-        attempt = ScanAttempt((previous.id if isinstance(previous, ScanAttempt) else 0) + 1,
-                              'scanning', 'Scanning')
-        action._scan_attempt = attempt
-        return attempt.id
+        return page_attempts.begin_page_attempt(action)
 
     @staticmethod
     def bind_page_attempt(action, attempt_id, session, token):
-        attempt = getattr(action, '__dict__', {}).get('_scan_attempt')
-        if not isinstance(attempt, ScanAttempt) or attempt.id != attempt_id:
-            return False
-        action._scan_attempt = ScanAttempt(
-            attempt.id, attempt.status, attempt.message, session, token)
-        return True
+        return page_attempts.bind_page_attempt(action, attempt_id, session, token)
 
     @staticmethod
     def finish_page_attempt(action, attempt_id, status, message,
                             *, session=None, token=None):
-        attempt = getattr(action, '__dict__', {}).get('_scan_attempt')
-        if not isinstance(attempt, ScanAttempt) or attempt.id != attempt_id:
-            return False
-        if session is not None and (attempt.session is not session or attempt.token != token):
-            return False
-        action._scan_attempt = ScanAttempt(
-            attempt.id, status, str(message), attempt.session, attempt.token)
-        return True
+        return page_attempts.finish_page_attempt(
+            action, attempt_id, status, message, session=session, token=token)
 
     def cancel_page_attempt(self, context, session):
-        for action in self._attached_actions():
-            attempt = getattr(action, '__dict__', {}).get('_scan_attempt')
-            presentation = ScanOperation.presentation(action)
-            if (isinstance(attempt, ScanAttempt) and attempt.status == 'scanning'
-                    and attempt.session is session and presentation is not None
-                    and presentation[:2] == (context, session)
-                    and attempt.token == presentation[2]
-                    and session.is_active(attempt.token)):
-                self.finish_page_attempt(
-                    action, attempt.id, 'cancelled', 'Scan cancelled',
-                    session=session, token=attempt.token)
+        page_attempts.cancel_page_attempt(self._attached_actions(), context, session)
 
     def settings_changed(self):
         if not self.enabled:

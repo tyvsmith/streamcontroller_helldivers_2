@@ -21,6 +21,7 @@ generation stays in `update/`.
 | `streamcontroller_adapter.py` | validated StreamController page action records, registration, and UI compatibility seams |
 | `scan_actions.py` | action behavior, scan coordination, GTK completion |
 | `runtime_preparation.py` | runtime preparation for the settings button and failed scans, and the failed scan's message |
+| `page_attempts.py` | each action's generated-page attempt record: start, session binding, finish, cancel |
 | `scan_operation.py` | immutable scan plan, cancellation, worker ownership, constructor-bound finalization |
 | `session_registry.py` | session lookup by action context, context identity, restore and persistence |
 | `slot_reconciliation.py` | explicit slot reservation, automatic allocation from page topology, color filter reconciliation, redraw |

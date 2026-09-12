@@ -25,6 +25,7 @@ PLUGIN_MODULES = (
     'automatic_stratagems.scan_state',
     'automatic_stratagems.scan_session',
     'automatic_stratagems.scan_operation',
+    'automatic_stratagems.page_attempts',
     'automatic_stratagems.capture_source',
     'automatic_stratagems.temporary_scan_page',
     'automatic_stratagems.provision.runtime_install',
