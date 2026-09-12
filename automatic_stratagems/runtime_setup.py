@@ -35,6 +35,8 @@ from .scanner_runtime import (
     run_captured,
     scanner_preflight_command,
 )
+from .shared.fs import atomic_json as _atomic_json
+from .shared.fs import canonical_json, fsync_directory, write_all
 
 
 DEFAULT_LOCK = Path(__file__).with_name("runtime_profiles") / f"{FLATPAK_PROFILE}.json"
@@ -42,10 +44,6 @@ MAX_LOCK_BYTES = 256 * 1024
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
 _HASH = re.compile(r"[0-9a-f]{64}")
 Preflight = Callable[[Path, dict], None]
-
-
-def _canonical_json(value: dict) -> bytes:
-    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
 
 def _sha256(data: bytes) -> str:
@@ -70,7 +68,7 @@ def _read_lock(path: Path) -> tuple[dict, str]:
         or not isinstance(value.get("files"), list)
     ):
         raise ScanSetupError(f"Invalid scanner runtime source lock: {path}")
-    canonical = _canonical_json(value)
+    canonical = canonical_json(value)
     return value, _sha256(canonical)
 
 
@@ -239,12 +237,7 @@ def _write_payload(path: Path, data: bytes, mode: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
     try:
-        view = memoryview(data)
-        while view:
-            written = os.write(descriptor, view)
-            if written <= 0:
-                raise OSError("short write while building scanner runtime")
-            view = view[written:]
+        write_all(descriptor, data, "short write while building scanner runtime")
         os.fchmod(descriptor, mode)
         os.fsync(descriptor)
     finally:
@@ -296,36 +289,11 @@ def _validate_file_entry(entry: dict, source_names: set[str], seen: set[str]) ->
 
 def atomic_json(path: Path, value: dict) -> None:
     """Replace one small bounded JSON record atomically and durably."""
-    data = _canonical_json(value)
-    if len(data) > MAX_ACTIVATION_BYTES:
-        raise ScanSetupError("Scanner runtime record is too large")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
-    try:
-        descriptor = os.open(
-            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
-        )
-        try:
-            view = memoryview(data)
-            while view:
-                written = os.write(descriptor, view)
-                if written <= 0:
-                    raise OSError("short write while activating scanner runtime")
-                view = view[written:]
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        try:
-            temporary.unlink()
-        except FileNotFoundError:
-            pass
+    _atomic_json(
+        path, value, max_bytes=MAX_ACTIVATION_BYTES,
+        too_large=lambda: ScanSetupError("Scanner runtime record is too large"),
+        short_write_message="short write while activating scanner runtime",
+    )
 
 
 def _activation_for(profile_root: Path, manifest_hash: str, previous: dict | None) -> dict:
@@ -416,7 +384,7 @@ def install_runtime(
     staging_dir.mkdir(parents=True, exist_ok=True)
     target = profiles_dir / f"{FLATPAK_PROFILE}-{lock_hash}"
     manifest = _profile_manifest(lock, lock_hash)
-    manifest_bytes = _canonical_json(manifest)
+    manifest_bytes = canonical_json(manifest)
     if len(manifest_bytes) > MAX_PROFILE_BYTES:
         raise ScanSetupError("Scanner runtime profile manifest is too large")
     manifest_hash = _sha256(manifest_bytes)
@@ -483,11 +451,7 @@ def install_runtime(
         if checked_hash != manifest_hash:
             raise ScanSetupError("Scanner runtime changed during child preflight")
         os.replace(stage, target)
-        directory = os.open(profiles_dir, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        fsync_directory(profiles_dir)
         atomic_json(activation_path, _activation_for(target, manifest_hash, previous))
         return target
     finally:

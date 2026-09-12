@@ -621,24 +621,26 @@ class RuntimeSetupTests(unittest.TestCase):
 
     def test_atomic_activation_handles_short_writes_and_cleans_failed_temps(self):
         from automatic_stratagems import runtime_setup
+        from automatic_stratagems.shared import fs
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "active.json"
             value = {"schema_version": 1, "profile": PROFILE, "directory": "x"}
-            real_write = runtime_setup.os.write
+            real_write = fs.os.write
 
             def short_write(descriptor, data):
                 return real_write(descriptor, data[:5])
 
-            with patch.object(runtime_setup.os, "write", side_effect=short_write):
+            with patch.object(fs.os, "write", side_effect=short_write) as write:
                 runtime_setup.atomic_json(path, value)
+            self.assertGreater(write.call_count, 1)
             self.assertEqual(json.loads(path.read_text()), value)
 
             def failed_write(descriptor, data):
                 real_write(descriptor, data[:5])
                 raise OSError("disk full")
 
-            with patch.object(runtime_setup.os, "write", side_effect=failed_write):
+            with patch.object(fs.os, "write", side_effect=failed_write):
                 with self.assertRaisesRegex(OSError, "disk full"):
                     runtime_setup.atomic_json(path, dict(value, directory="y"))
             self.assertEqual(json.loads(path.read_text()), value)

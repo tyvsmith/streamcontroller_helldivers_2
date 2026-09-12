@@ -17,6 +17,7 @@ import uuid
 from automatic_stratagems.shared.host_job import (
     HostCommandError, HostJob, OWNER, REGISTRY_FILE, STATE_LIMIT, VERSION,
     _read_json, _registry_value, _validate_job)
+from automatic_stratagems.shared.fs import fsync_directory, write_all
 
 
 JOB_DIRECTORY_ENV = "HD2_HOST_JOB_DIRECTORY"
@@ -82,18 +83,13 @@ def _atomic_json(path, value, *, create=False):
         descriptor = os.open(
             target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         created = True
-        written = 0
-        while written < len(payload):
-            count = os.write(descriptor, payload[written:])
-            if count <= 0:
-                raise OSError("Host command state write made no progress")
-            written += count
+        write_all(descriptor, payload, "Host command state write made no progress")
         os.fsync(descriptor)
         os.close(descriptor)
         descriptor = None
         if not create:
             os.replace(target, path)
-        _fsync_directory(path.parent)
+        fsync_directory(path.parent)
     except BaseException:
         if descriptor is not None:
             os.close(descriptor)
@@ -103,14 +99,6 @@ def _atomic_json(path, value, *, create=False):
             except FileNotFoundError:
                 pass
         raise
-
-
-def _fsync_directory(path):
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 @contextmanager
@@ -203,7 +191,7 @@ def reserve_operation(job, command, operation):
             "argv_sha256": digest, "hard_deadline": job.hard_deadline,
         }, create=True)
         os.replace(staging, path)
-        _fsync_directory(job.path)
+        fsync_directory(job.path)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -508,7 +496,7 @@ def _remove_staging(job):
                 stat.S_IMODE(metadata.st_mode) != 0o700):
             raise HostCommandError(f"Unsafe staged host operation: {path}")
         shutil.rmtree(path)
-    _fsync_directory(job.path)
+    fsync_directory(job.path)
 
 
 def wait_host_job(job):

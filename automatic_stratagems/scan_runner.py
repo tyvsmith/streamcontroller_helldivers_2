@@ -19,6 +19,7 @@ from .capture_source import MAX_SOURCE_STRING, source_arguments
 from .host_commands import (create_host_job, host_job_environment)
 from .scanner_runtime import (ScanSetupError, resolve_scanner_runtime,
                               scanner_preflight_command)
+from .shared.fs import read_bounded_stream, write_all
 
 
 SCHEMA_VERSION = 1
@@ -137,12 +138,8 @@ def _write_marker(path, value, *, create=False):
     descriptor = os.open(target, flags, 0o600)
     try:
         try:
-            view = memoryview(payload)
-            while view:
-                written = os.write(descriptor, view)
-                if written <= 0:
-                    raise OSError("short write while updating diagnostic marker")
-                view = view[written:]
+            write_all(descriptor, payload,
+                      "short write while updating diagnostic marker")
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
@@ -277,21 +274,6 @@ def _cancelled(cancel_event):
     return cancel_event is not None and cancel_event.is_set()
 
 
-def _read_bounded(stream, limit, name, output, overflow):
-    try:
-        while True:
-            chunk = stream.read(64 * 1024)
-            if not chunk:
-                return
-            available = max(0, limit - len(output))
-            output.extend(chunk[:available])
-            if len(chunk) > available:
-                overflow.append(name)
-                return
-    finally:
-        stream.close()
-
-
 def _group_exists(pgid):
     try:
         os.killpg(pgid, 0)
@@ -377,10 +359,10 @@ def _run_owned(command, *, cwd, timeout, cancel_event=None,
     stderr = bytearray()
     overflow = []
     readers = [
-        threading.Thread(target=_read_bounded,
+        threading.Thread(target=read_bounded_stream,
                          args=(process.stdout, stdout_limit, "stdout", stdout, overflow),
                          daemon=True),
-        threading.Thread(target=_read_bounded,
+        threading.Thread(target=read_bounded_stream,
                          args=(process.stderr, stderr_limit, "stderr", stderr, overflow),
                          daemon=True),
     ]

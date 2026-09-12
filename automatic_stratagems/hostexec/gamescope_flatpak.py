@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from automatic_stratagems.hostexec.host_metadata import (
     validate_flatpak_gamescope_target)
+from automatic_stratagems.shared.fs import fsync_directory, write_all
 from automatic_stratagems.shared.gamescope_target import (
     FlatpakGamescopeTarget, HostMetadataError, RECORD_NAME)
 from automatic_stratagems.shared.host_job import HostJob, validate_job
@@ -85,15 +86,6 @@ def _validate_job_output(job, output):
     return parent
 
 
-def _write_all(descriptor, value):
-    view = memoryview(value)
-    while view:
-        written = os.write(descriptor, view)
-        if written <= 0:
-            raise OSError('short write')
-        view = view[written:]
-
-
 def _write_record(path, value):
     encoded = (json.dumps(value, separators=(',', ':')) + '\n').encode()
     if len(encoded) > RECORD_LIMIT:
@@ -101,15 +93,11 @@ def _write_record(path, value):
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
                          os.O_NOFOLLOW, 0o600)
     try:
-        _write_all(descriptor, encoded)
+        write_all(descriptor, encoded, 'short write')
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
-    parent = os.open(Path(path).parent, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(parent)
-    finally:
-        os.close(parent)
+    fsync_directory(Path(path).parent)
 
 
 def _read_record(path):
@@ -191,7 +179,7 @@ def _copy_frame(source, output, expected):
             chunk = os.read(source_fd, min(64 * 1024, remaining))
             if not chunk:
                 break
-            _write_all(output_fd, chunk)
+            write_all(output_fd, chunk, 'short write')
             remaining -= len(chunk)
             copied += len(chunk)
         if remaining == 0:
@@ -210,11 +198,7 @@ def _copy_frame(source, output, expected):
         output_fd = None
         os.link(temporary, output, follow_symlinks=False)
         temporary.unlink()
-        parent = os.open(Path(output).parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(parent)
-        finally:
-            os.close(parent)
+        fsync_directory(Path(output).parent)
         published = True
     finally:
         if output_fd is not None:

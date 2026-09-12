@@ -11,6 +11,9 @@ from concurrent.futures import CancelledError
 
 from PIL import Image
 
+# Readers look this name up at start so tests can replace the drain.
+from ..shared.fs import read_bounded_stream as _read_bounded
+
 
 MAX_ENCODED_IMAGE_BYTES = 64 * 1024 * 1024
 MAX_IMAGE_DIMENSION = 16_384
@@ -31,21 +34,6 @@ def remaining_timeout(deadline, maximum):
     if remaining <= 0:
         raise ScanError('Scanner work deadline exhausted.')
     return min(maximum, remaining)
-
-
-def _read_bounded(stream, limit, name, output, overflow):
-    try:
-        while True:
-            chunk = stream.read(64 * 1024)
-            if not chunk:
-                return
-            available = max(0, limit - len(output))
-            output.extend(chunk[:available])
-            if len(chunk) > available:
-                overflow.append(name)
-                return
-    finally:
-        stream.close()
 
 
 def _stop(process):
