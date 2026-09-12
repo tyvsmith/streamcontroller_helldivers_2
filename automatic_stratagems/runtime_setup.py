@@ -294,10 +294,11 @@ def _validate_file_entry(entry: dict, source_names: set[str], seen: set[str]) ->
     seen.add(path)
 
 
-def _atomic_json(path: Path, value: dict) -> None:
+def atomic_json(path: Path, value: dict) -> None:
+    """Replace one small bounded JSON record atomically and durably."""
     data = _canonical_json(value)
     if len(data) > MAX_ACTIVATION_BYTES:
-        raise ScanSetupError("Scanner runtime activation record is too large")
+        raise ScanSetupError("Scanner runtime record is too large")
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
     try:
@@ -434,7 +435,7 @@ def install_runtime(
         if checked_hash != manifest_hash:
             raise ScanSetupError("Scanner runtime changed during child preflight")
         if previous is None or previous.get("directory") != "profiles/" + target.name:
-            _atomic_json(
+            atomic_json(
                 activation_path, _activation_for(target, manifest_hash, previous)
             )
         return target
@@ -487,7 +488,7 @@ def install_runtime(
             os.fsync(directory)
         finally:
             os.close(directory)
-        _atomic_json(activation_path, _activation_for(target, manifest_hash, previous))
+        atomic_json(activation_path, _activation_for(target, manifest_hash, previous))
         return target
     finally:
         if stage.exists():
@@ -527,7 +528,7 @@ def rollback_runtime(
         preflight(profile_root, manifest)
     _require_profile_unchanged(profile_root, previous["manifest_sha256"])
     new_activation = _activation_for(profile_root, previous["manifest_sha256"], current)
-    _atomic_json(activation_path, new_activation)
+    atomic_json(activation_path, new_activation)
     return profile_root
 
 

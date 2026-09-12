@@ -486,6 +486,67 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         self.assertEqual(action._scan_attempt.status, 'failed')
 
 
+    def test_a_setup_failure_prepares_the_scanner_runtime_and_asks_for_a_retry(self):
+        action = self.action()
+        slot = self.rendering_action(self.mod.AutomaticStratagem)
+        self.coordinator.actions.add(slot)
+        prepared = {'state': 'installed', 'profile': 'native', 'error': None}
+
+        with patch.object(self.mod, 'ensure_scanner_runtime',
+                          return_value=prepared) as ensure:
+            self.synchronous_scan(
+                action,
+                error=self.mod.ScanSetupError('Scanner Python is missing'))
+
+        ensure.assert_called_once_with(
+            self.plugin.PATH, {'automatic_stratagems_enabled': True})
+        message = self.coordinator.session(action).snapshot().message
+        self.assertIn('prepared', message)
+        self.assertIn('again', message)
+
+    def test_a_setup_failure_reports_a_failed_preparation(self):
+        action = self.action()
+        slot = self.rendering_action(self.mod.AutomaticStratagem)
+        self.coordinator.actions.add(slot)
+        prepared = {'state': 'error', 'profile': 'flatpak',
+                    'error': 'Cannot download scanner runtime source'}
+
+        with patch.object(self.mod, 'ensure_scanner_runtime',
+                          return_value=prepared):
+            self.synchronous_scan(
+                action, error=self.mod.ScanSetupError('runtime is absent'))
+
+        self.assertIn('Cannot download scanner runtime source',
+                      self.coordinator.session(action).snapshot().message)
+
+    def test_a_setup_failure_keeps_its_own_error_when_the_runtime_is_ready(self):
+        action = self.action()
+        slot = self.rendering_action(self.mod.AutomaticStratagem)
+        self.coordinator.actions.add(slot)
+        prepared = {'state': 'ready', 'profile': 'flatpak', 'error': None}
+
+        with patch.object(self.mod, 'ensure_scanner_runtime',
+                          return_value=prepared):
+            self.synchronous_scan(
+                action,
+                error=self.mod.ScanSetupError(
+                    'Capture prerequisites are unavailable'))
+
+        self.assertEqual(self.coordinator.session(action).snapshot().message,
+                         'Capture prerequisites are unavailable')
+
+    def test_an_ordinary_scan_failure_does_not_prepare_the_scanner_runtime(self):
+        action = self.action()
+        slot = self.rendering_action(self.mod.AutomaticStratagem)
+        self.coordinator.actions.add(slot)
+
+        with patch.object(self.mod, 'ensure_scanner_runtime') as ensure:
+            self.synchronous_scan(action, error=RuntimeError('scanner crashed'))
+
+        ensure.assert_not_called()
+        self.assertEqual(self.coordinator.session(action).snapshot().message,
+                         'scanner crashed')
+
 
 if __name__ == '__main__':
     unittest.main()

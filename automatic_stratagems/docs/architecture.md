@@ -254,13 +254,27 @@ this process-group boundary.
 
 ## Runtime and validation
 
-Native scanning uses the root `.venv` and pinned feature requirements. Flatpak
-uses its sandbox interpreter and a verified GNOME 50, x86_64, CPython 3.13 profile:
-sandbox numerical/input libraries plus locked Tesseract, Leptonica, and English
-data. `setup-runtime` explicitly builds, checks, activates, and rolls back profiles
-under ignored `automatic_stratagems/runtime/`. Real import/OCR checks validate
-setup. Only child environment variables change; plugin startup and scanning never
-install dependencies or use a host recognition environment.
+Native scanning uses the feature-owned `automatic_stratagems/.venv` and pinned
+feature requirements. Flatpak uses its sandbox interpreter and a verified GNOME 50,
+x86_64, CPython 3.13 profile: sandbox numerical/input libraries plus locked
+Tesseract, Leptonica, and English data. `setup-runtime` explicitly builds, checks,
+activates, and rolls back profiles under ignored `automatic_stratagems/runtime/`.
+Real import/OCR checks validate setup. Only child environment variables change;
+plugin startup and scanning never install dependencies or use a host recognition
+environment.
+
+`runtime_install.ensure_scanner_runtime` is the single preparation path. It
+verifies the resolved runtime first, installs once when that fails, verifies the
+result, and records `state`, `profile`, `error`, and `updated_at` in ignored
+`automatic_stratagems/runtime/setup-status.json`. It prepares nothing while the
+feature setting is off, reports failures instead of raising them, and is called
+from three places: `__install__.py` (StreamController's store install and update
+hook, using the plugin's own directory layout to find its settings), the settings
+switch and its **Scanner setup** row, and a scan whose setup check failed. That
+last caller prepares the runtime in place of scanning and asks for another scan,
+so scanning still never installs. Installation is idempotent: Flatpak profiles are
+content-addressed and reused, and the native environment is rebuilt whenever it
+cannot be verified.
 
 Tests cover sessions/actions, persistence, generated pages, stale completion,
 input ownership, process cleanup, recognition, and negative screenshots. The

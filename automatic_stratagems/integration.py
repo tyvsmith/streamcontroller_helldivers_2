@@ -1,12 +1,17 @@
 """Optional StreamController registration, settings, and lifecycle boundary."""
 
 import os
+from threading import Thread
 from weakref import ref
 
 from gi.repository import Adw, Gio, GLib, Gtk
 from loguru import logger as log
 from src.backend.PluginManager.ActionHolder import ActionHolder
 from src.backend.PluginManager.InputBases import KeyAction
+
+from .runtime_install import (
+    FEATURE_SETTING, ensure_scanner_runtime, read_status,
+)
 
 
 ACTION_SPECS = {
@@ -115,6 +120,8 @@ class AutomaticIntegration:
         self.chooser_handler = None
         self.settings_controls = []
         self.enable_row = None
+        self.setup_row = None
+        self.preparing = False
 
     def install(self):
         self.plugin.scan_coordinator = self.coordinator
@@ -197,7 +204,8 @@ class AutomaticIntegration:
 
     def settings_rows(self):
         enable = self._automatic_row()
-        self.settings_controls = [self._workers_row(), self._screenshot_row()]
+        self.settings_controls = [
+            self._setup_row(), self._workers_row(), self._screenshot_row()]
         for row in self.settings_controls:
             row.set_sensitive(self.coordinator.enabled)
         return [enable, *self.settings_controls]
@@ -227,8 +235,71 @@ class AutomaticIntegration:
         self.enable_row = row
         return row
 
+    def setup_status_text(self):
+        """Describe the last recorded scanner preparation for the settings row."""
+        record = read_status(self.plugin.PATH)
+        if record is None:
+            return "The scanner runtime has not been prepared yet."
+        state = record.get("state")
+        if state == "disabled":
+            return ("The scanner runtime is not prepared while automatic "
+                    "stratagems are switched off.")
+        if state == "error":
+            return f"Preparation failed: {record.get('error')}"
+        if state in ("ready", "installed"):
+            return (f"Ready: {record.get('profile')} runtime verified "
+                    f"{record.get('updated_at')}.")
+        return "The scanner runtime state is unknown."
+
+    def _setup_row(self):
+        row = Adw.ActionRow(title="Scanner setup",
+                            subtitle=self.setup_status_text())
+        button = Gtk.Button(label="Run setup", valign=Gtk.Align.CENTER)
+        button.connect("clicked", self.prepare_runtime)
+        row.add_suffix(button)
+        self.setup_row = row
+        return row
+
+    def prepare_runtime(self, *_arguments):
+        """Install the scanner runtime once, off the main thread."""
+        if self.closed or self.preparing:
+            return
+        self.preparing = True
+        if self.setup_row is not None:
+            self.setup_row.set_subtitle("Preparing the scanner runtime…")
+        try:
+            Thread(target=self._prepare_runtime, name="hd2-scanner-setup",
+                   daemon=True).start()
+        except Exception as error:
+            self.preparing = False
+            log.error(f"Unable to start the scanner runtime setup: {error}")
+
+    def _prepare_runtime(self):
+        try:
+            ensure_scanner_runtime(self.plugin.PATH, self.plugin.get_settings())
+        except Exception as error:
+            log.error(f"Unable to prepare the scanner runtime: {error}")
+        finally:
+            self.preparing = False
+        integration_ref = ref(self)
+
+        def refresh():
+            integration = integration_ref()
+            if integration is not None and not integration.closed:
+                integration.refresh_setup_row()
+            return False
+
+        try:
+            GLib.idle_add(refresh)
+        except Exception as error:
+            log.error(f"Unable to report the scanner runtime state: {error}")
+
+    def refresh_setup_row(self):
+        if self.setup_row is not None:
+            self.setup_row.set_subtitle(self.setup_status_text())
+
     def _automatic_changed(self, row, _property):
-        self._save_setting("automatic_stratagems_enabled", row.get_active())
+        self._save_setting(FEATURE_SETTING, row.get_active())
         self.coordinator.settings_changed()
         for setting_row in self.settings_controls:
             setting_row.set_sensitive(self.coordinator.enabled)
@@ -237,6 +308,8 @@ class AutomaticIntegration:
                 self.update_visibility(self.chooser, self.coordinator.enabled)
             except Exception as error:
                 self.disable_compatibility(error)
+        if row.get_active():
+            self.prepare_runtime()
 
     def _workers_row(self):
         row = Adw.ActionRow(
@@ -393,6 +466,10 @@ class UnavailableAutomaticIntegration:
         rows = [
             Adw.SwitchRow(
                 title="Enable automatic stratagems",
+                subtitle=self.coordinator.compatibility_error,
+            ),
+            Adw.ActionRow(
+                title="Scanner setup",
                 subtitle=self.coordinator.compatibility_error,
             ),
             Adw.ActionRow(

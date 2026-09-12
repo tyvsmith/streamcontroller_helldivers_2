@@ -253,12 +253,14 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(error.exception.code, 2)
 
     def test_native_command_preserves_path_with_spaces_and_optional_debug(self):
-        runtime = self.runtime('/tmp/a b/.venv/bin/python', profile='native')
+        runtime = self.runtime('/tmp/a b/automatic_stratagems/.venv/bin/python',
+                             profile='native')
         with patch.object(scan_runner, 'resolve_scanner_runtime',
                           return_value=runtime):
             command = scan_runner.scan_command('/tmp/a b', flatpak=False,
                                                debug_dir=Path('/tmp/private run'))
-        self.assertEqual(command[0], '/tmp/a b/.venv/bin/python')
+        self.assertEqual(command[0],
+                         '/tmp/a b/automatic_stratagems/.venv/bin/python')
         self.assertEqual(command[-2:], ['--debug-dir', '/tmp/private run'])
 
     def test_worker_settings_are_bounded_and_invalid_values_use_default(self):
@@ -292,7 +294,7 @@ class RunnerTests(unittest.TestCase):
                    stdout_limit=None, stderr_limit=None):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)
-            python = root / '.venv/bin/python'
+            python = root / 'automatic_stratagems/.venv/bin/python'
             python.parent.mkdir(parents=True)
             python.symlink_to(sys.executable)
             command = [str(python), '-c', source]

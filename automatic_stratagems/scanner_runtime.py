@@ -22,6 +22,7 @@ from .runtime_profile import (
     FLATPAK_RUNTIME,
     MAX_ACTIVATION_BYTES,
     MAX_PROFILE_BYTES,
+    SCANNER_VENV,
     ScanSetupError,
     flatpak_child_environment,
     read_json,
@@ -92,11 +93,11 @@ def resolve_scanner_runtime(
     if flatpak:
         return _resolve_flatpak(root, source_env)
 
-    interpreter = root / ".venv/bin/python"
+    interpreter = root / SCANNER_VENV / "bin/python"
     if not interpreter.is_file() or not os.access(interpreter, os.X_OK):
         raise ScanSetupError(
             f"Scanner Python is missing at {interpreter}; install "
-            "automatic_stratagems/requirements.txt into the root .venv"
+            "automatic_stratagems/requirements.txt into that environment"
         )
     return ScannerRuntime(
         interpreter=interpreter,

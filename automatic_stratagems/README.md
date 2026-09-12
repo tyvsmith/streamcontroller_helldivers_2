@@ -13,44 +13,31 @@ Hyprland, GNOME 50, x86_64, CPython 3.13, and the English game UI at 5120×2160.
 The configurable trigger workflow requires its own live desktop verification;
 fixture tests do not establish support for every screenshot shortcut or script.
 
-1. Open **Settings → Plugins → HELLDIVERS 2** and enable **Automatic
-   stratagems**.
-2. From the installed plugin directory, choose the setup for your installation.
+1. Install the plugin from the StreamController store.
+2. Open **Settings → Plugins → HELLDIVERS 2** and switch on **Automatic
+   stratagems**. Switching it on prepares the scanner runtime in the background
+   and the **Scanner setup** row reports the result. Nothing is installed while
+   the feature is off.
 
-   **Native:** reuse the single root `.venv`. Create it only when absent, using
-   Python 3.12 or newer, then install the pinned scanner dependencies:
+   **Flatpak:** downloads and verifies the locked OCR payload and validates the
+   sandbox-provided NumPy 2.2.3, OpenCV 4.11.0, Pillow 11.1.0, and evdev 1.9.1.
 
-   ```sh
-   python -m venv .venv  # only when absent
-   .venv/bin/python -m pip install -r automatic_stratagems/requirements.txt
-   .venv/bin/python -m pip check
-   ```
+   **Native:** builds `automatic_stratagems/.venv` with StreamController's own
+   interpreter and installs the pinned `automatic_stratagems/requirements.txt`
+   into it. `evdev` publishes no wheels, so a C compiler and Linux kernel
+   headers must be present. This environment belongs to the feature and is
+   rebuilt whenever it cannot be verified; the repository's root `.venv` is a
+   separate developer environment for the asset updater and tests.
 
-   The same environment can serve the asset updater. If it has no `pip`, run
-   `.venv/bin/python -m ensurepip --upgrade`; install the distribution's Python
-   `venv` package first if `ensurepip` is unavailable. Dependencies are never
-   installed during plugin startup. Store updates may replace the plugin
-   directory, so repeat this setup after an update when `.venv` is absent.
+   StreamController runs the same preparation from `__install__.py` after every
+   store install and update, before the plugin loads, whenever the feature is
+   already switched on. An update replaces the plugin directory, so the runtime
+   is rebuilt then. Preparation never runs at plugin startup or during a scan: a
+   scan started before the runtime is ready prepares it instead of scanning and
+   asks for another scan. **Run setup** in the settings row prepares or repairs
+   it at any time, and records the outcome in ignored
+   `automatic_stratagems/runtime/setup-status.json`.
 
-   **Flatpak:** do not create a host scanner `.venv`. Run the setup tool with the
-   sandbox Python against the installed plugin path; this does not start the UI:
-
-   ```sh
-   PLUGIN_ROOT="$HOME/.var/app/com.core447.StreamController/data/plugins/net_jslay_helldivers_2"
-   flatpak run --command=/usr/bin/python3 com.core447.StreamController \
-     "$PLUGIN_ROOT/automatic_stratagems/tools/setup-runtime" \
-     --root "$PLUGIN_ROOT" setup
-   flatpak run --command=/usr/bin/python3 com.core447.StreamController \
-     "$PLUGIN_ROOT/automatic_stratagems/tools/setup-runtime" \
-     --root "$PLUGIN_ROOT" check
-   ```
-
-   `setup` downloads hash-pinned sources when absent, validates real imports and
-   OCR, then atomically activates the new profile. Add `--artifact-dir DIR
-   --offline` after `setup` to use sandbox-accessible downloaded sources. Replace
-   `check` with `rollback` to verify and activate the previous profile. Generated
-   profiles and downloads live in ignored `automatic_stratagems/runtime/`;
-   plugin startup and scanning never install them.
 3. Install the helpers required by the selected source:
 
    - native Gamescope: host `gamescopectl` and a uniquely associated Helldivers Gamescope session
@@ -84,6 +71,48 @@ fixture tests do not establish support for every screenshot shortcut or script.
    `tessdata_fast` model keeps the payload bounded; its OCR results can differ
    from native system models. Native installs retain their existing optional
    Tesseract and English data. Neither profile changes recognition thresholds.
+
+### Manual and from-source installs
+
+StreamController runs `__install__.py` only for plugins it installs itself,
+including custom entries under **Settings → Store → Custom Plugins**, which
+accept a repository URL and branch. A plugin directory copied or cloned by hand
+never runs it. Run it once yourself, from the installed plugin directory, with
+the interpreter that runs StreamController:
+
+```sh
+PLUGIN_ROOT="$HOME/.var/app/com.core447.StreamController/data/plugins/net_jslay_helldivers_2"
+flatpak run --command=/usr/bin/python3 com.core447.StreamController \
+  "$PLUGIN_ROOT/__install__.py"
+```
+
+```sh
+# Native StreamController, using its own interpreter
+/path/to/StreamController/venv/bin/python "$PLUGIN_ROOT/__install__.py"
+```
+
+The hook prepares nothing unless automatic stratagems are switched on in the
+plugin settings, and it always exits successfully so a failed preparation cannot
+fail a plugin installation. It reports what it did on standard output and
+records the same outcome in `automatic_stratagems/runtime/setup-status.json`.
+
+`automatic_stratagems/tools/setup-runtime` still drives the Flatpak profile
+explicitly, including offline artifacts and rollback:
+
+```sh
+flatpak run --command=/usr/bin/python3 com.core447.StreamController \
+  "$PLUGIN_ROOT/automatic_stratagems/tools/setup-runtime" \
+  --root "$PLUGIN_ROOT" setup
+flatpak run --command=/usr/bin/python3 com.core447.StreamController \
+  "$PLUGIN_ROOT/automatic_stratagems/tools/setup-runtime" \
+  --root "$PLUGIN_ROOT" check
+```
+
+`setup` downloads hash-pinned sources when absent, validates real imports and
+OCR, then atomically activates the new profile. Add `--artifact-dir DIR
+--offline` after `setup` to use sandbox-accessible downloaded sources. Replace
+`check` with `rollback` to verify and activate the previous profile. Generated
+profiles and downloads live in ignored `automatic_stratagems/runtime/`.
 
 ### Gamescope inside Flatpak Steam
 
@@ -253,11 +282,17 @@ new-page mode keep compatible page-opening behavior.
 - **Automatic actions are absent:** enable the feature, then reopen the action
   chooser. If setup is incompatible, ordinary actions remain available.
 - **Scan fails immediately:** open the initiating button's settings and read
-  **Last scan**. Native users should check `.venv`, pinned dependencies, and the
-  selected backend's helpers. Flatpak users should run the setup tool's `check`
-  command above; retry `setup` or use `rollback` when the active profile is
-  invalid. A page button keeps its latest attempt separately from source-page
+  **Last scan**. A first failure caused by a missing runtime prepares it and
+  asks for another scan. Otherwise read **Scanner setup** in the plugin settings
+  and press **Run setup**; check the selected backend's helpers as well. Flatpak
+  users can run the setup tool's `check` command, then `setup` or `rollback`
+  when the active profile is invalid. A page button keeps its latest attempt separately from source-page
   assignments; the attempt is not retained across app restarts.
+- **Preparation fails while downloading:** the locked Flatpak sources come from
+  snapshot.debian.org, which throttles repeated requests, so one attempt can
+  report a download failure. Verified downloads are kept in
+  `automatic_stratagems/runtime/downloads/`, so pressing **Run setup** again
+  resumes from them rather than starting over.
 - **Automatic position unavailable:** the host page structure could not resolve
   this button's position. Automatic slots stop rather than sharing slot 1;
   explicit positive slots remain usable.

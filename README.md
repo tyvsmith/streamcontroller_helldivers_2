@@ -8,7 +8,7 @@ Assumes the following:
 
 Simply install the plugin from the StreamController store and configure your Stream Deck buttons with your favorite stratagems.
 
-See [automatic stratagems](automatic_stratagems/README.md) for Gamescope-first capture with Screenshot fallback, shared screenshot settings, automatic slots, and scanner setup.
+Automatic stratagems are optional and off by default. Switching them on in the plugin settings prepares the scanner runtime by itself; no terminal steps are required. See [automatic stratagems](automatic_stratagems/README.md) for Gamescope-first capture with Screenshot fallback, shared screenshot settings, automatic slots, and scanner setup.
 
 ### Plugin Settings
 
@@ -34,6 +34,7 @@ Access settings via **Settings → Plugins → HELLDIVERS 2 → ⚙️**
 ```
 net_jslay_helldivers_2/
 ├── main.py                    # Plugin entry point
+├── __install__.py             # Store install/update hook: prepares the scanner
 ├── manifest.json              # Plugin metadata
 ├── VERSION                    # Version number
 ├── assets/
@@ -55,7 +56,7 @@ The `update/` module automates asset generation. It scrapes stratagem data from 
 
 #### Setup
 
-Create a virtual environment and install dependencies:
+Create the developer virtual environment and install dependencies. This environment serves the asset updater and the test suite; the automatic-stratagem scanner owns a separate environment that the plugin prepares for itself (see [automatic stratagems](automatic_stratagems/README.md#setup)):
 
 ```bash
 cd /path/to/net_jslay_helldivers_2

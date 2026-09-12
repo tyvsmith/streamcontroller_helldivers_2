@@ -73,10 +73,10 @@ class ScannerRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(result.stdout, b"\n")
 
-    def test_native_runtime_uses_root_venv_without_mutating_parent_environment(self):
+    def test_native_runtime_uses_the_owned_venv_without_mutating_parent_environment(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            interpreter = root / ".venv/bin/python"
+            interpreter = root / "automatic_stratagems/.venv/bin/python"
             interpreter.parent.mkdir(parents=True)
             interpreter.write_bytes(b"python")
             interpreter.chmod(0o755)
@@ -92,11 +92,12 @@ class ScannerRuntimeTests(unittest.TestCase):
             self.assertEqual(dict(runtime.env), parent)
             self.assertEqual(parent["PYTHONPATH"], "/developer/modules")
 
-    def test_native_runtime_reports_the_single_root_venv_when_missing(self):
+    def test_native_runtime_reports_the_owned_venv_when_missing(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(
                 scanner_runtime.ScanSetupError,
-                r"\.venv/bin/python.*automatic_stratagems/requirements.txt",
+                r"automatic_stratagems/\.venv/bin/python.*"
+                r"automatic_stratagems/requirements\.txt",
             ):
                 scanner_runtime.resolve_scanner_runtime(
                     Path(directory), flatpak=False, environ={}
@@ -630,7 +631,7 @@ class RuntimeSetupTests(unittest.TestCase):
                 return real_write(descriptor, data[:5])
 
             with patch.object(runtime_setup.os, "write", side_effect=short_write):
-                runtime_setup._atomic_json(path, value)
+                runtime_setup.atomic_json(path, value)
             self.assertEqual(json.loads(path.read_text()), value)
 
             def failed_write(descriptor, data):
@@ -639,7 +640,7 @@ class RuntimeSetupTests(unittest.TestCase):
 
             with patch.object(runtime_setup.os, "write", side_effect=failed_write):
                 with self.assertRaisesRegex(OSError, "disk full"):
-                    runtime_setup._atomic_json(path, dict(value, directory="y"))
+                    runtime_setup.atomic_json(path, dict(value, directory="y"))
             self.assertEqual(json.loads(path.read_text()), value)
             self.assertEqual([p.name for p in path.parent.iterdir()], ["active.json"])
 

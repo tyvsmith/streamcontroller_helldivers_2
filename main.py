@@ -428,6 +428,8 @@ class _UnavailableAutomaticIntegration:
         rows = [
             Adw.SwitchRow(title='Enable automatic stratagems',
                           subtitle=self.coordinator.compatibility_error),
+            Adw.ActionRow(title='Scanner setup',
+                          subtitle=self.coordinator.compatibility_error),
             Adw.ActionRow(title='Scan workers',
                           subtitle=self.coordinator.compatibility_error),
             Adw.ActionRow(title='Screenshot capture',

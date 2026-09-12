@@ -22,6 +22,7 @@ MAX_PROFILE_BYTES = 64 * 1024
 PROFILE_DIRECTORY = re.compile(
     rf"profiles/{re.escape(FLATPAK_PROFILE)}-[0-9a-f]{{16,64}}"
 )
+SCANNER_VENV = "automatic_stratagems/.venv"
 
 
 class ScanSetupError(RuntimeError):

@@ -45,7 +45,18 @@ main.py             # Plugin entry point
 ├── CustomStratagemButton  # User-defined custom stratagem with configurable sequence
 ├── SequenceEditorRow      # GTK widget for editing custom sequences
 └── HellDiversPlugin       # Plugin base with settings UI
+
+__install__.py      # StreamController store install/update hook
+└── automatic_stratagems.runtime_install.ensure_scanner_runtime
 ```
+
+`__install__.py` runs with StreamController's interpreter after every store
+install and update, before plugins load. It reads the plugin settings from the
+installed data layout, prepares the scanner runtime only while automatic
+stratagems are switched on, and always exits successfully. The same
+`ensure_scanner_runtime` call backs the settings switch, the **Scanner setup**
+row, and a scan whose setup check failed. Never install dependencies at plugin
+startup or during a scan.
 
 ### Update Module Structure
 
@@ -293,7 +304,10 @@ See `update/requirements.txt`:
 - `pillow` - Image manipulation for borders
 - `requests` - HTTP requests
 
-The `.venv` directory is in `.gitignore`.
+The root `.venv` directory is the developer environment for the update module
+and the test suite, and is in `.gitignore`. The scanner's own environment,
+`automatic_stratagems/.venv`, is built by `ensure_scanner_runtime` from
+`automatic_stratagems/requirements.txt` and is never shared with the updater.
 
 ## Custom Stratagems
 

@@ -456,13 +456,115 @@ class OptionalIntegrationTests(unittest.TestCase):
                       plugin.action_holders)
         self.assertFalse(plugin.scan_coordinator.enabled)
 
+    def feature_namespace(self, integration):
+        return type(integration).__init__.__globals__
+
+    def inline_thread(self):
+        class InlineThread:
+            def __init__(self, target=None, daemon=None, name=None):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+        return InlineThread
+
+    def prepared_integration(self):
+        _, plugin = self.import_without_automatic_actions()
+        values = {}
+        plugin.get_settings = lambda: dict(values)
+        plugin.set_settings = lambda updated: (values.clear(),
+                                               values.update(updated))
+        integration = plugin._automatic_integration
+        integration.coordinator = Mock()
+        plugin.scan_coordinator = integration.coordinator
+        return plugin, integration, self.feature_namespace(integration)
+
+    def test_enabling_the_feature_prepares_the_scanner_runtime(self):
+        plugin, integration, feature = self.prepared_integration()
+        row = Mock()
+        row.get_active.return_value = True
+
+        ensure = Mock()
+        with patch.dict(feature, {'ensure_scanner_runtime': ensure,
+                                  'Thread': self.inline_thread()}):
+            integration._automatic_changed(row, None)
+
+        ensure.assert_called_once_with(
+            plugin.PATH, {'automatic_stratagems_enabled': True})
+
+    def test_disabling_the_feature_does_not_prepare_the_scanner_runtime(self):
+        _, integration, feature = self.prepared_integration()
+        row = Mock()
+        row.get_active.return_value = False
+
+        ensure = Mock()
+        with patch.dict(feature, {'ensure_scanner_runtime': ensure,
+                                  'Thread': self.inline_thread()}):
+            integration._automatic_changed(row, None)
+
+        ensure.assert_not_called()
+
+    def test_the_setup_status_reports_the_recorded_failure(self):
+        _, integration, feature = self.prepared_integration()
+        record = {'schema_version': 1, 'state': 'error', 'profile': 'flatpak',
+                  'error': 'Cannot download scanner runtime source',
+                  'updated_at': '2026-09-12T00:00:00Z'}
+
+        with patch.dict(feature, {'read_status': lambda root: record}):
+            text = integration.setup_status_text()
+
+        self.assertIn('Cannot download scanner runtime source', text)
+
+    def test_the_setup_status_reports_a_runtime_that_was_never_prepared(self):
+        _, integration, feature = self.prepared_integration()
+
+        with patch.dict(feature, {'read_status': lambda root: None}):
+            text = integration.setup_status_text()
+
+        self.assertIn('not been prepared', text)
+
+    def test_the_setup_row_prepares_the_scanner_runtime_on_demand(self):
+        plugin, integration, feature = self.prepared_integration()
+        button = Mock()
+
+        ensure = Mock()
+        with patch.object(feature['Adw'], 'ActionRow', return_value=Mock()), \
+             patch.object(feature['Gtk'], 'Button', return_value=button), \
+             patch.dict(feature, {'read_status': lambda root: None}):
+            integration._setup_row()
+        handler = button.connect.call_args.args[1]
+
+        with patch.dict(feature, {'ensure_scanner_runtime': ensure,
+                                  'Thread': self.inline_thread()}):
+            handler(button)
+
+        ensure.assert_called_once_with(plugin.PATH, {})
+
+    def test_a_second_preparation_is_ignored_while_one_is_running(self):
+        _, integration, feature = self.prepared_integration()
+        started = []
+
+        class PendingThread:
+            def __init__(self, target=None, daemon=None, name=None):
+                self.target = target
+
+            def start(self):
+                started.append(self.target)
+
+        with patch.dict(feature, {'Thread': PendingThread}):
+            integration.prepare_runtime()
+            integration.prepare_runtime()
+
+        self.assertEqual(len(started), 1)
+
     def test_unavailable_integration_keeps_disabled_settings_rows(self):
         _, plugin = self.import_without_automatic_actions(
             missing_optional='capture_source')
 
         rows = plugin._automatic_integration.settings_rows()
 
-        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(rows), 4)
         for row in rows:
             row.set_sensitive.assert_called_with(False)
 

@@ -15,9 +15,11 @@ from .capture_source import (
     CAPTURE_BACKENDS, normalize_capture_backend,
     operation_source, page_source_settings, source_identity, source_settings,
 )
+from .runtime_install import ensure_scanner_runtime, feature_enabled
 from .scan_runner import (FLATPAK_TERMINATE_GRACE_SECONDS,
-                          TERMINATE_GRACE_SECONDS, check_scan_setup, run_scan,
-                          scan_workers, validate_image_source_report)
+                          TERMINATE_GRACE_SECONDS, ScanSetupError,
+                          check_scan_setup, run_scan, scan_workers,
+                          validate_image_source_report)
 from .scan_session import SLOT_COLORS, ScanSession
 from .scan_operation import ScanOperation, ScanPlan
 from .scan_state import ScanStateStore
@@ -129,7 +131,7 @@ class ScanCoordinator:
     def enabled(self):
         return (not self.closed
                 and self.compatibility_error is None
-                and self.plugin.get_settings().get('automatic_stratagems_enabled', False) is True)
+                and feature_enabled(self.plugin.get_settings()))
 
     def _attached_actions(self):
         actions = list(self.actions)
@@ -830,6 +832,24 @@ class ScanCoordinator:
             operation.continuation.set()
         return False
 
+    def _prepared_runtime_message(self, error):
+        """Install the scanner runtime after a setup failure and report it.
+
+        A tap that cannot scan prepares the runtime instead; the caller scans
+        again once it is ready. Preparation never runs while a scan can start.
+        """
+        try:
+            status = ensure_scanner_runtime(
+                self.plugin.PATH, self.plugin.get_settings())
+        except Exception as failure:
+            log.warning('Unable to prepare the scanner runtime: {}', failure)
+            return str(error)
+        if status.get('state') == 'installed':
+            return 'Scanner runtime prepared. Scan again.'
+        if status.get('state') == 'error':
+            return f"Scanner setup failed: {status.get('error')}"
+        return str(error)
+
     def _run_scan_worker(self, action, operation):
         plan = operation.plan
         try:
@@ -869,6 +889,10 @@ class ScanCoordinator:
                 report = run_scan(self.plugin.PATH, **scan_kwargs)
             except CancelledError:
                 return
+            except ScanSetupError as error:
+                GLib.idle_add(
+                    partial(self._apply_scan_result, action, operation),
+                    None, self._prepared_runtime_message(error))
             except Exception as error:
                 GLib.idle_add(
                     partial(self._apply_scan_result, action, operation),
