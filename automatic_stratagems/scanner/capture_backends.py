@@ -53,7 +53,8 @@ def wait_frame(paths, timeout=5, cancel_event=None, deadline=None):
         return None
 
     def read(path, _stamp):
-        # A failed read keeps polling, exactly like a failed stat.
+        # read_frame reports real read failures as ScanError, which propagate.
+        # OSError and ValueError keep polling, as the original handler did.
         try:
             return read_frame(path), path
         except (OSError, ValueError):
