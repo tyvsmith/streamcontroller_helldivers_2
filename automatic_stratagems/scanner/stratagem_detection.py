@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def catalog():
+    """Load the stratagem catalog, keyed by id, with display name and input sequence."""
     sequences = json.loads((ROOT / "assets/data/stratagems.json").read_text())
     locale = json.loads((ROOT / "locales/en_US.json").read_text())
     return {
@@ -35,10 +36,19 @@ def catalog():
 
 
 def ordered_map(executor, function, values):
+    """Apply function to values in order, via executor.map when given a pool."""
     return list(executor.map(function, values)) if executor is not None else list(map(function, values))
 
 
 def detect_mission_icons(im, entries, *, executor=None, cache=None):
+    """Recognize mission-panel icons in a full HUD screenshot, top row to bottom.
+
+    Runs reference and occlusion matching per tile from the cache when available.
+    Unresolved tiles then go through detect_icons; washed-out or unresolved tiles
+    get a contrast or normalization retry, then colorless. Returns a list of row
+    dicts, each with at least box (x, y, width, height), method and id (None when
+    unresolved); rows restored from the cache are not written back to it.
+    """
     bank = IconTemplates(cache=cache)
     frames = mission_frames(im)
     if not frames:
@@ -84,6 +94,14 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
     # themselves; workers never submit nested work to the same executor.
     candidate_executor = executor if len(enhancement_jobs) == 1 else None
     def enhance(job):
+        """Retry one unresolved or washed-out icon via contrast or normalization.
+
+        job is (index, tile, enhanced-image-or-None) from enhancement_jobs; enhanced is
+        None when normalize_icon should run instead of the stretch_icon result. Mutates
+        and returns icons[index] in place. Flags preprocessing_conflict when the retry
+        disagrees with an existing native id, unless the retry's decision is
+        discriminating_details, which replaces the id instead.
+        """
         i, tile, enhanced = job
         icon = icons[i]
         category = tile.frame_category
@@ -130,6 +148,11 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
 
 
 def silhouette(gray, threshold):
+    """Center a thresholded shape on a fixed canvas for shape-overlap scoring.
+
+    Scales the foreground's bounding box to fit within SILHOUETTE_EXTENT of the
+    SILHOUETTE_CANVAS pixel canvas, then blurs it. An empty mask returns a blank canvas.
+    """
     mask = (gray > threshold).astype(np.float32)
     ys, xs = np.where(mask)
     canvas = np.zeros((SILHOUETTE_CANVAS, SILHOUETTE_CANVAS), np.float32)
@@ -144,6 +167,11 @@ def silhouette(gray, threshold):
 
 
 def icon_features(rgb):
+    """Split a tile into blurred white-glyph and colored-glyph planes for correlation.
+
+    rgb is an RGB array. Returns a two-channel float32 array stacking the white mask and
+    the colored mask, the layout icon_details and match_equipped expect.
+    """
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
     saturation, value = hsv[:, :, 1], hsv[:, :, 2]
     # Preserve pale-cyan glyphs as colored shapes in bright game captures.
@@ -153,6 +181,11 @@ def icon_features(rgb):
 
 
 def icon_details(features):
+    """Reduce icon_features output to two comparable component silhouettes.
+
+    Returns silhouettes for the white glyph and the largest connected colored region, so
+    a separate ammo or backpack badge does not dilute the weapon shape.
+    """
     color = (features[:, :, 1] > .5).astype(np.uint8)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(color)
     if count > 1:
@@ -163,6 +196,10 @@ def icon_details(features):
 
 
 def _normalized_component_correlation(observed, reference):
+    """Zero-mean normalized correlation between two equal-shaped arrays.
+
+    Returns -1.0 when the shapes differ or either array has near-zero variance.
+    """
     if observed.shape != reference.shape:
         return -1.0
     left = np.asarray(observed, dtype=np.float32).ravel()
@@ -185,6 +222,11 @@ class IconTemplates:
         self.scales = {}
 
     def get(self, key):
+        """Load and cache one catalog icon's derived matching assets by key.
+
+        Reads assets/icons/<key>.png on first use; later calls return the cached dict
+        with category, gray, silhouette, features and details. Thread-safe.
+        """
         with self.lock:
             if key not in self.assets:
                 source = cv2.imread(str(ROOT / 'assets/icons' / f'{key}.png'))
@@ -197,6 +239,11 @@ class IconTemplates:
             return self.assets[key]
 
     def scaled(self, key, size, kind):
+        """Return a size-scaled copy of one cached asset, resizing only once per size.
+
+        For kind 'gray' returns a (resized, Canny-edge) pair; other kinds return just
+        the resized array. Thread-safe.
+        """
         with self.lock:
             identity = key, int(size), kind
             if identity not in self.scales:
@@ -207,6 +254,12 @@ class IconTemplates:
 
 
 def restore_mission_result(saved, candidates):
+    """Validate and restore one cached mission-icon result, or reject it.
+
+    Returns None unless saved is a dict with a candidate id, method 'mission-icon',
+    conflict and occluded absent or False, and every declared ranking restores
+    cleanly.
+    """
     if (not isinstance(saved, dict) or not isinstance(saved.get('id'), str)
             or saved['id'] not in candidates or saved.get('method') != 'mission-icon'
             or saved.get('conflict', False) is not False or saved.get('occluded', False) is not False):
@@ -237,6 +290,12 @@ def restore_equipped_result(saved, candidates):
 
 
 def match_equipped(rgb, references, bank=None, *, fast_filter=True, executor=None):
+    """Identify one icon tile of 125px or more among references, checking the cache first.
+
+    rgb is an RGB array of one tile. references is a list of (key, features, details)
+    tuples in the layout icon_features/icon_details produce. Caches the result under
+    bank.cache when given and the match is decisive.
+    """
     features = icon_features(rgb[EQUIPPED_FEATURE_INSET:-EQUIPPED_FEATURE_INSET,
                                  EQUIPPED_FEATURE_INSET:-EQUIPPED_FEATURE_INSET])
     details = icon_details(icon_features(rgb[EQUIPPED_DETAIL_INSET:-EQUIPPED_DETAIL_INSET,
@@ -313,6 +372,7 @@ def match_equipped(rgb, references, bank=None, *, fast_filter=True, executor=Non
 # 8. Corroborated, no votes, and best correlation minus K's correlation < .06: accepts K.
 #    Intent not documented.
 def _match_equipped(width, features, details, references, bank, *, fast_filter, executor):
+    """Score references against one equipped icon tile per the branch table above."""
     shapes, components = [], {}
     for key, _, reference in references:
         components[key] = [float(np.minimum(a, b).sum() / (np.maximum(a, b).sum() + 1e-6))
@@ -428,6 +488,13 @@ def _match_equipped(width, features, details, references, bank, *, fast_filter, 
 
 
 def detect_icons(im, entries, boxes, *, mission=False, _normalized=False, bank=None, executor=None, cache=None):
+    """Identify the icon in each box of im, retrying via normalization when unresolved.
+
+    boxes are (x, y, width, height) in im's pixels. Returns one row dict per box, each
+    with id, box and method; a row with no id and no conflict after equipped/gray
+    matching is retried once against a color-normalized copy of its crop, unless
+    _normalized is set.
+    """
     pixels = np.array(im.convert("RGB"))
     bank = bank if bank is not None else IconTemplates(cache=cache)
     templates, references, categories = [], [], {}
@@ -440,6 +507,14 @@ def detect_icons(im, entries, boxes, *, mission=False, _normalized=False, bank=N
     candidate_executor = executor if len(boxes) == 1 else None
     row_executor = None if candidate_executor is not None else executor
     def match_box(box):
+        """Identify one box via equipped-detail matching, then gray/edge correlation.
+
+        Falls back to gray/edge template correlation and silhouette overlap when the
+        box is under 125px, or when match_equipped found no id and no conflict.
+        Returns a dict with id (None when fewer than two candidates remain, or when
+        the correlation and shape rankings disagree), box, method and the evidence
+        rankings.
+        """
         x, y, width, height = box
         category = icon_category(im.crop((x, y, x + width, y + height)), frame=True) if mission else None
         candidates = {key for key in entries if category is None or categories[key] == category}
@@ -456,6 +531,11 @@ def detect_icons(im, entries, boxes, *, mission=False, _normalized=False, bank=N
                                               x + ICON_SILHOUETTE_INSET:x + width - ICON_SILHOUETTE_INSET],
                                       cv2.COLOR_RGB2GRAY), 120)
         def correlate_gray(item):
+            """Score one catalog key's gray/edge template and shape overlap against box.
+
+            Returns ((correlation, key), (shape, key)) for the joint threshold/margin
+            pass below.
+            """
             key, template, reference = item
             best = -1
             for size in np.linspace(int(width * .50), int(width * .90), 9).astype(int):
@@ -486,6 +566,11 @@ def detect_icons(im, entries, boxes, *, mission=False, _normalized=False, bank=N
         unresolved = [i for i, row in enumerate(rows) if row['id'] is None and not row.get('conflict')]
         normalization_executor = executor if len(unresolved) == 1 else None
         def normalize_row(row):
+            """Retry an unresolved row against a color-normalized copy of its crop.
+
+            Mutates row in place by adding 'normalized_attempt'; returns a replacement
+            dict when the retry resolves an id, otherwise returns the same row.
+            """
             x, y, w, h = row['box']
             crop = im.crop((x, y, x + w, y + h))
             if mission:
