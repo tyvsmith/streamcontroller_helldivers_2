@@ -31,12 +31,11 @@ def scan_mode(action):
 
 
 class ScanLifecycle:
-    """Own scan operations from start and preparation to completion and shutdown.
+    """Own active scans from start and preparation to completion and shutdown.
 
-    Everything else -- sessions, persistence, page attempts, generated pages,
-    redraw, feature and shutdown state, and this lifecycle's own entry points --
-    is looked up on the coordinator at each use, so callbacks queued for GTK and
-    finalizers stay coordinator methods.
+    Holds the active operation per context and runs each one through input
+    locking, plan preparation, the worker, GTK completion, cancellation, deck
+    and action removal, and the bounded shutdown join.
     """
 
     def __init__(self, coordinator, automatic_type):
@@ -419,7 +418,7 @@ class ScanLifecycle:
             except ScanSetupError as error:
                 GLib.idle_add(
                     partial(self._apply_scan_result, action, operation),
-                    None, runtime_preparation.setup_failure_message(
+                    None, runtime_preparation.prepare_after_setup_failure(
                         self.coordinator.plugin, error))
             except Exception as error:
                 GLib.idle_add(

@@ -9,11 +9,11 @@ def prepare_scanner_runtime(plugin):
     return ensure_scanner_runtime(plugin.PATH, plugin.get_settings())
 
 
-def setup_failure_message(plugin, error):
-    """Install the scanner runtime after a setup failure and report it.
+def prepare_after_setup_failure(plugin, error):
+    """Install the scanner runtime after a scan setup failure; return the scan's message.
 
-    A tap that cannot scan prepares the runtime instead; the caller scans
-    again once it is ready. Preparation never runs while a scan can start.
+    Runs on the scan worker thread in place of the scan, so the user scans
+    again once the runtime is ready. Preparation never runs while a scan can start.
     """
     try:
         status = prepare_scanner_runtime(plugin)

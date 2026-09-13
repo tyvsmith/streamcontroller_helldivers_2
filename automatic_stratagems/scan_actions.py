@@ -41,7 +41,11 @@ def capture_source_index(settings, default_backend='auto'):
 
 
 class ScanCoordinator:
-    """Coordinate page sessions and input exclusion; queue worker results for the UI."""
+    """Facade the scan actions and plugin integration call.
+
+    Holds the attached actions and feature state, reacts to settings changes,
+    and hands sessions, slots, generated pages, and scans to its collaborators.
+    """
 
     def __init__(self, plugin, state_dir=None):
         self.plugin = plugin

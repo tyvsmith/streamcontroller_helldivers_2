@@ -218,7 +218,7 @@ class WorkerTests(ScanLifecycleTestCase):
                 _, _, operation = self.scan()
                 with patch.object(self.mod, 'catalog_colors', return_value={}), \
                      patch.object(self.mod, 'run_scan', side_effect=failure), \
-                     patch.object(self.mod.runtime_preparation, 'setup_failure_message',
+                     patch.object(self.mod.runtime_preparation, 'prepare_after_setup_failure',
                                   return_value='prepared') as message:
                     self.lifecycle._run_scan_worker(self.action, operation)
                 self.assertEqual(self.queued[0][1], (None, expected))
@@ -541,7 +541,9 @@ class CompletionAndShutdownTests(ScanLifecycleTestCase):
 
 
 class EntryTests(ScanLifecycleTestCase):
-    """Starting and preparing a scan: every early exit ends with input released once."""
+    """Scan start and preparation: worker launch, and input released once after a refused
+    page token, regenerating an update button, cancellation while preparing or launching,
+    or a setup or worker-start failure, including failures that cannot be saved."""
 
     def update_setup(self):
         session = self.assigned_session()

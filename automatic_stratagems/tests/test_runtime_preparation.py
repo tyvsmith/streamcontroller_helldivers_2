@@ -24,7 +24,7 @@ class RuntimePreparationTests(unittest.TestCase):
         ensure = Mock(return_value=status, side_effect=raised)
         with patch.object(self.mod, 'ensure_scanner_runtime', ensure), \
              patch.object(self.mod, 'log') as log:
-            message = self.mod.setup_failure_message(
+            message = self.mod.prepare_after_setup_failure(
                 self.plugin, RuntimeError('Scanner Python is missing'))
         ensure.assert_called_once_with('/tmp/plugin', self.settings)
         return message, log

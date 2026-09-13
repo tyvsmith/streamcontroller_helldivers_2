@@ -22,11 +22,7 @@ class SessionRegistry:
         self.state_errors = {}
 
     def identity(self, action):
-        _, page, group = self.context(action)
-        serial = action.deck_controller.serial_number()
-        if not isinstance(serial, str) or not serial:
-            raise ValueError('Deck serial number unavailable')
-        return dict(deck=serial, page=str(Path(page).absolute()), group=group)
+        return self.context_identity(self.context(action))
 
     def context(self, action):
         group = scan_group(action.get_settings())

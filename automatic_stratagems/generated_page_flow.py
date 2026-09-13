@@ -25,10 +25,10 @@ def image_page_settings(action):
 
 
 class GeneratedPageFlow:
-    """Navigate and reuse generated pages on top of ``TemporaryScanPages``.
+    """Own the generated-page store and the navigation over it.
 
-    Owns the page store. Sessions, scan state, cancellation, and redraw belong
-    to the coordinator and are looked up on it at each use.
+    Creates, reopens, leaves, and deletes generated pages for their source
+    actions, and decides when a cached page's capture settings allow reuse.
     """
 
     def __init__(self, coordinator):
