@@ -13,6 +13,12 @@ REFERENCE_DIR = Path(__file__).with_name('references')
 
 
 def detail_image(image):
+    """Extract high-frequency glyph detail from a reference crop or live tile.
+
+    Detail is grayscale minus a heavily blurred copy of the image resized to
+    MISSION_REFERENCE_PX, with the frame corner and quantity badge area (rows
+    52+, columns 69+) zeroed before the inset crop.
+    """
     rgb = np.array(image.convert('RGB').resize((MISSION_REFERENCE_PX, MISSION_REFERENCE_PX)))
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255
     detail = gray - cv2.GaussianBlur(gray, (0, 0), 3)
@@ -42,6 +48,11 @@ def badge_mask(image):
 
 @lru_cache(maxsize=1)
 def references():
+    """Load and cache every curated game-reference crop's detail image.
+
+    Returns (name, detail) pairs for every PNG in REFERENCE_DIR, sorted by name and
+    computed once per process.
+    """
     result = []
     for path in sorted(REFERENCE_DIR.glob('*.png')):
         with Image.open(path) as image:
@@ -50,6 +61,12 @@ def references():
 
 
 def match_reference(image, entries):
+    """Match a mission tile against curated game-reference crops, ignoring the badge.
+
+    Compares only entries present in entries. Accepts the top match when its score and
+    margin over the runner-up clear the threshold, returning a dict with id (None
+    otherwise), GAME_REFERENCE_TOP3 ranking, and method 'mission-icon'.
+    """
     detail = detail_image(image)
     mask = badge_mask(image)
     detail[mask] = 0
