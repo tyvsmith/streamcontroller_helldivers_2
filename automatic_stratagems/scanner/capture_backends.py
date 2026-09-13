@@ -1,4 +1,4 @@
-"""Capture Helldivers through its uniquely associated Gamescope socket."""
+"""Try each capture backend, reject bad frames, and keep the better recognition."""
 
 from itertools import islice
 import os

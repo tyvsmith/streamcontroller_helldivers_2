@@ -36,15 +36,18 @@ generation stays in `update/`.
 | `scan_diagnostics.py` | runner-managed diagnostic runs: ownership markers, process identity, retention limits, pruning |
 | `hostexec/` | scripts the host `/usr/bin/python3` runs outside the sandbox: Gamescope target lookup, Flatpak Steam capture and cleanup |
 | `shared/` | standard-library helpers every context imports: atomic writes, bounded reads, stability polling, host-job identity, Gamescope target schema |
-| `scanner/` | capture (`scanner/capture/`: bounded commands, hostexec launchers, screenshot trigger, detection, and cleanup), image decoding, layout detection, recognition, OCR, caches, JSON reports |
+| `scanner/` | capture (`scanner/capture/`: bounded commands, hostexec launchers, screenshot trigger, detection, and cleanup), image decoding (`scanner/image_decode.py`), layout detection, recognition, OCR, caches, JSON reports |
+| `scanner/capture_backends.py` | Automatic's Gamescope-then-Screenshot fallback order, keeping the attempt with more matched IDs, capture-quality rejection, and the Gamescope frame read |
 | `scanner/recognize/` | recognition vocabulary: calibrated geometry and rim constants, the `Tile` crop, declared ranking keys and cached-ranking restore |
 | `scanner/layout/` | pure layout transforms: the calibrated Ready-bar geometry that maps source pixels to matcher pixels |
 
 ## Execution contexts
 
-The feature runs in five contexts with different dependency budgets. Three must
-stay standard-library only, and `tools/check-imports` fails on any other import in
-their files.
+The feature runs in five contexts with different dependency budgets.
+`tools/check-imports` enforces standard-library-only imports, plus a short
+list of permitted internal cross-imports, in five scopes:
+`automatic_stratagems/__init__.py`, `shared/`, `hostexec/`, `provision/`, and
+root `__install__.py`.
 
 | Context | Interpreter | May import | Files |
 | --- | --- | --- | --- |
@@ -53,6 +56,15 @@ their files.
 | Host scripts | host `/usr/bin/python3`, outside the sandbox | stdlib, `shared/`, `hostexec/` | `hostexec/` |
 | Install hook | StreamController's Python, before the plugin loads | stdlib, `shared/`, `provision/` | `__install__.py`, `provision/` |
 | Tooling | developer interpreter | anything | `tools/`, `tests/` |
+
+Some files cross those boundaries. `host_commands.py` is a plugin module that
+also runs in the scanner child: `scan_game.py` and `scanner/capture/command.py`
+both import it directly. The plugin also reaches into `scanner/`:
+`scan_runner.py` imports `scanner/screenshot_capture.py`, which imports
+`scanner/errors.py`, `scanner/limits.py`, and `scanner/capture/screenshot_*.py`.
+The identity test's `PLUGIN_REACHABLE_SCANNER_FILES` names that exact list, so
+none of those files may import GTK, cv2, or NumPy at module level. The scanner
+child also imports `shared/` and `hostexec/__init__.py`.
 
 `shared/` and the package `__init__.py` import only the standard library. The
 install hook swallows every exception, so a stray import there would install
@@ -63,13 +75,18 @@ and a test runs every script with `-I -S` to prove it loads.
 StreamController imports the plugin as `plugins.<folder>.main` without the
 repository root on `sys.path`, so plugin-side modules use relative imports.
 Absolute `automatic_stratagems.` imports resolve only in the scanner child, host
-scripts, the install hook, and tooling. A test imports plugin-side modules under
-that package name, because the test runner itself has the root on `sys.path`.
+scripts, the install hook, and tooling. `tests/test_plugin_package_identity.py`
+imports plugin-side modules as `plugins.<id>.<module>` with the repository root
+kept off `sys.path`, fails if `automatic_stratagems` is importable there, and
+rejects absolute `automatic_stratagems.` imports in plugin-side files by AST. It
+exists because `tools/check` and the other test runners put the root on
+`sys.path`, which would otherwise hide those failures.
 
 ## Scan flow
 
-1. Resolve the initiating action's deck, page, group, and current capture settings.
-2. Acquire the plugin's shared input lock and create a session token.
+1. Acquire the plugin's shared input lock.
+2. Resolve the initiating action's deck, page, group, and current capture
+   settings, and create a session token.
 3. Run a non-destructive setup preflight, then launch the scanner child with the
    same cancellation event and an isolated runtime environment.
 4. Capture and decode one image, locate supported menu rows, recognize them, and
@@ -182,6 +199,8 @@ directory, triggers the capture through `scanner/capture/screenshot_trigger.py`
 `scanner/capture/screenshot_detect.py`. `scanner/capture/screenshot_source.py`
 resolves and validates the configured folder, and `scanner/capture/screenshot_files.py`
 holds the bounded directory and fingerprint reads that detection and cleanup share.
+With no configured trigger, it reads a stable file or folder through
+`scanner/image_source.py` instead, honoring previous-fingerprint and rescan checks.
 Blank paths resolve the Helldivers Steam screenshot directory for native or
 Flatpak Steam; multiple candidates
 require explicit selection. Symlinks, ambiguous captures, and incomplete reads
@@ -214,8 +233,10 @@ and position; competing/clipped edges and missing occupied tiles reject recovery
 Automatic selection requires at least two occupied top tiles.
 `layout/geometry.py` rescales the tile area above that bar to the calibrated
 840-pixel Ready-bar width for matching; reports keep source-pixel boxes. It holds
-only that transform and the calibration base `selection_layout.py` imports; the
-two `*_layout.py` modules analyze pixels and stay beside the matchers.
+that transform, the calibration base `selection_layout.py` imports, and
+`normalized_band`, which expresses the Ready-bar box as resolution-independent
+fractions for the report; the two `*_layout.py` modules analyze pixels and stay
+beside the matchers.
 
 `mission_layout.py` finds one observed border track in the supported HUD region
 and validates row cadence and square borders. Obscured cooldown rows may be
@@ -241,10 +262,11 @@ BGR to RGB at that boundary. Artwork classification uses Pillow HSV hue 0-255;
 recognition uses OpenCV HSV hue 0-179. The user-facing `blue` filter and matcher
 `cyan` category remain separate calibrated vocabularies.
 
-Unresolved, non-conflicted mission rows may use conservative English-name OCR,
-then complete arrow-sequence matching. A sequence must have consistent spacing
-and directional margins and identify exactly one catalog entry. These fallbacks
-share an eight-second budget and obey scan cancellation and deadlines.
+`mission_fallbacks.py` lets unresolved, non-conflicted mission rows use
+conservative English-name OCR, then complete arrow-sequence matching. A
+sequence must have consistent spacing and directional margins and identify
+exactly one catalog entry. These fallbacks share an eight-second budget and
+obey scan cancellation and deadlines.
 
 `ScanSession` keeps uncertainty explicit. Unknown observations are not guessed
 into IDs; prior assignments can remain unconfirmed and still execute when tapped.
@@ -267,9 +289,10 @@ State/page readers require regular files, use nonblocking no-follow opens, and
 bound JSON bytes and depth.
 
 `IconTemplates` shares prepared assets within a scanner process. The disposable
-SQLite recognition cache stores trusted exact matches, keyed by consumed image
-features, candidate/context data, and a fingerprint of matcher code, catalog,
-references, and library versions. Read/parse/storage failures become misses.
+SQLite recognition cache (`scanner/recognition_cache.py`) stores trusted exact
+matches, keyed by consumed image features, candidate/context data, and a
+fingerprint of matcher code, catalog, references, and library versions.
+Read/parse/storage failures become misses.
 The fingerprint lists the matcher modules that turn hashed inputs into stored
 results: `stratagem_detection`, `icon_normalization`, `mission_references`,
 `colorless_icons`, `mission_layout`, the shared tile crop in `recognize/tile`, the
@@ -340,13 +363,18 @@ feature setting is off, reports failures instead of raising them, and is called
 from three places: `__install__.py` (StreamController's store install and update
 hook, using the plugin's own directory layout to find its settings and unwrapping
 StreamController's `file-version` 2.0 envelope; flat pre-2.0 files are read as-is), the settings
-switch and its **Scanner setup** row, and a scan whose setup check failed. That
-last caller prepares the runtime in place of scanning and asks for another scan,
-so scanning still never installs. Installation is idempotent: Flatpak profiles are
-content-addressed and reused, and the native environment is rebuilt whenever it
-cannot be verified. The plugin imports only the verification path;
-`provision/build.py` and its download and archive modules load only when an
-installation runs.
+switch and its **Scanner setup** row, and the scan worker thread, inside the scan
+operation, on any `ScanSetupError` (including a missing capture command). That
+last caller holds the shared input lock until preparation finishes, so no scan
+can start meanwhile. It has no cancel event, a native pip install may run for
+1800 seconds, and the bounded shutdown join does not wait for it. The scan
+prepares the runtime in place of scanning and asks for another
+scan, so scanning still never installs. Installation is idempotent: Flatpak
+profiles are content-addressed and reused, and the native environment is rebuilt
+whenever it cannot be verified. The plugin imports `runtime_install`
+(`settings_rows.py`, `runtime_preparation.py`, `scan_actions.py`), which imports
+`build` lazily, only when a Flatpak install runs. The download and archive code
+lives in `build.py`.
 
 The settings switch and **Scanner setup** row prepare the runtime on a daemon
 thread that shutdown deliberately does not join, because a native install can run

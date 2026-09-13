@@ -32,11 +32,14 @@ fixture tests do not establish support for every screenshot shortcut or script.
    StreamController runs the same preparation from `__install__.py` after every
    store install and update, before the plugin loads, whenever the feature is
    already switched on. An update replaces the plugin directory, so the runtime
-   is rebuilt then. Preparation never runs at plugin startup or during a scan: a
-   scan started before the runtime is ready prepares it instead of scanning and
-   asks for another scan. **Run setup** in the settings row prepares or repairs
-   it at any time, and records the outcome in ignored
-   `automatic_stratagems/runtime/setup-status.json`.
+   is rebuilt then. Preparation never runs at plugin startup. When a scan's
+   setup check fails for any reason, including a missing capture command, the
+   scan prepares the runtime instead of scanning and asks for another scan.
+   That preparation holds the shared input lock until it finishes, so no scan
+   can start meanwhile. It cannot be cancelled, a native pip install can take
+   up to 30 minutes, and shutdown does not wait for it.
+   **Run setup** in the settings row prepares or repairs it at any time, and
+   records the outcome in ignored `automatic_stratagems/runtime/setup-status.json`.
 
 3. Install the helpers required by the selected source:
 
@@ -375,6 +378,17 @@ the standard library:
 ```sh
 python3 automatic_stratagems/tools/check-imports
 ```
+
+Replay every calibrated mission panel across the supported x offsets, to check
+that translation does not change detection:
+
+```sh
+automatic_stratagems/tools/check-translations
+```
+
+Results default to `/tmp/hd2-mission-translation-results.json`; pass `--output`
+for another path. `check-sandbox --translations` below runs this same tool
+inside the Flatpak boundary.
 
 Validate the Flatpak boundary with isolated data and saved fixtures:
 

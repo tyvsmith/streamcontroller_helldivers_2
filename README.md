@@ -8,7 +8,7 @@ Assumes the following:
 
 Simply install the plugin from the StreamController store and configure your Stream Deck buttons with your favorite stratagems.
 
-Automatic stratagems are optional and off by default. Switching them on in the plugin settings prepares the scanner runtime by itself; no terminal steps are required. See [automatic stratagems](automatic_stratagems/README.md) for Gamescope-first capture with Screenshot fallback, shared screenshot settings, automatic slots, and scanner setup.
+Automatic stratagems are optional and off by default. Switching them on in the plugin settings prepares the scanner runtime by itself; a Flatpak install needs no terminal steps, but a native install needs a C compiler and Linux kernel headers already present. See [automatic stratagems](automatic_stratagems/README.md) for Gamescope-first capture with Screenshot fallback, shared screenshot settings, automatic slots, and scanner setup.
 
 ### Plugin Settings
 
@@ -22,7 +22,7 @@ Access settings via **Settings → Plugins → HELLDIVERS 2 → ⚙️**
 | **Modifier Key** | Key to open stratagem menu (Left/Right Ctrl, Alt, or Shift) | Left Ctrl |
 | **Direction Keys** | Keys used for Up, Down, Left, and Right stratagem inputs (Arrow keys or WASD) | Arrow keys |
 | **Hold Modifier Key** | Hold modifier during sequence vs press-and-release | ON |
-| **Enable automatic stratagems** | Show Scan and Auto actions and enable screenshot scanning | OFF |
+| **Enable automatic stratagems** | Show Scan and Auto actions, prepare the scanner runtime, and enable Gamescope/Screenshot capture | OFF |
 | **Scan workers** | Parallel recognition workers (1–32); fewer workers reduce memory use | 2 |
 | **Screenshot capture** | Shared keycode or script, screenshot folder, and deletion settings | F12, Steam folder, delete after success |
 | **Show Labels** | Display text labels on buttons (OFF for icon-only look) | ON |
