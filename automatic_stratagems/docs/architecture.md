@@ -37,6 +37,8 @@ generation stays in `update/`.
 | `hostexec/` | scripts the host `/usr/bin/python3` runs outside the sandbox: Gamescope target lookup, Flatpak Steam capture and cleanup |
 | `shared/` | standard-library helpers every context imports: atomic writes, bounded reads, stability polling, host-job identity, Gamescope target schema |
 | `scanner/` | capture (`scanner/capture/`: bounded commands, hostexec launchers, screenshot trigger, detection, and cleanup), image decoding, layout detection, recognition, OCR, caches, JSON reports |
+| `scanner/recognize/` | recognition vocabulary: calibrated geometry and rim constants, the `Tile` crop, declared ranking keys and cached-ranking restore |
+| `scanner/layout/` | pure layout transforms: the calibrated Ready-bar geometry that maps source pixels to matcher pixels |
 
 ## Execution contexts
 
@@ -211,7 +213,9 @@ from it. If no yellow bar survives, a complete pale panel edge can provide scale
 and position; competing/clipped edges and missing occupied tiles reject recovery.
 Automatic selection requires at least two occupied top tiles.
 `layout/geometry.py` rescales the tile area above that bar to the calibrated
-840-pixel Ready-bar width for matching; reports keep source-pixel boxes.
+840-pixel Ready-bar width for matching; reports keep source-pixel boxes. It holds
+only that transform and the calibration base `selection_layout.py` imports; the
+two `*_layout.py` modules analyze pixels and stay beside the matchers.
 
 `mission_layout.py` finds one observed border track in the supported HUD region
 and validates row cadence and square borders. Obscured cooldown rows may be
@@ -223,6 +227,14 @@ color, curated game references, and normalized/colorless retries. Shared shapes
 require distinguishing detail. A near-exact normalized glyph match also needs
 independent overlap and companion-component support. Blank components and
 conflicting decisions remain unresolved.
+
+`recognize/` names what the matchers share. `constants` holds tile geometry and
+twelve frame conventions that stay separate because merging equal-looking values
+changes results. `Tile` crops a mission row once and caches its frame
+category; it reads that category through `icon_normalization`, so it sits above
+normalization, and a `Tile` is never read from two threads. `match_result`
+declares the ranking keys results carry; every ranking a cached result stores
+must be declared there, or a warm cache returns it unvalidated.
 
 Decoded captures enter recognition as Pillow RGB. OpenCV-loaded assets convert
 BGR to RGB at that boundary. Artwork classification uses Pillow HSV hue 0-255;
@@ -262,10 +274,11 @@ The fingerprint lists the matcher modules that turn hashed inputs into stored
 results: `stratagem_detection`, `icon_normalization`, `mission_references`,
 `colorless_icons`, `mission_layout`, the shared tile crop in `recognize/tile`, the
 declared rankings in `recognize/match_result`, and the calibrated geometry in
-`recognize/constants`. Layout code such as `selection_layout.py` and `layout/geometry.py`
-runs before keying and its effect is already in the hashed pixels, so it is not
-listed. Renaming a listed file without updating `scanner_cache` silently disables
-the cache.
+`recognize/constants`. `selection_layout.py` and `layout/geometry.py` run before
+keying, so their output reaches the key as hashed pixels and boxes, and they are
+not listed; the calibrated values `selection_layout.py` reads from
+`recognize/constants` are covered because that file is. Renaming a listed file
+without updating `scanner_cache` silently disables the cache.
 
 Routine scans retain no diagnostic screenshots. Explicit debug output is private
 user data. Runner-managed diagnostics prune eligible completed runs while
