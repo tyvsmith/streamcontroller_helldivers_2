@@ -15,6 +15,10 @@ from .recognize.constants import (
     EQUIPPED_DETAIL_INSET, EQUIPPED_FEATURE_INSET, ICON_GRAY_INSET, ICON_SILHOUETTE_INSET,
     SILHOUETTE_CANVAS, SILHOUETTE_EXTENT, TEMPLATE_INTERIOR, TILE_PX,
 )
+from .recognize.match_result import (
+    CORRELATION_TOP3, DETAIL_TOP3, FEATURE_TOP3, SHORTLIST_TOP3, SILHOUETTE_TOP3,
+    restore_ranking, restore_rankings,
+)
 from .recognize.tile import Tile
 
 
@@ -208,22 +212,8 @@ def restore_mission_result(saved, candidates):
             or saved.get('conflict', False) is not False or saved.get('occluded', False) is not False):
         return None
 
-    def restore(value):
-        if isinstance(value, dict):
-            for key, item in value.items():
-                if key.endswith('_top3'):
-                    if (not isinstance(item, list) or any(not isinstance(pair, list) or len(pair) != 2
-                            or not isinstance(pair[0], (int, float)) or not np.isfinite(pair[0])
-                            or not isinstance(pair[1], str) for pair in item)):
-                        raise ValueError('invalid cached ranking')
-                    value[key] = [tuple(pair) for pair in item]
-                else:
-                    restore(item)
-        elif isinstance(value, list):
-            for item in value:
-                restore(item)
     try:
-        restore(saved)
+        restore_rankings(saved)
     except (TypeError, ValueError, RecursionError):
         return None
     return saved
@@ -236,16 +226,13 @@ def restore_equipped_result(saved, candidates):
             or not isinstance(saved.get('decision'), str)
             or not isinstance(saved.get('detail_components'), dict)):
         return None
-    required = ('detail_top3', 'shortlist_top3' if 'shortlist_top3' in saved else 'feature_top3')
+    required = (DETAIL_TOP3, SHORTLIST_TOP3 if SHORTLIST_TOP3 in saved else FEATURE_TOP3)
     for field in required:
-        ranking = saved.get(field)
-        if not isinstance(ranking, list) or len(ranking) < 2:
+        ranking = restore_ranking(saved.get(field), pair_types=(list, tuple), min_length=2,
+                                  candidates=candidates)
+        if ranking is None:
             return None
-        if any(not isinstance(item, (list, tuple)) or len(item) != 2
-               or not isinstance(item[0], (int, float)) or not np.isfinite(item[0])
-               or not isinstance(item[1], str) or item[1] not in candidates for item in ranking):
-            return None
-        saved[field] = [tuple(item) for item in ranking]
+        saved[field] = ranking
     return saved
 
 
@@ -360,8 +347,8 @@ def _match_equipped(width, features, details, references, bank, *, fast_filter, 
         scored = {key: score for score, key in ranked}
         if (ranked[0][1] == shapes[0][1] and ranked[0][0] >= .93
                 and ranked[0][0] - ranked[1][0] >= .10):
-            return {"id": ranked[0][1], "shortlist_top3": ranked[:3],
-                    "detail_top3": shapes[:3], "conflict": False,
+            return {"id": ranked[0][1], SHORTLIST_TOP3: ranked[:3],
+                    DETAIL_TOP3: shapes[:3], "conflict": False,
                     "decision": "silhouette_verified",
                     "detail_components": {key: components[key] for _, key in shapes[:3]}}
     correlation = [(score, key) for key, score in scored.items()]
@@ -435,7 +422,7 @@ def _match_equipped(width, features, details, references, bank, *, fast_filter, 
                 decision = "near_exact_component"
     conflict = len(set(accepted)) > 1
     return {"id": accepted[0] if accepted and not conflict else None,
-            "feature_top3": correlation[:3], "detail_top3": shapes[:3], "conflict": conflict,
+            FEATURE_TOP3: correlation[:3], DETAIL_TOP3: shapes[:3], "conflict": conflict,
             "decision": decision,
             "detail_components": {key: components[key] for _, key in shapes[:3]}}
 
@@ -492,7 +479,7 @@ def detect_icons(im, entries, boxes, *, mission=False, _normalized=False, bank=N
                 accepted.append(ranking[0][1])
         key = accepted[0] if accepted and len(set(accepted)) == 1 else None
         return {**detail, "id": key, "box": [x, y, width, height], "method": "icon",
-                     "correlation_top3": correlations[:3], "silhouette_top3": shapes[:3]}
+                     CORRELATION_TOP3: correlations[:3], SILHOUETTE_TOP3: shapes[:3]}
 
     rows = ordered_map(row_executor, match_box, boxes)
     if not _normalized:

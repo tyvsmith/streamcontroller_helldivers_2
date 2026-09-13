@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 
 from .recognize.constants import COLORLESS_RIM_FRACTION, COLORLESS_RIM_MIN, TEMPLATE_INTERIOR
+from .recognize.match_result import COLORLESS_TOP3
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -50,4 +51,4 @@ def match_colorless(image, entries):
     if len(ranking) >= 2:
         score, margin = ranking[0][0], ranking[0][0] - ranking[1][0]
         accepted = (score >= .50 and margin >= .15) or (score >= .85 and margin >= .08)
-    return {'id': ranking[0][1] if accepted else None, 'colorless_top3': ranking[:3]}
+    return {'id': ranking[0][1] if accepted else None, COLORLESS_TOP3: ranking[:3]}

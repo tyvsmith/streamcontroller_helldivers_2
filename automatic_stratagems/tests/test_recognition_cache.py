@@ -47,6 +47,7 @@ class RecognitionCacheTests(unittest.TestCase):
                      'automatic_stratagems/scanner/mission_references.py', 'automatic_stratagems/scanner/colorless_icons.py',
                      'automatic_stratagems/scanner/mission_layout.py', 'automatic_stratagems/scanner/recognize/constants.py',
                      'automatic_stratagems/scanner/recognize/tile.py',
+                     'automatic_stratagems/scanner/recognize/match_result.py',
                      'automatic_stratagems/scanner/references/A.png',
                      'assets/icons/A.png', 'assets/data/stratagems.json', 'locales/en_US.json')
             for name in paths:

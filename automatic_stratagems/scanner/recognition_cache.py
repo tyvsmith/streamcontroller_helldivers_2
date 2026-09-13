@@ -104,11 +104,12 @@ def scanner_cache(directory=None, *, root=None, matcher_paths=None):
         matcher_paths = [root / 'automatic_stratagems' / 'scanner' / name for name in
                          ('stratagem_detection.py', 'icon_normalization.py',
                           'mission_references.py', 'colorless_icons.py', 'mission_layout.py',
-                          'recognize/constants.py', 'recognize/tile.py')]
+                          'recognize/constants.py', 'recognize/tile.py',
+                          'recognize/match_result.py')]
     paths = list(map(Path, matcher_paths)) + sorted((root / 'assets' / 'icons').glob('*.png'))
     paths += sorted((root / 'automatic_stratagems' / 'scanner' / 'references').glob('*.png'))
     paths += [root / 'assets' / 'data' / 'stratagems.json', root / 'locales' / 'en_US.json']
-    fingerprint = sha256(json.dumps(['recognition-v1', cv2.__version__, np.__version__, PIL.__version__]).encode())
+    fingerprint = sha256(json.dumps(['recognition-v2', cv2.__version__, np.__version__, PIL.__version__]).encode())
     try:
         for path in paths:
             name = str(path.relative_to(root) if path.is_relative_to(root) else path).encode()

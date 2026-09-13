@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from .recognize.constants import ARROW_GLYPH
+from .recognize.match_result import NAME_TOP3
 
 
 FALLBACK_BUDGET_SECONDS = 8.0
@@ -74,7 +75,7 @@ def match_name(text, entries):
     ranking.sort(reverse=True)
     accepted = (len(ranking) >= 2 and ranking[0][0] >= .94
                 and ranking[0][0] - ranking[1][0] >= .08)
-    return {'id': ranking[0][1] if accepted else None, 'name_top3': ranking[:3]}
+    return {'id': ranking[0][1] if accepted else None, NAME_TOP3: ranking[:3]}
 
 
 def read_name(image, box, entries, *, deadline=None, cancel_event=None):

@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 
 from .recognize.constants import MISSION_REFERENCE_INSET, MISSION_REFERENCE_PX
+from .recognize.match_result import GAME_REFERENCE_TOP3
 
 REFERENCE_DIR = Path(__file__).with_name('references')
 
@@ -60,4 +61,4 @@ def match_reference(image, entries):
     accepted = (len(ranking) >= 2 and ranking[0][0] >= .90
                 and ranking[0][0] - ranking[1][0] >= .12)
     return {'id': ranking[0][1] if accepted else None,
-            'game_reference_top3': ranking[:3], 'method': 'mission-icon'}
+            GAME_REFERENCE_TOP3: ranking[:3], 'method': 'mission-icon'}

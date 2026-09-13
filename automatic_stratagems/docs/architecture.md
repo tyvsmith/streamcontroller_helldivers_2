@@ -255,8 +255,9 @@ features, candidate/context data, and a fingerprint of matcher code, catalog,
 references, and library versions. Read/parse/storage failures become misses.
 The fingerprint lists the matcher modules that turn hashed inputs into stored
 results: `stratagem_detection`, `icon_normalization`, `mission_references`,
-`colorless_icons`, `mission_layout`, the shared tile crop in `recognize/tile`, and
-the calibrated geometry in `recognize/constants`. Layout code such as `selection_layout.py`
+`colorless_icons`, `mission_layout`, the shared tile crop in `recognize/tile`, the
+declared rankings in `recognize/match_result`, and the calibrated geometry in
+`recognize/constants`. Layout code such as `selection_layout.py`
 runs before keying and its effect is already in the hashed pixels, so it is not
 listed. Renaming a listed file without updating `scanner_cache` silently disables
 the cache.
