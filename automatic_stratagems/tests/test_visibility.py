@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
-from automatic_stratagems.visibility import ChooserCompatibilityError, update_visibility
+from automatic_stratagems.visibility import (
+    ChooserCompatibilityError, ChooserRowsPending, update_visibility)
 
 
 class VisibilityTests(unittest.TestCase):
@@ -40,6 +41,16 @@ class VisibilityTests(unittest.TestCase):
         chooser = SimpleNamespace(plugin_group=SimpleNamespace(expander=[object()]))
         with self.assertRaises(ChooserCompatibilityError):
             update_visibility(chooser, False)
+
+    def test_chooser_without_any_plugin_rows_is_pending_not_incompatible(self):
+        other = SimpleNamespace(action_holder=SimpleNamespace(
+            action_id='other::ScanStratagems'), set_visible=Mock())
+        chooser = SimpleNamespace(plugin_group=SimpleNamespace(
+            expander=[SimpleNamespace(get_rows=lambda: [other])]))
+        with self.assertRaises(ChooserRowsPending) as raised:
+            update_visibility(chooser, False)
+        self.assertNotIsInstance(raised.exception, ChooserCompatibilityError)
+        other.set_visible.assert_not_called()
 
     def test_missing_registered_holder_is_incompatible(self):
         row = SimpleNamespace(action_holder=SimpleNamespace(

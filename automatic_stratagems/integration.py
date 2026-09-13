@@ -13,6 +13,11 @@ from . import runtime_preparation
 from . import settings_rows
 
 
+# How long to wait for StreamController to rebuild the chooser after a store
+# install before treating missing automatic action rows as incompatible.
+VISIBILITY_RETRY_MS = 250
+VISIBILITY_RETRY_LIMIT = 40
+
 ACTION_SPECS = {
     'scanner': ("ScanStratagems", "Automatic Stratagem Scanner",
                 "automatic_stratagems/assets/icons/scan-update.png"),
@@ -90,7 +95,9 @@ class AutomaticIntegration:
         from .capture_source import (
             DEFAULT_SCREENSHOT_HOTKEY, SCREENSHOT_TRIGGERS, screenshot_config,
         )
-        from .visibility import ChooserCompatibilityError, update_visibility
+        from .visibility import (
+            ChooserCompatibilityError, ChooserRowsPending, update_visibility,
+        )
 
         self.plugin = plugin
         self.coordinator = ScanCoordinator(
@@ -112,6 +119,7 @@ class AutomaticIntegration:
         self.screenshot_triggers = SCREENSHOT_TRIGGERS
         self.update_visibility = update_visibility
         self.chooser_error = ChooserCompatibilityError
+        self.rows_pending = ChooserRowsPending
         self.globals = gl
         self.signals = Signals
         self.closed = False
@@ -169,13 +177,29 @@ class AutomaticIntegration:
         except Exception as error:
             self.disable_compatibility(error)
 
-    def connect_visibility(self):
+    def connect_visibility(self, attempt=0):
         if self.closed:
             return False
         try:
             chooser = self.globals.app.main_win.sidebar.action_chooser
-            self.update_visibility(chooser, self.coordinator.enabled)
             integration_ref = ref(self)
+            try:
+                self.update_visibility(chooser, self.coordinator.enabled)
+            except self.rows_pending as pending:
+                # A store install initializes the plugin before StreamController
+                # rebuilds the chooser rows, so absent rows are not yet a verdict.
+                if attempt >= VISIBILITY_RETRY_LIMIT:
+                    raise self.chooser_error(
+                        "automatic action rows never appeared in the chooser") from pending
+
+                def retry():
+                    integration = integration_ref()
+                    if integration is not None and not integration.closed:
+                        integration.connect_visibility(attempt + 1)
+                    return False
+
+                GLib.timeout_add(VISIBILITY_RETRY_MS, retry)
+                return False
 
             def chooser_mapped(mapped):
                 integration = integration_ref()
@@ -184,6 +208,8 @@ class AutomaticIntegration:
                 try:
                     integration.update_visibility(
                         mapped, integration.coordinator.enabled)
+                except integration.rows_pending:
+                    return
                 except integration.chooser_error as error:
                     integration.disable_compatibility(error)
 

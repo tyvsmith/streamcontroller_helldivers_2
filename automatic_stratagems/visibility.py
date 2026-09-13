@@ -13,6 +13,10 @@ class ChooserCompatibilityError(RuntimeError):
     """The tested StreamController chooser structure is unavailable."""
 
 
+class ChooserRowsPending(Exception):
+    """The chooser has not built rows for this plugin's actions yet."""
+
+
 def update_visibility(chooser, enabled):
     # StreamController has no holder visibility flag. Refresh rows on each map
     # because the chooser can rebuild them after plugin changes.
@@ -29,6 +33,8 @@ def update_visibility(chooser, enabled):
                 raise ChooserCompatibilityError('Automatic action visibility is unsupported')
             targets.append((row, holder.action_id))
             found.add(holder.action_id)
+    if not found:
+        raise ChooserRowsPending('Automatic action rows are not in the chooser yet')
     if found != ACTION_IDS:
         raise ChooserCompatibilityError('Automatic action visibility is unsupported')
     for row, action_id in targets:

@@ -103,6 +103,7 @@ class OptionalIntegrationTests(unittest.TestCase):
         scan_runner.scan_workers = lambda value=2: 2
         visibility = ModuleType(plugin_module('automatic_stratagems.visibility'))
         visibility.ChooserCompatibilityError = RuntimeError
+        visibility.ChooserRowsPending = self.RowsPending
         visibility.update_visibility = Mock()
         capture_source = ModuleType(
             plugin_module('automatic_stratagems.capture_source'))
@@ -220,6 +221,57 @@ class OptionalIntegrationTests(unittest.TestCase):
 
         plugin.scan_coordinator.disable_compatibility.assert_called_once()
         integration.enable_row.set_sensitive.assert_called_once_with(False)
+
+    RowsPending = type('RowsPending', (Exception,), {})
+
+    def hot_installed_plugin(self, update_result):
+        # A store install initializes the plugin while the app is running and
+        # rebuilds the chooser's plugin rows only afterwards.
+        chooser = Mock()
+        app = SimpleNamespace(main_win=SimpleNamespace(
+            sidebar=SimpleNamespace(action_chooser=chooser)))
+        _, plugin = self.import_without_automatic_actions(app=app)
+        integration = plugin._automatic_integration
+        integration.update_visibility = Mock(side_effect=update_result)
+        glib = self.feature_namespace(integration)['GLib']
+        connect = next(call.args[0] for call in glib.idle_add.call_args_list
+                       if call.args[0].__name__ == 'connect_visibility')
+        return plugin, chooser, glib, connect
+
+    def test_hot_install_waits_for_chooser_rows_before_checking_compatibility(self):
+        plugin, chooser, glib, connect = self.hot_installed_plugin(
+            [self.RowsPending(), self.RowsPending(), 4])
+
+        self.assertFalse(connect())
+        for _ in range(2):
+            self.assertFalse(glib.timeout_add.call_args.args[1]())
+
+        self.assertEqual(glib.timeout_add.call_count, 2)
+        self.assertIsNone(plugin.scan_coordinator.compatibility_error)
+        self.assertEqual(chooser.connect.call_args.args[0], 'map')
+
+    def test_chooser_rows_that_never_appear_disable_automatic_scanning(self):
+        plugin, chooser, glib, connect = self.hot_installed_plugin(
+            self.RowsPending())
+
+        self.assertFalse(connect())
+        retries = 0
+        while glib.timeout_add.call_count > retries and retries < 1000:
+            retries = glib.timeout_add.call_count
+            self.assertFalse(glib.timeout_add.call_args.args[1]())
+
+        self.assertLess(retries, 1000)
+        self.assertIn('never appeared', plugin.scan_coordinator.compatibility_error)
+        chooser.connect.assert_not_called()
+
+    def test_chooser_mapped_before_rows_rebuild_keeps_automatic_scanning(self):
+        plugin, chooser, glib, connect = self.hot_installed_plugin(
+            [4, self.RowsPending()])
+        connect()
+
+        chooser.connect.call_args.args[1](chooser)
+
+        self.assertIsNone(plugin.scan_coordinator.compatibility_error)
 
     def test_global_screenshot_setting_invalidates_only_on_effective_change(self):
         _, plugin = self.import_without_automatic_actions()
