@@ -50,9 +50,15 @@ def selection_boxes(im, band):
     return boxes
 
 
-def empty_tile(im, box, mission=False):
+def empty_tile(im, box, frame_occupancy=False):
+    """Report whether a selection tile holds no stratagem.
+
+    With frame_occupancy, read the tile's four edge bands: the tile is empty
+    unless at least three show a colored frame. Otherwise, measure gray
+    variance in the centre half, where a blank tile is flat.
+    """
     x, y, w, h = box
-    if mission:
+    if frame_occupancy:
         hsv = cv2.cvtColor(np.array(im.crop((x, y, x + w, y + h))), cv2.COLOR_RGB2HSV)
         # Pale gold frames in bright captures have saturation around 35.
         colored = ((hsv[:, :, 1] > 30) & (hsv[:, :, 2] > 110)).astype(float)
@@ -128,6 +134,6 @@ def _washed_out_selection_bands(im, pixels, hsv):
             top = selection_boxes(im, band)[:7]
         except ScanError:
             continue
-        if sum(not empty_tile(im, box, mission=True) for box in top) >= 2:
+        if sum(not empty_tile(im, box, frame_occupancy=True) for box in top) >= 2:
             bands.append(band)
     return bands

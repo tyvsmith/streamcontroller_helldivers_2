@@ -14,7 +14,7 @@ class LiveTiles(unittest.TestCase):
                 im=Image.open(FIXTURES/case['file']).convert('RGB')
                 box=[0,0,*im.size]
                 if case['mission']:
-                    self.assertEqual(empty_tile(im,box,mission=True),case['empty'])
+                    self.assertEqual(empty_tile(im,box,frame_occupancy=True),case['empty'])
                 if not case['empty']:
                     self.assertEqual(detect_icons(im,entries,[box])[0]['id'],case['expected'])
 

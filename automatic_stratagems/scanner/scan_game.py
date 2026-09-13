@@ -144,7 +144,7 @@ def detect(im, mode, band=None, *, executor=None, cache=None, deadline=None,
         try:
             candidate = find_selection_band(im)
             top = selection_boxes(im, candidate)[:7]
-            if sum(not empty_tile(im, box, mission=True) for box in top) < 2:
+            if sum(not empty_tile(im, box, frame_occupancy=True) for box in top) < 2:
                 candidate = None
         except ScanError:
             candidate = None
@@ -155,7 +155,7 @@ def detect(im, mode, band=None, *, executor=None, cache=None, deadline=None,
     if mode == "selection":
         band = band or find_selection_band(im)
         boxes = selection_boxes(im, band)
-        empty = [box for i, box in enumerate(boxes) if empty_tile(im, box, mission=i < 7)]
+        empty = [box for i, box in enumerate(boxes) if empty_tile(im, box, frame_occupancy=i < 7)]
         boxes = [box for box in boxes if box not in empty]
         # Normalize the selected area to the calibrated tile size for matching.
         # Geometry stays in source pixels in the report.
