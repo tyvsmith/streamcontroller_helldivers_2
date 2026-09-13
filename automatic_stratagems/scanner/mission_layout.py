@@ -127,6 +127,15 @@ def _paired_side_strokes(pixels, x, y, size, border):
 
 
 def complete_frames(pixels, runs, x, size, pitch, min_y):
+    """Extend three or more observed row borders to the full periodic lattice.
+
+    Requires at least three runs sharing a consistent pitch to proceed, returning
+    runs unchanged otherwise. Each lattice slot takes, in order: cooldown-top
+    evidence near that y, else a nearby observed run, else paired side strokes at
+    the predicted position, else a border template match >= .30 with a uniform
+    border. A bare predicted position is never added, and off-lattice runs are
+    dropped.
+    """
     if len(runs) < 3:
         return runs
     # Fit spacing from observed borders; a predicted location alone is not a row.
