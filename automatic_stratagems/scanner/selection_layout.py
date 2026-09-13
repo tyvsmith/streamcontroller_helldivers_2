@@ -8,6 +8,12 @@ from .recognize.constants import OCCUPANCY_RIM_FRACTION, OCCUPANCY_RIM_MIN
 
 
 def find_selection_band(im):
+    """Locate the left player's complete Ready bar and return its box in source pixels.
+
+    Returns [x, y, width, height]. Raises ScanError if zero or more than one
+    candidate band is found, including after falling back to washed-out
+    panel-edge detection.
+    """
     pixels = np.array(im.convert("RGB"))
     height, width = pixels.shape[:2]
     hsv = cv2.cvtColor(pixels, cv2.COLOR_RGB2HSV)
@@ -34,6 +40,13 @@ def find_selection_band(im):
 
 
 def selection_boxes(im, band):
+    """Compute the 7 top-row and 4 equipped-slot tile boxes above one Ready bar.
+
+    band is [x, y, width, height] in source pixels. Returns 11 boxes, top row
+    first, in source pixels, scaled from ratios calibrated on an 840-pixel
+    Ready bar. Raises ScanError if band lies outside im or any tile would be
+    clipped or too small.
+    """
     x, y, width, height = band
     if (min(x, y) < 0 or min(width, height) <= 0
             or x + width > im.width or y + height > im.height):
