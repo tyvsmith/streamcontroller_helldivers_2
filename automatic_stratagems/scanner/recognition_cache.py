@@ -104,7 +104,7 @@ def scanner_cache(directory=None, *, root=None, matcher_paths=None):
         matcher_paths = [root / 'automatic_stratagems' / 'scanner' / name for name in
                          ('stratagem_detection.py', 'icon_normalization.py',
                           'mission_references.py', 'colorless_icons.py', 'mission_layout.py',
-                          'recognize/constants.py')]
+                          'recognize/constants.py', 'recognize/tile.py')]
     paths = list(map(Path, matcher_paths)) + sorted((root / 'assets' / 'icons').glob('*.png'))
     paths += sorted((root / 'automatic_stratagems' / 'scanner' / 'references').glob('*.png'))
     paths += [root / 'assets' / 'data' / 'stratagems.json', root / 'locales' / 'en_US.json']

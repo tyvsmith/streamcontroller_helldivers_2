@@ -16,9 +16,15 @@ NORMALIZED_RGB_BY_CATEGORY = {
     'cyan': (0, 255, 255),
 }
 _HUE_CATEGORIES = tuple(NORMALIZED_RGB_BY_CATEGORY)
+_COMPUTE_FRAME_CATEGORY = object()
 
 
-def normalize_icon(image, mission=False):
+def normalize_icon(image, mission=False, *, frame_category=_COMPUTE_FRAME_CATEGORY):
+    """Redraw a tile's glyph in its category color on black.
+
+    A mission caller that already read ``icon_category(image, frame=True)`` from these exact
+    pixels may pass it as frame_category, including None; by default it is read here.
+    """
     rgb = np.array(image.convert('RGB'))
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
     hue, saturation, value = (hsv[:, :, i] for i in range(3))
@@ -28,7 +34,9 @@ def normalize_icon(image, mission=False):
     foreground[rim:-rim, rim:-rim] = True
     color_threshold = 60
     frame_hue = None
-    if mission and icon_category(image, frame=True) is not None:
+    if mission and frame_category is _COMPUTE_FRAME_CATEGORY:
+        frame_category = icon_category(image, frame=True)
+    if mission and frame_category is not None:
         strip = hsv[round(image.height * .2):round(image.height * .8),
                     max(1, round(image.width * .01)):max(3, round(image.width * .05))]
         frame_hue = float(np.median(strip[:, :, 0]))

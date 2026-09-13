@@ -15,6 +15,7 @@ from .recognize.constants import (
     EQUIPPED_DETAIL_INSET, EQUIPPED_FEATURE_INSET, ICON_GRAY_INSET, ICON_SILHOUETTE_INSET,
     SILHOUETTE_CANVAS, SILHOUETTE_EXTENT, TEMPLATE_INTERIOR, TILE_PX,
 )
+from .recognize.tile import Tile
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,15 +42,17 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
     tiles = Image.new('RGB', (TILE_PX * len(frames), TILE_PX))
     for i, (x, y, size, _) in enumerate(frames):
         tiles.paste(im.crop((x, y, x + size, y + size)).resize((TILE_PX, TILE_PX)), (TILE_PX * i, 0))
+    # One RGB crop per frame serves every full-size pass below. The strip above is a resized
+    # copy, so its categories are separate measurements and never mix with these tiles.
+    frame_tiles = [Tile.from_source(im, (x, y, size, size)) for x, y, size, _ in frames]
     icons, cache_keys, cached_indices = [], [], set()
-    for i, (x, y, size, _) in enumerate(frames):
-        tile = im.crop((x, y, x + size, y + size)).convert('RGB')
+    for i, ((x, y, size, _), tile) in enumerate(zip(frames, frame_tiles)):
         cache_key = None
         saved = None
         if cache is not None:
             # The complete pipeline also uses raw contrast/reference detail, so
             # this cache requires exact RGB pixels, not just normalized features.
-            cache_key = cache.key(tile.tobytes(), {'matcher': 'mission-complete',
+            cache_key = cache.key(tile.image.tobytes(), {'matcher': 'mission-complete',
                                   'box': [x, y, size, size], 'index': i, 'candidates': list(entries)})
             saved = restore_mission_result(cache.get(cache_key), entries)
         cache_keys.append(cache_key)
@@ -59,19 +62,19 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
         else:
             icons.append({'id': None, 'occluded': True,
                           'text': 'Icon obscured by a solid white overlay'}
-                         if icon_occluded(tile) else match_reference(tile, entries))
+                         if icon_occluded(tile.image) else match_reference(tile.image, entries))
     unresolved = [i for i, icon in enumerate(icons) if icon['id'] is None and not icon.get('occluded')]
     if unresolved:
         fallback = detect_icons(tiles, entries, [[TILE_PX * i, 0, TILE_PX, TILE_PX] for i in unresolved], mission=True, bank=bank, executor=executor)
         for i, icon in zip(unresolved, fallback):
             icons[i] = {**icons[i], **icon}
     enhancement_jobs = []
-    for i, ((x, y, size, _), icon) in enumerate(zip(frames, icons)):
+    for i, (tile, icon) in enumerate(zip(frame_tiles, icons)):
         if i in cached_indices or icon.get('occluded') or icon.get('conflict'):
             continue
-        tile = im.crop((x, y, x + size, y + size))
-        enhanced = stretch_icon(tile)
+        enhanced = stretch_icon(tile.image)
         if enhanced is not None or icon['id'] is None:
+            # Each job owns its frame's Tile, so no Tile is read from two threads at once.
             enhancement_jobs.append((i, tile, enhanced))
     # One costly row can use the pool for candidates. Multiple rows own the pool
     # themselves; workers never submit nested work to the same executor.
@@ -79,9 +82,10 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
     def enhance(job):
         i, tile, enhanced = job
         icon = icons[i]
+        category = tile.frame_category
         # Normalize before interpolation mixes the pale glyph with its background.
-        prepared = enhanced if enhanced is not None else normalize_icon(tile, mission=True)
-        category = icon_category(tile, frame=True)
+        prepared = (enhanced if enhanced is not None
+                    else normalize_icon(tile.image, mission=True, frame_category=category))
         allowed = {}
         for key, value in entries.items():
             if category is None or bank.get(key)['category'] == category:
@@ -101,9 +105,9 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
     for (i, _, _), icon in zip(enhancement_jobs, enhanced_icons):
         icons[i] = icon
     from .colorless_icons import match_colorless
-    for (x, y, size, _), icon in zip(frames, icons):
+    for tile, icon in zip(frame_tiles, icons):
         if icon['id'] is None and not icon.get('conflict') and not icon.get('occluded'):
-            attempt = match_colorless(im.crop((x, y, x + size, y + size)), entries)
+            attempt = match_colorless(tile.image, entries)
             icon['colorless_attempt'] = attempt
             if attempt['id'] is not None:
                 icon.update(id=attempt['id'], decision='colorless')
@@ -496,7 +500,12 @@ def detect_icons(im, entries, boxes, *, mission=False, _normalized=False, bank=N
         normalization_executor = executor if len(unresolved) == 1 else None
         def normalize_row(row):
             x, y, w, h = row['box']
-            tile = normalize_icon(im.crop((x, y, x + w, y + h)), mission=mission)
+            crop = im.crop((x, y, x + w, y + h))
+            if mission:
+                # match_box read this row's frame category from the same crop of the same image.
+                tile = normalize_icon(crop, mission=True, frame_category=row['icon_category'])
+            else:
+                tile = normalize_icon(crop, mission=mission)
             tile = tile.resize((TILE_PX, TILE_PX))
             allowed = {key: value for key, value in entries.items()
                        if row.get('icon_category') is None or categories[key] == row['icon_category']}
