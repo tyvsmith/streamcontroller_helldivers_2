@@ -201,12 +201,16 @@ Capture-quality checks reject uniform frames and the known Steam false-color
 pattern. Offline `--image` replay bypasses capture-quality checks, so those
 checks have separate tests.
 
-`scan_game.py` selects the layout and bounds recognition parallelism to 1–32
-workers, default 2. Capture and input remain serialized.
+`scan_game.py` resolves `auto` to a mode and bounds recognition parallelism to 1–32
+workers, default 2. Capture and input remain serialized. Each mode is a declared
+`ScanMode`: locate its layout, prepare the image, then run its recognition stages
+in order; `detect` checks cancellation and the work deadline around them.
 `selection_layout.py` locates one left-player Ready bar and derives tile geometry
 from it. If no yellow bar survives, a complete pale panel edge can provide scale
 and position; competing/clipped edges and missing occupied tiles reject recovery.
 Automatic selection requires at least two occupied top tiles.
+`layout/geometry.py` rescales the tile area above that bar to the calibrated
+840-pixel Ready-bar width for matching; reports keep source-pixel boxes.
 
 `mission_layout.py` finds one observed border track in the supported HUD region
 and validates row cadence and square borders. Obscured cooldown rows may be
@@ -257,7 +261,7 @@ The fingerprint lists the matcher modules that turn hashed inputs into stored
 results: `stratagem_detection`, `icon_normalization`, `mission_references`,
 `colorless_icons`, `mission_layout`, the shared tile crop in `recognize/tile`, the
 declared rankings in `recognize/match_result`, and the calibrated geometry in
-`recognize/constants`. Layout code such as `selection_layout.py`
+`recognize/constants`. Layout code such as `selection_layout.py` and `layout/geometry.py`
 runs before keying and its effect is already in the hashed pixels, so it is not
 listed. Renaming a listed file without updating `scanner_cache` silently disables
 the cache.

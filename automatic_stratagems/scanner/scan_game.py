@@ -3,6 +3,7 @@
 import argparse
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from contextlib import nullcontext
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
@@ -27,6 +28,7 @@ from .image_decode import decode_image
 from .limits import MAX_ENCODED_IMAGE_BYTES
 from .capture_backends import BACKENDS, scan_live
 from .icon_normalization import normalize_icon
+from .layout.geometry import SelectionGeometry, normalized_band
 from .recognize.constants import TILE_PX
 from .selection_layout import empty_tile, find_selection_band, selection_boxes
 from .stratagem_detection import catalog, detect_icons, detect_mission_icons
@@ -133,53 +135,97 @@ def load_replay_image(path):
         raise ScanError(f'Cannot read replay image: {error}') from error
 
 
+SELECTION_WARNING = "Selection layout uses calibrated Ready-bar ratios; four-player live coverage is unverified."
+MISSION_WARNING = "Mission detection uses icons first, then names and complete arrow sequences for unknown rows; scrambled or obscured evidence can remain unknown."
+
+
+@dataclass(frozen=True)
+class ScanMode:
+    """How one mode reads a capture: locate its layout, prepare the image, run stages in order."""
+
+    locate: object  # (im, band) -> located layout
+    prepare: object  # (im, located) -> image the stages read
+    stages: tuple  # each (image, located, rows, **context) -> rows
+    layout: object  # (im, located) -> report layout
+    warning: str
+
+
+def resolve_auto_mode(im):
+    """Choose selection only when one Ready bar shows at least two occupied top tiles."""
+    try:
+        band = find_selection_band(im)
+        top = selection_boxes(im, band)[:7]
+        if sum(not empty_tile(im, box, frame_occupancy=True) for box in top) < 2:
+            band = None
+    except ScanError:
+        band = None
+    return ("selection", band) if band is not None else ("mission", None)
+
+
+def _locate_selection(im, band):
+    band = band or find_selection_band(im)
+    boxes = selection_boxes(im, band)
+    empty = [box for i, box in enumerate(boxes) if empty_tile(im, box, frame_occupancy=i < 7)]
+    # Report boxes stay in source pixels; the matcher origin spans every tile, empty or not.
+    return {"band": band, "empty": empty, "boxes": [box for box in boxes if box not in empty],
+            "geometry": SelectionGeometry.for_band(band, boxes)}
+
+
+def _match_selection_tiles(image, located, rows, *, entries, executor, cache, **_):
+    boxes = located["boxes"]
+    rows = detect_icons(image, entries, located["geometry"].to_local(boxes),
+                        executor=executor, cache=cache)
+    for row, box in zip(rows, boxes):
+        row["box"] = box
+    return rows
+
+
+def _match_mission_icons(image, located, rows, *, entries, executor, cache, **_):
+    return detect_mission_icons(image, entries, executor=executor, cache=cache)
+
+
+def _apply_mission_fallbacks(image, located, rows, *, entries, deadline, cancel_event, **_):
+    from .mission_fallbacks import apply_mission_fallbacks
+    return apply_mission_fallbacks(image, rows, entries, deadline=deadline,
+                                   cancel_event=cancel_event)
+
+
+SELECTION = ScanMode(
+    locate=_locate_selection,
+    # Normalize the selected area to the calibrated tile size for matching.
+    prepare=lambda im, located: located["geometry"].crop(im),
+    stages=(_match_selection_tiles,),
+    layout=lambda im, located: {"ready_bar": located["band"],
+                                "normalized_ready_bar": normalized_band(im, located["band"]),
+                                "empty_tiles": located["empty"], "calibrated": True},
+    warning=SELECTION_WARNING)
+MISSION = ScanMode(
+    locate=lambda im, band: None,
+    prepare=lambda im, located: im,
+    stages=(_match_mission_icons, _apply_mission_fallbacks),
+    layout=lambda im, located: {"icon_region": [0, 0, .15, .53], "calibrated": True},
+    warning=MISSION_WARNING)
+
+
 def detect(im, mode, band=None, *, executor=None, cache=None, deadline=None,
            cancel_event=None):
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError()
     _check_work_deadline(deadline)
     entries = catalog()
-    warnings = []
     if mode == "auto":
-        try:
-            candidate = find_selection_band(im)
-            top = selection_boxes(im, candidate)[:7]
-            if sum(not empty_tile(im, box, frame_occupancy=True) for box in top) < 2:
-                candidate = None
-        except ScanError:
-            candidate = None
-        if candidate is not None:
-            mode, band = "selection", candidate
-        else:
-            mode = "mission"
-    if mode == "selection":
-        band = band or find_selection_band(im)
-        boxes = selection_boxes(im, band)
-        empty = [box for i, box in enumerate(boxes) if empty_tile(im, box, frame_occupancy=i < 7)]
-        boxes = [box for box in boxes if box not in empty]
-        # Normalize the selected area to the calibrated tile size for matching.
-        # Geometry stays in source pixels in the report.
-        scale = 840 / band[2]
-        origin_x, origin_y = band[0], min(b[1] for b in selection_boxes(im, band))
-        crop = im.crop((origin_x, origin_y, band[0] + band[2], band[1]))
-        crop = crop.resize((round(crop.width * scale), round(crop.height * scale)))
-        local_boxes = [[round((x - origin_x) * scale), round((y - origin_y) * scale),
-                        round(w * scale), round(h * scale)] for x, y, w, h in boxes]
-        rows = detect_icons(crop, entries, local_boxes, executor=executor, cache=cache)
-        for row, box in zip(rows, boxes):
-            row["box"] = box
-        warnings.append("Selection layout uses calibrated Ready-bar ratios; four-player live coverage is unverified.")
-        layout = {"ready_bar": band,
-                  "normalized_ready_bar": [round(n / size, 6) for n, size in
-                                           zip(band, (im.width, im.height, im.width, im.height))],
-                  "empty_tiles": empty, "calibrated": True}
-    else:
-        from .mission_fallbacks import apply_mission_fallbacks
-        rows = apply_mission_fallbacks(
-            im, detect_mission_icons(im, entries, executor=executor, cache=cache),
-            entries, deadline=deadline, cancel_event=cancel_event)
-        layout = {"icon_region": [0, 0, .15, .53], "calibrated": True}
-        warnings.append("Mission detection uses icons first, then names and complete arrow sequences for unknown rows; scrambled or obscured evidence can remain unknown.")
+        mode, found = resolve_auto_mode(im)
+        if found is not None:
+            band = found
+    scan = SELECTION if mode == "selection" else MISSION
+    located = scan.locate(im, band)
+    image = scan.prepare(im, located)
+    rows = None
+    for stage in scan.stages:
+        rows = stage(image, located, rows, entries=entries, executor=executor, cache=cache,
+                     deadline=deadline, cancel_event=cancel_event)
+    layout = scan.layout(im, located)
+    warnings = [scan.warning]
     _check_work_deadline(deadline)
     for row in rows:
         key = row["id"]
