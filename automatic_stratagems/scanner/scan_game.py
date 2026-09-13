@@ -3,6 +3,7 @@
 import argparse
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from contextlib import nullcontext
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -152,12 +153,14 @@ MISSION_WARNING = "Mission detection uses icons first, then names and complete a
 
 @dataclass(frozen=True)
 class ScanMode:
-    """How one mode reads a capture: locate its layout, prepare the image, run stages in order."""
+    """One scan mode: the function that recognizes a capture, and the warning its report carries.
 
-    locate: object  # (im, band) -> located layout
-    prepare: object  # (im, located) -> image the stages read
-    stages: tuple  # each (image, located, rows, **context) -> rows
-    layout: object  # (im, located) -> report layout
+    recognize(im, band, *, entries, executor, cache, deadline, cancel_event) returns
+    (rows, layout), with every row box in source pixels. All modes share that signature so
+    detect calls them alike; a mode documents the arguments it does not use.
+    """
+
+    recognize: Callable
     warning: str
 
 
@@ -173,57 +176,46 @@ def resolve_auto_mode(im):
     return ("selection", band) if band is not None else ("mission", None)
 
 
-def _locate_selection(im, band):
-    """Locate the Ready bar and split its tiles into empty and occupied, in source pixels.
+def _scan_selection(im, band, *, entries, executor, cache, deadline, cancel_event):
+    """Match the occupied tiles above one Ready bar and describe that layout.
 
-    Detects the band when none is given. The returned geometry spans every tile,
-    empty tiles included.
+    Detects the band when none is given. Empty tiles are reported, not matched. Tiles are
+    matched on the calibrated crop, and each row's box is restored to source pixels.
+    Tile matching has no cancellation points, so deadline and cancel_event are unused;
+    detect checks cancellation at entry and the deadline before and after this call.
     """
     band = band or find_selection_band(im)
     boxes = selection_boxes(im, band)
     empty = [box for i, box in enumerate(boxes) if empty_tile(im, box, frame_occupancy=i < 7)]
-    # Report boxes stay in source pixels; the matcher origin spans every tile, empty or not.
-    return {"band": band, "empty": empty, "boxes": [box for box in boxes if box not in empty],
-            "geometry": SelectionGeometry.for_band(band, boxes)}
-
-
-def _match_selection_tiles(image, located, rows, *, entries, executor, cache, **_):
-    """Match occupied selection tiles against the icon catalog and attach each box to its row."""
-    boxes = located["boxes"]
-    rows = detect_icons(image, entries, located["geometry"].to_local(boxes),
-                        executor=executor, cache=cache)
-    for row, box in zip(rows, boxes):
+    occupied = [box for box in boxes if box not in empty]
+    # The matcher origin spans every tile, empty or not.
+    geometry = SelectionGeometry.for_band(band, boxes)
+    image = geometry.crop(im)
+    rows = detect_icons(image, entries, geometry.to_local(occupied), executor=executor, cache=cache)
+    for row, box in zip(rows, occupied):
         row["box"] = box
-    return rows
+    layout = {"ready_bar": band, "normalized_ready_bar": normalized_band(im, band),
+              "empty_tiles": empty, "calibrated": True}
+    return rows, layout
 
 
-def _match_mission_icons(image, located, rows, *, entries, executor, cache, **_):
-    """Detect mission-menu stratagem icons in image."""
-    return detect_mission_icons(image, entries, executor=executor, cache=cache)
+def _scan_mission(im, band, *, entries, executor, cache, deadline, cancel_event):
+    """Detect mission-menu icons, then try name and arrow evidence on unknown rows.
 
-
-def _apply_mission_fallbacks(image, located, rows, *, entries, deadline, cancel_event, **_):
-    """Resolve rows still unmatched after icon detection by name and arrow-sequence evidence."""
+    Fallbacks skip conflicted rows, and a row can stay unknown. They raise CancelledError
+    once cancel_event is set; past the deadline they stop and mark the remaining unknown
+    rows deadline_exhausted instead of raising. band is unused: mission rows are found by
+    their icon frames.
+    """
     from .mission_fallbacks import apply_mission_fallbacks
-    return apply_mission_fallbacks(image, rows, entries, deadline=deadline,
-                                   cancel_event=cancel_event)
+    rows = detect_mission_icons(im, entries, executor=executor, cache=cache)
+    rows = apply_mission_fallbacks(im, rows, entries, deadline=deadline, cancel_event=cancel_event)
+    return rows, {"icon_region": [0, 0, .15, .53], "calibrated": True}
 
 
-SELECTION = ScanMode(
-    locate=_locate_selection,
-    # Normalize the selected area to the calibrated tile size for matching.
-    prepare=lambda im, located: located["geometry"].crop(im),
-    stages=(_match_selection_tiles,),
-    layout=lambda im, located: {"ready_bar": located["band"],
-                                "normalized_ready_bar": normalized_band(im, located["band"]),
-                                "empty_tiles": located["empty"], "calibrated": True},
-    warning=SELECTION_WARNING)
-MISSION = ScanMode(
-    locate=lambda im, band: None,
-    prepare=lambda im, located: im,
-    stages=(_match_mission_icons, _apply_mission_fallbacks),
-    layout=lambda im, located: {"icon_region": [0, 0, .15, .53], "calibrated": True},
-    warning=MISSION_WARNING)
+SELECTION = ScanMode(recognize=_scan_selection, warning=SELECTION_WARNING)
+MISSION = ScanMode(recognize=_scan_mission, warning=MISSION_WARNING)
+MODES = {"selection": SELECTION, "mission": MISSION}
 
 
 def detect(im, mode, band=None, *, executor=None, cache=None, deadline=None,
@@ -244,14 +236,9 @@ def detect(im, mode, band=None, *, executor=None, cache=None, deadline=None,
         mode, found = resolve_auto_mode(im)
         if found is not None:
             band = found
-    scan = SELECTION if mode == "selection" else MISSION
-    located = scan.locate(im, band)
-    image = scan.prepare(im, located)
-    rows = None
-    for stage in scan.stages:
-        rows = stage(image, located, rows, entries=entries, executor=executor, cache=cache,
-                     deadline=deadline, cancel_event=cancel_event)
-    layout = scan.layout(im, located)
+    scan = MODES.get(mode, MISSION)
+    rows, layout = scan.recognize(im, band, entries=entries, executor=executor, cache=cache,
+                                  deadline=deadline, cancel_event=cancel_event)
     warnings = [scan.warning]
     _check_work_deadline(deadline)
     for row in rows:

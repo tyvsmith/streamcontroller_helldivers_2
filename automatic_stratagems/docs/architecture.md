@@ -203,8 +203,9 @@ checks have separate tests.
 
 `scan_game.py` resolves `auto` to a mode and bounds recognition parallelism to 1–32
 workers, default 2. Capture and input remain serialized. Each mode is a declared
-`ScanMode`: locate its layout, prepare the image, then run its recognition stages
-in order; `detect` checks cancellation and the work deadline around them.
+`ScanMode`: one recognize function that returns rows and layout, plus the report
+warning. `detect` checks cancellation once at entry and the work deadline before
+and after recognition; mission fallbacks also check both between rows.
 `selection_layout.py` locates one left-player Ready bar and derives tile geometry
 from it. If no yellow bar survives, a complete pale panel edge can provide scale
 and position; competing/clipped edges and missing occupied tiles reject recovery.
