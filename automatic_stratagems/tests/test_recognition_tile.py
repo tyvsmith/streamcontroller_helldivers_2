@@ -138,6 +138,34 @@ class FrameCategoryReuseTests(unittest.TestCase):
         self.assertIn('normalized_attempt', row)
         self.assertEqual(counter.calls[tile.size, tile.tobytes()], 1)
 
+    def test_mission_normalization_uses_the_strip_frame_category(self):
+        # A red frame around a green glyph: the red category drops the green, None keeps it.
+        strip = Image.new('RGB', (300, 150), (40, 40, 40))
+        strip.paste((255, 0, 0), (150, 0, 158, 150))
+        strip.paste((0, 255, 0), (195, 45, 255, 105))
+        box = [150, 0, 150, 150]
+        crop = strip.crop((150, 0, 300, 150))
+        self.assertEqual(icon_category(crop, frame=True), 'red')
+        expected = normalize_icon(crop, mission=True).resize((detection.TILE_PX, detection.TILE_PX))
+        uncategorized = normalize_icon(crop, mission=True, frame_category=None)
+        self.assertNotEqual(uncategorized.resize(expected.size).tobytes(), expected.tobytes())
+
+        original = detection.detect_icons
+        retried = []
+
+        def record(image, entries, boxes, **kwargs):
+            if kwargs.get('_normalized'):
+                retried.append(image.copy())
+            return original(image, entries, boxes, **kwargs)
+
+        entries = dict(list(detection.catalog().items())[:3])
+        with patch.object(detection, 'detect_icons', side_effect=record):
+            row = original(strip, entries, [box], mission=True)[0]
+        self.assertIn('normalized_attempt', row)
+        self.assertEqual(len(retried), 1)
+        self.assertEqual(retried[0].size, expected.size)
+        self.assertEqual(retried[0].tobytes(), expected.tobytes())
+
 
 if __name__ == '__main__':
     unittest.main()
