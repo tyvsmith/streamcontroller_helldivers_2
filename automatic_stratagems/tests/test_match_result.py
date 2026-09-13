@@ -20,6 +20,13 @@ class RankingDeclarationTests(unittest.TestCase):
         from automatic_stratagems.scanner.recognize import match_result
         self.assertEqual(set(match_result.RANKING_KEYS), DECLARED)
 
+    def test_every_named_ranking_is_declared(self):
+        from automatic_stratagems.scanner.recognize import match_result
+        named = {value for name, value in vars(match_result).items()
+                 if name.endswith('_TOP3') and isinstance(value, str)}
+        self.assertTrue(named)
+        self.assertEqual(named - match_result.RANKING_KEYS, set())
+
     def test_scanner_code_names_rankings_only_through_the_declaration(self):
         literals = []
         for path in sorted(SCANNER.rglob('*.py')):

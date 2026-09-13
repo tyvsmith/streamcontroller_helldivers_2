@@ -2,7 +2,9 @@
 
 Matchers report their best candidates as ``[(score, key), ...]`` under one of the names below.
 Rows stay plain dicts. This module names the rankings once and validates cached copies, which
-come back from JSON as lists.
+come back from JSON as lists. Declare every ranking a cached result stores in RANKING_KEYS:
+an undeclared one comes back from a warm cache unvalidated, as lists, where a cold run
+returns tuples.
 """
 import numpy as np
 
