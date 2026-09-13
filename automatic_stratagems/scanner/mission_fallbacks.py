@@ -23,15 +23,26 @@ DISPLAY_NAME_ALIASES = {
 
 
 def _raise_if_cancelled(cancel_event):
+    """Raise CancelledError once cancel_event is set; do nothing when it is None."""
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError()
 
 
 def _remaining(deadline):
+    """Return seconds left until deadline, or None when there is no deadline."""
     return None if deadline is None else deadline - time.monotonic()
 
 
 def name_variants(entries):
+    """Build per-entry OCR-matchable name variants, keeping only unique ones.
+
+    Each entry's full name is always kept. A short alias, from stripping a model
+    number prefix or suffix, is added only when it differs from the full name and
+    is at least 6 characters; DISPLAY_NAME_ALIASES entries skip that length
+    minimum. Every alias, short or from DISPLAY_NAME_ALIASES, is then dropped
+    unless no other entry's variants list the same string. Variant strings keep
+    only A-Z and 0-9.
+    """
     variants = {}
     for key, entry in entries.items():
         name = entry['name'].upper()
@@ -79,6 +90,14 @@ def match_name(text, entries):
 
 
 def read_name(image, box, entries, *, deadline=None, cancel_event=None):
+    """Read a mission row's printed name via OCR and match it to one catalog entry.
+
+    box is (x, y, size, size) of the icon tile; the name is read from the region to its
+    right. Tries several image variants and Tesseract passes, accepting an id only when
+    every attempt that produced one agrees. Returns a dict with id (None on failure),
+    name_attempts, and a name_error when OCR failed or the deadline ran out; a set
+    cancel_event raises CancelledError instead of returning.
+    """
     x, y, size, _ = box
     left = round(x + size * 1.45)
     top, bottom = round(y + size * .06), round(y + size * .43)
@@ -137,6 +156,11 @@ def read_name(image, box, entries, *, deadline=None, cancel_event=None):
 
 
 def arrow_templates():
+    """Build rotated arrow-glyph templates for each direction and head length.
+
+    Returns a dict of direction name to a list of ARROW_GLYPH x ARROW_GLYPH uint8 masks,
+    one per head-length variant used when scoring a rasterized glyph.
+    """
     templates = {name: [] for name in ('UP', 'LEFT', 'DOWN', 'RIGHT')}
     for head in (24, 27):
         up = np.zeros((ARROW_GLYPH, ARROW_GLYPH), np.uint8)
@@ -149,6 +173,14 @@ def arrow_templates():
 
 
 def read_arrows(image, box, entries, *, deadline=None, cancel_event=None):
+    """Read a mission row's arrow input sequence from its glyph strip and match it.
+
+    box is (x, y, size, size) of the icon tile; glyphs are read from the region to its
+    right, sized for the longest sequence in entries. Returns a dict with id (None
+    unless the spacing, glyph confidence, sequence and readable tail are all decisive
+    and match exactly one candidate), the read observed_sequence, arrow_decision
+    naming the outcome ('unique_sequence' on success), and arrow_glyphs debug data.
+    """
     _raise_if_cancelled(cancel_event)
     remaining = _remaining(deadline)
     if remaining is not None and remaining <= 0:
@@ -216,6 +248,12 @@ def read_arrows(image, box, entries, *, deadline=None, cancel_event=None):
 
 
 def apply_mission_fallbacks(image, rows, entries, *, deadline=None, cancel_event=None):
+    """Resolve remaining unidentified mission rows in place, via name OCR then arrows.
+
+    Skips rows that already have an id or a conflict. Shares one deadline across every
+    row, capped at FALLBACK_BUDGET_SECONDS, and marks every still-unresolved row's
+    fallback_status 'deadline_exhausted' once it runs out. Mutates and returns rows.
+    """
     budget_deadline = time.monotonic() + FALLBACK_BUDGET_SECONDS
     deadline = budget_deadline if deadline is None else min(deadline, budget_deadline)
     for row in rows:
