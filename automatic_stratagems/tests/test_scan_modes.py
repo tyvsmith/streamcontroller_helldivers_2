@@ -22,6 +22,11 @@ class SelectionGeometryTests(unittest.TestCase):
         self.assertEqual(geometry.scale, 2.0)
         self.assertEqual((geometry.origin_x, geometry.origin_y), (100, min(b[1] for b in boxes)))
 
+    def test_selection_layout_calibrates_against_the_same_ready_bar_base(self):
+        from automatic_stratagems.scanner import selection_layout
+        from automatic_stratagems.scanner.layout import geometry
+        self.assertIs(selection_layout.READY_BAR_PX, geometry.READY_BAR_PX)
+
     def test_origin_uses_every_box_it_is_given(self):
         from automatic_stratagems.scanner.layout.geometry import SelectionGeometry
         geometry = SelectionGeometry.for_band([10, 500, 840, 84], [[10, 300, 5, 5], [20, 200, 5, 5]])

@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from .errors import ScanError
+from .layout.geometry import READY_BAR_PX
 from .recognize.constants import OCCUPANCY_RIM_FRACTION, OCCUPANCY_RIM_MIN
 
 
@@ -54,7 +55,7 @@ def selection_boxes(im, band):
     # Ratios calibrated from the full 840-pixel Ready bar, not screen width.
     top = [(4 + 121 * i, -304, 104, 104) for i in range(7)]
     equipped = [(7 + 170 * i, -172, 150, 150) for i in range(4)]
-    scale = width / 840
+    scale = width / READY_BAR_PX
     boxes = [[round(x + bx * scale), round(y + by * scale),
               round(w * scale), round(h * scale)] for bx, by, w, h in top + equipped]
     for bx, by, w, h in boxes:
@@ -132,8 +133,8 @@ def _washed_out_selection_bands(im, pixels, hsv):
         edge_x = round(float(np.median([candidate[2] for candidate in group])))
         # The complete captured player-panel edge is 984 pixels for an
         # 840-pixel Ready bar. Derive HUD scale from that observed edge.
-        band_width = round((edge_x - panel_start) * 840 / 984)
-        band_height = round(band_width * 84 / 840)
+        band_width = round((edge_x - panel_start) * READY_BAR_PX / 984)
+        band_height = round(band_width * 84 / READY_BAR_PX)
         band = [edge_x - band_width, edge_y - band_height + 1,
                 band_width, band_height]
         x, y, w, h = band
