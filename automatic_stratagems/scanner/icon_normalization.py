@@ -3,6 +3,11 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from .recognize.constants import (
+    NORMALIZE_RIM_FRACTION, NORMALIZE_RIM_MIN, OCCLUSION_INTERIOR,
+    STRETCH_RIM_FRACTION, STRETCH_RIM_MIN,
+)
+
 # Recognition keeps cyan distinct from the user-facing blue assignment filter.
 NORMALIZED_RGB_BY_CATEGORY = {
     'red': (255, 0, 0),
@@ -18,7 +23,7 @@ def normalize_icon(image, mission=False):
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
     hue, saturation, value = (hsv[:, :, i] for i in range(3))
     size = min(image.size)
-    rim = max(2, round(size * .07))
+    rim = max(NORMALIZE_RIM_MIN, round(size * NORMALIZE_RIM_FRACTION))
     foreground = np.zeros(value.shape, bool)
     foreground[rim:-rim, rim:-rim] = True
     color_threshold = 60
@@ -91,15 +96,16 @@ def icon_category(image, *, frame=False):
 def icon_occluded(image):
     """Detect the solid white overlay hiding an inbound stratagem's glyph."""
     w, h = image.size
-    interior = np.array(image.convert('RGB').crop((round(w * .12), round(h * .12),
-                                                  round(w * .88), round(h * .60))))
+    left, top, right, bottom = OCCLUSION_INTERIOR
+    interior = np.array(image.convert('RGB').crop((round(w * left), round(h * top),
+                                                  round(w * right), round(h * bottom))))
     return bool((interior.min(axis=2) >= 245).mean() > .97)
 
 
 def stretch_icon(image):
     """Expand surviving channel contrast in washed-out tiles, without recovering clipped detail."""
     rgb = np.array(image.convert('RGB')).astype(float)
-    rim = max(2, round(min(image.size) * .10))
+    rim = max(STRETCH_RIM_MIN, round(min(image.size) * STRETCH_RIM_FRACTION))
     floor = np.percentile(rgb[rim:-rim, rim:-rim], 5, axis=(0, 1))
     if floor.min() < 130 or (255 - floor).max() < 8:
         return None

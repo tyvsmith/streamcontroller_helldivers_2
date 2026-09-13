@@ -11,6 +11,10 @@ from PIL import Image
 from .mission_references import match_reference
 from .icon_normalization import normalize_icon, icon_category, icon_occluded, stretch_icon
 from .mission_layout import mission_frames
+from .recognize.constants import (
+    EQUIPPED_DETAIL_INSET, EQUIPPED_FEATURE_INSET, ICON_GRAY_INSET, ICON_SILHOUETTE_INSET,
+    SILHOUETTE_CANVAS, SILHOUETTE_EXTENT, TEMPLATE_INTERIOR, TILE_PX,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,9 +38,9 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
     frames = mission_frames(im)
     if not frames:
         return []
-    tiles = Image.new('RGB', (150 * len(frames), 150))
+    tiles = Image.new('RGB', (TILE_PX * len(frames), TILE_PX))
     for i, (x, y, size, _) in enumerate(frames):
-        tiles.paste(im.crop((x, y, x + size, y + size)).resize((150, 150)), (150 * i, 0))
+        tiles.paste(im.crop((x, y, x + size, y + size)).resize((TILE_PX, TILE_PX)), (TILE_PX * i, 0))
     icons, cache_keys, cached_indices = [], [], set()
     for i, (x, y, size, _) in enumerate(frames):
         tile = im.crop((x, y, x + size, y + size)).convert('RGB')
@@ -58,7 +62,7 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
                          if icon_occluded(tile) else match_reference(tile, entries))
     unresolved = [i for i, icon in enumerate(icons) if icon['id'] is None and not icon.get('occluded')]
     if unresolved:
-        fallback = detect_icons(tiles, entries, [[150 * i, 0, 150, 150] for i in unresolved], mission=True, bank=bank, executor=executor)
+        fallback = detect_icons(tiles, entries, [[TILE_PX * i, 0, TILE_PX, TILE_PX] for i in unresolved], mission=True, bank=bank, executor=executor)
         for i, icon in zip(unresolved, fallback):
             icons[i] = {**icons[i], **icon}
     enhancement_jobs = []
@@ -82,7 +86,7 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
         for key, value in entries.items():
             if category is None or bank.get(key)['category'] == category:
                 allowed[key] = value
-        candidate = detect_icons(prepared.resize((150, 150)), allowed, [[0, 0, 150, 150]], bank=bank, executor=candidate_executor)[0]
+        candidate = detect_icons(prepared.resize((TILE_PX, TILE_PX)), allowed, [[0, 0, TILE_PX, TILE_PX]], bank=bank, executor=candidate_executor)[0]
         icon['contrast_attempt' if enhanced is not None else 'native_normalized_attempt'] = candidate
         if candidate['id'] is not None:
             # An alternate ID must explain both glyph components, not just a
@@ -120,13 +124,13 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
 def silhouette(gray, threshold):
     mask = (gray > threshold).astype(np.float32)
     ys, xs = np.where(mask)
-    canvas = np.zeros((64, 64), np.float32)
+    canvas = np.zeros((SILHOUETTE_CANVAS, SILHOUETTE_CANVAS), np.float32)
     if len(xs):
         mask = mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
-        scale = 56 / max(mask.shape)
+        scale = SILHOUETTE_EXTENT / max(mask.shape)
         mask = cv2.resize(mask, (max(1, round(mask.shape[1] * scale)),
                                  max(1, round(mask.shape[0] * scale))), interpolation=cv2.INTER_AREA)
-        y, x = (64 - mask.shape[0]) // 2, (64 - mask.shape[1]) // 2
+        y, x = (SILHOUETTE_CANVAS - mask.shape[0]) // 2, (SILHOUETTE_CANVAS - mask.shape[1]) // 2
         canvas[y:y + mask.shape[0], x:x + mask.shape[1]] = mask
     return cv2.GaussianBlur(canvas, (3, 3), .7)
 
@@ -177,8 +181,8 @@ class IconTemplates:
             if key not in self.assets:
                 source = cv2.imread(str(ROOT / 'assets/icons' / f'{key}.png'))
                 rgb = cv2.cvtColor(source, cv2.COLOR_BGR2RGB)
-                gray = cv2.cvtColor(source[23:121, 23:121], cv2.COLOR_BGR2GRAY)
-                features = icon_features(rgb[23:121, 23:121])
+                gray = cv2.cvtColor(source[TEMPLATE_INTERIOR, TEMPLATE_INTERIOR], cv2.COLOR_BGR2GRAY)
+                features = icon_features(rgb[TEMPLATE_INTERIOR, TEMPLATE_INTERIOR])
                 self.assets[key] = dict(category=icon_category(Image.fromarray(rgb)),
                                         gray=gray, silhouette=silhouette(gray, 85),
                                         features=features, details=icon_details(features))
@@ -242,8 +246,10 @@ def restore_equipped_result(saved, candidates):
 
 
 def match_equipped(rgb, references, bank=None, *, fast_filter=True, executor=None):
-    features = icon_features(rgb[8:-8, 8:-8])
-    details = icon_details(icon_features(rgb[12:-12, 12:-12]))
+    features = icon_features(rgb[EQUIPPED_FEATURE_INSET:-EQUIPPED_FEATURE_INSET,
+                                 EQUIPPED_FEATURE_INSET:-EQUIPPED_FEATURE_INSET])
+    details = icon_details(icon_features(rgb[EQUIPPED_DETAIL_INSET:-EQUIPPED_DETAIL_INSET,
+                                             EQUIPPED_DETAIL_INSET:-EQUIPPED_DETAIL_INSET]))
     cache = bank.cache if bank is not None else None
     cache_key = None
     if cache is not None:
@@ -399,9 +405,11 @@ def detect_icons(im, entries, boxes, *, mission=False, _normalized=False, bank=N
                                          [r for r in references if r[0] in candidates], bank=bank, executor=candidate_executor))
             if detail["id"] is not None or detail["conflict"]:
                 return {**detail, "box": [x, y, width, height], "method": "icon-details"}
-        gray = cv2.cvtColor(pixels[y + 6:y + height - 6, x + 6:x + width - 6], cv2.COLOR_RGB2GRAY)
+        gray = cv2.cvtColor(pixels[y + ICON_GRAY_INSET:y + height - ICON_GRAY_INSET,
+                                   x + ICON_GRAY_INSET:x + width - ICON_GRAY_INSET], cv2.COLOR_RGB2GRAY)
         edge = cv2.Canny(gray, 40, 100)
-        mask = silhouette(cv2.cvtColor(pixels[y + 12:y + height - 12, x + 12:x + width - 12],
+        mask = silhouette(cv2.cvtColor(pixels[y + ICON_SILHOUETTE_INSET:y + height - ICON_SILHOUETTE_INSET,
+                                              x + ICON_SILHOUETTE_INSET:x + width - ICON_SILHOUETTE_INSET],
                                       cv2.COLOR_RGB2GRAY), 120)
         def correlate_gray(item):
             key, template, reference = item
@@ -436,10 +444,10 @@ def detect_icons(im, entries, boxes, *, mission=False, _normalized=False, bank=N
         def normalize_row(row):
             x, y, w, h = row['box']
             tile = normalize_icon(im.crop((x, y, x + w, y + h)), mission=mission)
-            tile = tile.resize((150, 150))
+            tile = tile.resize((TILE_PX, TILE_PX))
             allowed = {key: value for key, value in entries.items()
                        if row.get('icon_category') is None or categories[key] == row['icon_category']}
-            candidate = detect_icons(tile, allowed, [[0, 0, 150, 150]],
+            candidate = detect_icons(tile, allowed, [[0, 0, TILE_PX, TILE_PX]],
                                      mission=mission, _normalized=True, bank=bank, executor=normalization_executor)[0]
             row['normalized_attempt'] = candidate
             if candidate['id'] is not None:

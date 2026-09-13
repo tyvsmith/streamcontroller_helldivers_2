@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from .errors import ScanError
+from .recognize.constants import OCCUPANCY_RIM_FRACTION, OCCUPANCY_RIM_MIN
 
 
 def find_selection_band(im):
@@ -55,7 +56,7 @@ def empty_tile(im, box, mission=False):
         hsv = cv2.cvtColor(np.array(im.crop((x, y, x + w, y + h))), cv2.COLOR_RGB2HSV)
         # Pale gold frames in bright captures have saturation around 35.
         colored = ((hsv[:, :, 1] > 30) & (hsv[:, :, 2] > 110)).astype(float)
-        rim = max(2, round(min(w, h) * .096))
+        rim = max(OCCUPANCY_RIM_MIN, round(min(w, h) * OCCUPANCY_RIM_FRACTION))
         edges = [colored[:rim], colored[-rim:], colored[:, :rim], colored[:, -rim:]]
         # Filled mission slots have a colored frame; the player model may
         # remain visible through empty slots, so interior variance is not occupancy.

@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 
 from .icon_normalization import icon_occluded
+from .recognize.constants import MISSION_FRAME_BORDER_FRACTION, MISSION_FRAME_BORDER_MIN
 
 
 def valid_row_lattice(rows, pitch, size):
@@ -56,7 +57,7 @@ def frame_track_strength(pixels, rows):
     if not rows:
         return 0.0
     size = rows[0][2]
-    border = max(2, round(size * .057))
+    border = max(MISSION_FRAME_BORDER_MIN, round(size * MISSION_FRAME_BORDER_FRACTION))
     return sum(_cooldown_top(pixels[y:y + size, x:x + size], border)
                for x, y, _, _ in rows)
 
@@ -141,7 +142,7 @@ def complete_frames(pixels, runs, x, size, pitch, min_y):
     if abs(fitted_pitch - pitch) > pitch * .05:
         return runs
     pitch = fitted_pitch
-    border = max(2, round(size * .057))
+    border = max(MISSION_FRAME_BORDER_MIN, round(size * MISSION_FRAME_BORDER_FRACTION))
     template = np.ones((size, size), np.float32)
     template[border:-border, border:-border] = 0
     gray = cv2.cvtColor(pixels[:, x:x + size], cv2.COLOR_RGB2GRAY).astype(np.float32)
@@ -195,7 +196,7 @@ def _has_menu_row_evidence(pixels, row, scale):
         return True
     x, y, size, _ = row
     tile = pixels[y:y + size, x:x + size]
-    border = max(2, round(size * .057))
+    border = max(MISSION_FRAME_BORDER_MIN, round(size * MISSION_FRAME_BORDER_FRACTION))
     a, b = round(size * .18), round(size * .63)
     side_start, side_end = round(size * .35), round(size * .70)
     # The left stroke generated this candidate, so only another side can

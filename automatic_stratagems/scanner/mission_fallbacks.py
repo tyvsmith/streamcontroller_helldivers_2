@@ -11,6 +11,8 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
+from .recognize.constants import ARROW_GLYPH
+
 
 FALLBACK_BUDGET_SECONDS = 8.0
 
@@ -136,7 +138,7 @@ def read_name(image, box, entries, *, deadline=None, cancel_event=None):
 def arrow_templates():
     templates = {name: [] for name in ('UP', 'LEFT', 'DOWN', 'RIGHT')}
     for head in (24, 27):
-        up = np.zeros((40, 40), np.uint8)
+        up = np.zeros((ARROW_GLYPH, ARROW_GLYPH), np.uint8)
         points = np.array([(20, 0), (39, head), (29, head), (29, 39),
                            (10, 39), (10, head), (0, head)])
         cv2.fillPoly(up, [points], 1)
@@ -169,7 +171,7 @@ def read_arrows(image, box, entries, *, deadline=None, cancel_event=None):
         gx, gy, w, h, area = stats[index]
         if not (.26 * size <= w <= .43 * size and .26 * size <= h <= .43 * size):
             continue
-        glyph = cv2.resize((labels[gy:gy+h, gx:gx+w] == index).astype(np.uint8), (40, 40), interpolation=cv2.INTER_NEAREST)
+        glyph = cv2.resize((labels[gy:gy+h, gx:gx+w] == index).astype(np.uint8), (ARROW_GLYPH, ARROW_GLYPH), interpolation=cv2.INTER_NEAREST)
         ranking = []
         # Rasterization can move an arrow edge by half a source pixel. Compare
         # nearby alignments without relaxing the direction separation threshold.

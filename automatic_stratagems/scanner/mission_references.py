@@ -6,25 +6,28 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from .recognize.constants import MISSION_REFERENCE_INSET, MISSION_REFERENCE_PX
+
 REFERENCE_DIR = Path(__file__).with_name('references')
 
 
 def detail_image(image):
-    rgb = np.array(image.convert('RGB').resize((87, 87)))
+    rgb = np.array(image.convert('RGB').resize((MISSION_REFERENCE_PX, MISSION_REFERENCE_PX)))
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255
     detail = gray - cv2.GaussianBlur(gray, (0, 0), 3)
     # Exclude frame edges and the quantity badge, which can change independently.
     detail[52:, 69:] = 0
-    return detail[8:-8, 8:-8]
+    return detail[MISSION_REFERENCE_INSET:-MISSION_REFERENCE_INSET,
+                  MISSION_REFERENCE_INSET:-MISSION_REFERENCE_INSET]
 
 
 def badge_mask(image):
     """Exclude a white counter plate whose width varies with the digit count."""
-    rgb = np.array(image.convert('RGB').resize((87, 87)))
+    rgb = np.array(image.convert('RGB').resize((MISSION_REFERENCE_PX, MISSION_REFERENCE_PX)))
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
     white = ((hsv[:, :, 1] < 60)
              & (hsv[:, :, 2] > max(140, np.percentile(hsv[:, :, 2], 98) * .85)))
-    mask = np.zeros((87, 87), bool)
+    mask = np.zeros((MISSION_REFERENCE_PX, MISSION_REFERENCE_PX), bool)
     for y in range(39, 70):
         line = white[y:y + 3].all(axis=0)
         dark = np.where(~line)[0]
@@ -32,7 +35,8 @@ def badge_mask(image):
         if 26 <= x <= 73 and line[-1]:
             mask[max(0, y - 4):, max(0, x - 4):] = True
             break
-    return mask[8:-8, 8:-8]
+    return mask[MISSION_REFERENCE_INSET:-MISSION_REFERENCE_INSET,
+                MISSION_REFERENCE_INSET:-MISSION_REFERENCE_INSET]
 
 
 @lru_cache(maxsize=1)

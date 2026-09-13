@@ -27,6 +27,7 @@ from .image_decode import decode_image
 from .limits import MAX_ENCODED_IMAGE_BYTES
 from .capture_backends import BACKENDS, scan_live
 from .icon_normalization import normalize_icon
+from .recognize.constants import TILE_PX
 from .selection_layout import empty_tile, find_selection_band, selection_boxes
 from .stratagem_detection import catalog, detect_icons, detect_mission_icons
 from .recognition_cache import scanner_cache
@@ -240,7 +241,7 @@ def write_debug(directory, im, report):
             x, y, w, h = row["box"]
             tile = im.crop((x, y, x + w, y + h))
             if report.get('mode') == 'mission':
-                tile = tile.resize((150, 150))
+                tile = tile.resize((TILE_PX, TILE_PX))
             normalize_icon(tile, mission=report.get('mode') == 'mission').save(
                 directory / f'normalized-{i:02d}.png', compress_level=1)
             color = "lime" if row["id"] else "orange"

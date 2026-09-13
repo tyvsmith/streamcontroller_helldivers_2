@@ -45,7 +45,8 @@ class RecognitionCacheTests(unittest.TestCase):
             root = Path(directory) / 'repo'
             paths = ('automatic_stratagems/scanner/stratagem_detection.py', 'automatic_stratagems/scanner/icon_normalization.py',
                      'automatic_stratagems/scanner/mission_references.py', 'automatic_stratagems/scanner/colorless_icons.py',
-                     'automatic_stratagems/scanner/mission_layout.py', 'automatic_stratagems/scanner/references/A.png',
+                     'automatic_stratagems/scanner/mission_layout.py', 'automatic_stratagems/scanner/recognize/constants.py',
+                     'automatic_stratagems/scanner/references/A.png',
                      'assets/icons/A.png', 'assets/data/stratagems.json', 'locales/en_US.json')
             for name in paths:
                 path = root / name

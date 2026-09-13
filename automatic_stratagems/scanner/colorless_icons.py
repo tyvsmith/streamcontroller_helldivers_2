@@ -6,15 +6,17 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from .recognize.constants import COLORLESS_RIM_FRACTION, COLORLESS_RIM_MIN, TEMPLATE_INTERIOR
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def glyph_mask(image, template=False):
     value = np.asarray(image.convert('RGB')).max(2).astype(float)
     if template:
-        value = value[23:121, 23:121]
+        value = value[TEMPLATE_INTERIOR, TEMPLATE_INTERIOR]
     else:
-        rim = max(1, round(min(value.shape) * .07))
+        rim = max(COLORLESS_RIM_MIN, round(min(value.shape) * COLORLESS_RIM_FRACTION))
         value = value[rim:-rim, rim:-rim]
     value = cv2.GaussianBlur(value, (3, 3), .7)
     background = np.percentile(value, 20, axis=1)[:, None]
