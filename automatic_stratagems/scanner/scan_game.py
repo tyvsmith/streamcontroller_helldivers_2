@@ -108,8 +108,8 @@ def check_capture_setup(backend, cancel_event=None):
 def rectangle(value):
     """Parse an argparse value as a normalized "x,y,width,height" rectangle.
 
-    Raises argparse.ArgumentTypeError unless all four values are finite and
-    the box fits within the 0..1 unit square.
+    Raises argparse.ArgumentTypeError unless there are four finite values, a
+    positive width and height, and the box fits within the 0..1 unit square.
     """
     try:
         parts = [float(n) for n in value.split(",")]
@@ -222,11 +222,16 @@ def detect(im, mode, band=None, *, executor=None, cache=None, deadline=None,
            cancel_event=None):
     """Run one scan mode over im and return a findings report.
 
-    mode "auto" resolves to "selection" or "mission" via resolve_auto_mode; any
-    other value that is not "selection" runs mission recognition regardless of
-    its name. band is a source-pixel Ready bar box that, when given, skips
-    Ready-bar detection for selection mode. Raises CancelledError once
-    cancel_event is set, and ScanError once deadline has passed.
+    mode "auto" resolves to "selection" or "mission" via resolve_auto_mode, which
+    detects its own Ready bar and replaces band when it finds one. Any other value
+    that is not "selection" runs mission recognition regardless of its name. band is
+    a source-pixel Ready bar box; a given band skips Ready-bar detection only when
+    mode is "selection".
+
+    Raises CancelledError if cancel_event is already set on entry, or from mission
+    fallbacks; selection mode does not check it again. Raises ScanError when the
+    deadline has passed on entry or after recognition, and when selection cannot
+    read a Ready bar or its tiles.
     """
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError()
@@ -271,10 +276,11 @@ def print_findings(report):
 
 
 def annotation_box(im, report):
-    """Compute the source-pixel crop box that covers everything worth annotating.
+    """Return the region worth annotating as [x, y, width, height] in source pixels.
 
-    Returns None when the report has no boxes to show. Widens each mission row's
-    box to include the name text drawn beside its icon.
+    Pads the union of the report's boxes by 32 pixels, clamped to im. Returns None
+    when the report has no boxes to show. Widens each mission row's box to include
+    the name text drawn beside its icon.
     """
     layout = report.get('layout', {})
     boxes = [row['box'] for row in report.get('rows', [])]
@@ -344,9 +350,10 @@ def prepare_debug_directory(path):
 
     Creates path with mode 0700 if it does not exist. If path exists and holds a
     valid '.hd2-scan-run.json' marker (a regular file naming this tool as owner,
-    status "open", version 1), reuses path as-is; otherwise returns a fresh
-    temporary child directory under it. Raises ScanError if path or an ancestor
-    is a symlink, or if path exists but is not a directory.
+    status "open", version 1), returns path without checking or changing its mode;
+    otherwise returns a new mode-0700 temporary child directory under it. Raises
+    ScanError if path or an ancestor is a symlink, or if path exists but is not a
+    directory.
     """
     path = _reject_debug_symlinks(path)
     try:
@@ -386,7 +393,9 @@ def main(argv=None):
     """Parse CLI arguments, run one capture-and-scan cycle, and print or save findings.
 
     Returns a process exit code: 0 for a matched report or a successful
-    --check-setup, 1 on error, 3 for partial, 4 for no_detections.
+    --check-setup, 3 for partial, 4 for no_detections, and 1 when cancellation or a
+    scan, host-command, OS, value, subprocess or OpenCV error stops the run.
+    Argument errors raise SystemExit(2); any other exception propagates.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--capture-backend", choices=BACKENDS, default="auto")
@@ -439,7 +448,10 @@ def main(argv=None):
     previous_signals = {}
     try:
         def cancel_scan(_signum, _frame):
-            """Signal handler: mark the scan cancelled and unwind it immediately."""
+            """Signal handler: set cancel_event and raise CancelledError.
+
+            Python runs it on the main thread between bytecodes; running pool tasks finish first.
+            """
             cancel_event.set()
             raise CancelledError()
         for signum in (signal.SIGTERM, signal.SIGINT):

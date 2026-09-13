@@ -11,9 +11,9 @@ from .recognize.constants import OCCUPANCY_RIM_FRACTION, OCCUPANCY_RIM_MIN
 def find_selection_band(im):
     """Locate the left player's complete Ready bar and return its box in source pixels.
 
-    Returns [x, y, width, height]. Raises ScanError if zero or more than one
-    candidate band is found, including after falling back to washed-out
-    panel-edge detection.
+    Returns [x, y, width, height]. Falls back to washed-out panel-edge detection
+    only when no saturated band is found; raises ScanError unless exactly one band
+    remains.
     """
     pixels = np.array(im.convert("RGB"))
     height, width = pixels.shape[:2]
