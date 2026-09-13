@@ -13,6 +13,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def glyph_mask(image, template=False):
+    """Extract a binary glyph mask from a tile, independent of hue.
+
+    Trims the frame rim unless template is set, in which case TEMPLATE_INTERIOR is used
+    instead. The threshold is per-row, relative to that row's dark and bright
+    percentiles, and connected components smaller than 4 pixels are dropped as noise.
+    """
     value = np.asarray(image.convert('RGB')).max(2).astype(float)
     if template:
         value = value[TEMPLATE_INTERIOR, TEMPLATE_INTERIOR]
@@ -32,6 +38,11 @@ def glyph_mask(image, template=False):
 
 @lru_cache(maxsize=4)
 def references(keys):
+    """Build cached colorless silhouettes for one exact ordered tuple of catalog keys.
+
+    keys must be a hashable tuple; a different order or set of keys is cached
+    separately, up to 4 recent tuples.
+    """
     from .stratagem_detection import silhouette
     result = []
     for key in keys:
@@ -41,6 +52,12 @@ def references(keys):
 
 
 def match_colorless(image, entries):
+    """Match a tile's glyph shape against the catalog, ignoring color entirely.
+
+    Accepts the top-ranked entry when its score and margin over the runner-up clear
+    score >= .50 with margin >= .15, or score >= .85 with margin >= .08. Returns a
+    dict with id (None when undecided) and the top-3 ranking under COLORLESS_TOP3.
+    """
     from .stratagem_detection import silhouette
     mask = glyph_mask(image)
     observed = silhouette(mask, 120)
