@@ -13,6 +13,9 @@ class Tile:
 
     A Tile describes one image at one size. A resized copy is a different measurement,
     so never store or reuse its views here.
+
+    cached_property takes no lock, so never read one Tile from two threads at once: give
+    each concurrent job its own Tile.
     """
 
     box: tuple  # x, y, width, height in source pixels

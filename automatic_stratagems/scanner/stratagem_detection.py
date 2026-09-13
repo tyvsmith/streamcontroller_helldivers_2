@@ -60,7 +60,8 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
     # copy, so its categories are separate measurements and never mix with these tiles.
     frame_tiles = [Tile.from_source(im, (x, y, size, size)) for x, y, size, _ in frames]
     icons, cache_keys, cached_indices = [], [], set()
-    for i, ((x, y, size, _), tile) in enumerate(zip(frames, frame_tiles)):
+    for i, tile in enumerate(frame_tiles):
+        x, y, size, _ = tile.box
         cache_key = None
         saved = None
         if cache is not None:
@@ -88,8 +89,7 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
             continue
         enhanced = stretch_icon(tile.image)
         if enhanced is not None or icon['id'] is None:
-            # Each job owns its frame's Tile, so no Tile is read from two threads at once.
-            enhancement_jobs.append((i, tile, enhanced))
+            enhancement_jobs.append((i, tile, enhanced))  # the job owns its Tile
     # One costly row can use the pool for candidates. Multiple rows own the pool
     # themselves; workers never submit nested work to the same executor.
     candidate_executor = executor if len(enhancement_jobs) == 1 else None
@@ -134,7 +134,8 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
             if attempt['id'] is not None:
                 icon.update(id=attempt['id'], decision='colorless')
     rows = []
-    for i, ((x, y, size, _), icon) in enumerate(zip(frames, icons)):
+    for i, (tile, icon) in enumerate(zip(frame_tiles, icons)):
+        x, y, size, _ = tile.box
         icon.update(box=[x, y, size, size], method='mission-icon')
         # Names can be scrambled into plausible text; a decisive icon wins.
         if icon['id'] is not None:
