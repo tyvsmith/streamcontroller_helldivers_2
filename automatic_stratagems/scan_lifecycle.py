@@ -8,6 +8,7 @@ from gi.repository import GLib
 from loguru import logger as log
 
 from .capture_source import normalize_capture_backend, operation_source, source_identity
+from . import page_attempts
 from . import runtime_preparation
 from .scan_artwork import catalog_colors
 from .scan_operation import ScanOperation, ScanPlan
@@ -51,7 +52,8 @@ class ScanLifecycle:
         if session is not None and session.snapshot().status == 'scanning':
             transient = session.is_transient()
             if transient:
-                self.coordinator.cancel_page_attempt(context, session)
+                page_attempts.cancel_page_attempt(
+                    self.coordinator._attached_actions(), context, session)
             session.cancel()
             if not transient:
                 self.coordinator.persist_context(context, session)
@@ -61,15 +63,12 @@ class ScanLifecycle:
         contexts.update(context for context, session in list(self.coordinator.sessions.items())
                         if session.snapshot().status == 'scanning')
         for context in contexts:
-            self.coordinator.cancel_context(context)
+            self.cancel_context(context)
 
     def deck_disconnected(self, deck):
         for context in [context for context in self.coordinator.sessions if context[0] is deck]:
-            self.coordinator.cancel_context(context)
+            self.cancel_context(context)
             self.coordinator.sessions.pop(context, None)
-
-    def disconnect(self, action):
-        self.coordinator.deck_disconnected(action.deck_controller)
 
     def remove_action(self, action):
         context = getattr(action, '_scan_context', None)
@@ -82,10 +81,10 @@ class ScanLifecycle:
         self.coordinator.actions.discard(action)
         operation = self.active_scans.get(context)
         if (operation is not None and operation.initiator() is action) or slot is not None:
-            self.coordinator.cancel_context(context)
+            self.cancel_context(context)
         if slot is not None and context in self.coordinator.sessions:
             session = self.coordinator.sessions[context]
-            filters, authoritative = self.coordinator._configured_filters(context)
+            filters, authoritative = self.coordinator.reconciler._configured_filters(context)
             if session.reconcile(filters, affected=None if authoritative else {slot}):
                 self.coordinator.persist_context(context, session)
                 self.coordinator.redraw(context)
@@ -93,7 +92,7 @@ class ScanLifecycle:
     def shutdown(self, timeout=SHUTDOWN_TIMEOUT_SECONDS):
         self.coordinator.closed = True
         operations = list(self.active_scans.values())
-        self.coordinator.cancel_all()
+        self.cancel_all()
         deadline = monotonic() + timeout
         for operation in operations:
             operation.setup_done.wait(max(0, deadline - monotonic()))
@@ -109,7 +108,7 @@ class ScanLifecycle:
     def page_changed(self, controller, old_path, new_path):
         for (deck, path, group), session in list(self.coordinator.sessions.items()):
             if deck is controller and path == old_path and session.snapshot().status == 'scanning':
-                self.coordinator.cancel_context((deck, path, group))
+                self.cancel_context((deck, path, group))
                 self.coordinator.sessions.pop((deck, path, group), None)
 
     def _complete_scan_operation(self, operation):
@@ -140,7 +139,7 @@ class ScanLifecycle:
                     self.coordinator.show_action_error(action)
                     return False
             if new_page:
-                attempt_id = self.coordinator.begin_page_attempt(action)
+                attempt_id = page_attempts.begin_page_attempt(action)
             automatic = [a for a in self.coordinator._attached_actions()
                          if isinstance(a, self.automatic_type)
                          and a.get_is_present()
@@ -154,15 +153,15 @@ class ScanLifecycle:
                     raise ValueError('Temporary pages are unavailable')
                 self.coordinator.temporary_pages.layout(action.deck_controller)
                 source_action = source_action_address(action)
-                filters = self.coordinator.slot_filters(context, session)
+                filters = self.coordinator.reconciler.slot_filters(context, session)
                 if regenerate:
                     if session.snapshot().status == 'scanning':
-                        self.coordinator.cancel_context(context)
-                    cached_path = self.coordinator._restore_cached_session(
+                        self.cancel_context(context)
+                    cached_path = self.coordinator.page_flow._restore_cached_session(
                         context, source_action)
             elif regenerate:
                 raise ValueError('Only page openers can regenerate a cache')
-            operation_image_settings = self.coordinator._operation_image_settings(action)
+            operation_image_settings = self.coordinator.page_flow._operation_image_settings(action)
             frozen_source_identity = source_identity(operation_image_settings)
             image_source = operation_source(
                 operation_image_settings, allow_rescan=True)
@@ -175,14 +174,14 @@ class ScanLifecycle:
             token = session.begin(filters, replace=replace, transient=new_page)
             if token is None:
                 if new_page:
-                    self.coordinator.finish_page_attempt(
+                    page_attempts.finish_page_attempt(
                         action, attempt_id, 'cancelled',
                         'Scan already in progress')
                 operation.complete()
                 self.coordinator.show_action_error(action)
                 return False
             if new_page:
-                self.coordinator.bind_page_attempt(action, attempt_id, session, token)
+                page_attempts.bind_page_attempt(action, attempt_id, session, token)
             operation.bind_plan(ScanPlan(
                 context=context, session=session, token=token,
                 backend=normalize_capture_backend(operation_image_settings),
@@ -198,11 +197,11 @@ class ScanLifecycle:
             operation.bind_presentation()
             self.active_scans[plan.context] = operation
             if not new_page:
-                self.coordinator.persist(action, session)
+                self.coordinator.registry.persist(action, session)
             self.coordinator.redraw(context)
             if not new_page and (not slots or len(slots) != len(set(slots))):
                 session.fail(token, 'Add uniquely numbered Automatic slots')
-                self.coordinator.persist(action, session)
+                self.coordinator.registry.persist(action, session)
                 self.coordinator.show_action_error(action)
                 operation.complete()
                 self.coordinator.redraw(context)
@@ -214,7 +213,7 @@ class ScanLifecycle:
             if session is not None and token is not None and session.is_active(token):
                 transient = session.is_transient(token)
                 if transient:
-                    self.coordinator.finish_page_attempt(
+                    page_attempts.finish_page_attempt(
                         action, attempt_id, 'cancelled', 'Scan cancelled',
                         session=session, token=token)
                 session.cancel()
@@ -229,7 +228,7 @@ class ScanLifecycle:
                     if token is not None and session.is_active(token):
                         session.fail(token, str(error))
                     if attempt_id is not None:
-                        self.coordinator.finish_page_attempt(
+                        page_attempts.finish_page_attempt(
                             action, attempt_id, 'failed', error,
                             session=session if token is not None else None,
                             token=token)
@@ -237,7 +236,7 @@ class ScanLifecycle:
                     if token is None and context is not None:
                         try:
                             token = session.begin(
-                                self.coordinator.slot_filters(context, session))
+                                self.coordinator.reconciler.slot_filters(context, session))
                         except Exception:
                             log.exception(
                                 'Unable to initialize failed stratagem scan state')
@@ -263,24 +262,24 @@ class ScanLifecycle:
             if (not self.coordinator.enabled or not action.get_is_present()
                     or self.coordinator.context(action) != plan.context):
                 if plan.new_page:
-                    self.coordinator.finish_page_attempt(
+                    page_attempts.finish_page_attempt(
                         action, plan.attempt_id, 'cancelled', 'Scan cancelled',
                         session=plan.session, token=plan.token)
                 plan.session.cancel()
             elif source_identity(
-                    self.coordinator._operation_image_settings(action)
+                    self.coordinator.page_flow._operation_image_settings(action)
                     ) != plan.source_snapshot:
                 if plan.new_page:
-                    self.coordinator.finish_page_attempt(
+                    page_attempts.finish_page_attempt(
                         action, plan.attempt_id, 'cancelled', 'Scan cancelled',
                         session=plan.session, token=plan.token)
                 plan.session.cancel()
             elif error:
                 if plan.session.fail(plan.token, error):
                     if not plan.new_page:
-                        self.coordinator.persist(action, plan.session)
+                        self.coordinator.registry.persist(action, plan.session)
                     else:
-                        self.coordinator.finish_page_attempt(
+                        page_attempts.finish_page_attempt(
                             action, plan.attempt_id, 'failed', error,
                             session=plan.session, token=plan.token)
                 self.coordinator.show_action_error(action)
@@ -296,7 +295,7 @@ class ScanLifecycle:
                     accepted = plan.session.finish(
                         plan.token, report, self.coordinator.plugin.stratagems, colors)
                 if accepted:
-                    result = (self.coordinator.page_result(
+                    result = (self.coordinator.page_flow.page_result(
                                   action, report, colors,
                                   replace_path=(plan.cached_path
                                                 if plan.regenerate
@@ -304,12 +303,12 @@ class ScanLifecycle:
                                                 else None))
                               if plan.new_page else plan.session.snapshot())
                     if plan.new_page:
-                        self.coordinator.finish_page_attempt(
+                        page_attempts.finish_page_attempt(
                             action, plan.attempt_id,
                             result.status, result.message,
                             session=plan.session, token=plan.token)
                     if not plan.new_page:
-                        self.coordinator.persist(action, plan.session)
+                        self.coordinator.registry.persist(action, plan.session)
                     if result.status == 'failed':
                         self.coordinator.show_action_error(action)
                     log.info('Stratagem scan: {}', result.message)
@@ -318,15 +317,15 @@ class ScanLifecycle:
             if plan.new_page:
                 if plan.session.is_active(plan.token):
                     plan.session.fail(plan.token, str(error))
-                self.coordinator.finish_page_attempt(
+                page_attempts.finish_page_attempt(
                     action, plan.attempt_id, 'failed', error,
                     session=plan.session, token=plan.token)
             else:
                 failure = (plan.token if plan.session.is_active(plan.token)
-                           else plan.session.begin(self.coordinator.slot_filters(
+                           else plan.session.begin(self.coordinator.reconciler.slot_filters(
                                plan.context, plan.session)))
                 plan.session.fail(failure, str(error))
-                self.coordinator.persist(action, plan.session)
+                self.coordinator.registry.persist(action, plan.session)
             self.coordinator.show_action_error(action)
             log.exception('Unable to finish stratagem scan')
             self.coordinator.redraw(plan.context)
@@ -341,9 +340,9 @@ class ScanLifecycle:
                 current = (
                     current_context, current_source_action,
                     plan.session.snapshot().revision,
-                    self.coordinator._restore_cached_session(
+                    self.coordinator.page_flow._restore_cached_session(
                         current_context, current_source_action),
-                    source_identity(self.coordinator._operation_image_settings(action)))
+                    source_identity(self.coordinator.page_flow._operation_image_settings(action)))
             except Exception:
                 current = None
             expected = (plan.context, plan.source_action,
@@ -360,19 +359,19 @@ class ScanLifecycle:
             if not valid:
                 operation.cancel.set()
                 if plan.session.is_active(plan.token):
-                    self.coordinator.finish_page_attempt(
+                    page_attempts.finish_page_attempt(
                         action, plan.attempt_id, 'cancelled', 'Scan cancelled',
                         session=plan.session, token=plan.token)
                     plan.session.cancel()
                 self.coordinator.redraw(plan.context)
                 return False
             if (plan.cached_path is not None and plan.image_source is None
-                    and not self.coordinator.delete_cached_page(
+                    and not self.coordinator.page_flow.delete_cached_page(
                         action, preserve_operation=operation)):
                 raise RuntimeError('Cached page changed during scan setup')
             operation.continue_scan = True
         except Exception as error:
-            self.coordinator._apply_scan_result(action, operation, None, str(error))
+            self._apply_scan_result(action, operation, None, str(error))
         finally:
             operation.continuation.set()
         return False
@@ -388,7 +387,7 @@ class ScanLifecycle:
                         setup_kwargs['image_source'] = plan.mutable_image_source()
                     check_scan_setup(self.coordinator.plugin.PATH, **setup_kwargs)
                     GLib.idle_add(partial(
-                        self.coordinator._continue_after_preflight, action, operation))
+                        self._continue_after_preflight, action, operation))
                     continuation_deadline = (
                         monotonic() + MAIN_CONTEXT_TIMEOUT_SECONDS)
                     while not operation.continuation.wait(.02):
@@ -400,7 +399,7 @@ class ScanLifecycle:
                             operation.cancel.set()
                             if plan.session.is_active(plan.token):
                                 plan.session.fail(plan.token, message)
-                                self.coordinator.finish_page_attempt(
+                                page_attempts.finish_page_attempt(
                                     action, plan.attempt_id, 'failed', message,
                                     session=plan.session, token=plan.token)
                             log.warning(message)
@@ -419,23 +418,23 @@ class ScanLifecycle:
                 return
             except ScanSetupError as error:
                 GLib.idle_add(
-                    partial(self.coordinator._apply_scan_result, action, operation),
+                    partial(self._apply_scan_result, action, operation),
                     None, runtime_preparation.setup_failure_message(
                         self.coordinator.plugin, error))
             except Exception as error:
                 GLib.idle_add(
-                    partial(self.coordinator._apply_scan_result, action, operation),
+                    partial(self._apply_scan_result, action, operation),
                     None, str(error))
             else:
                 GLib.idle_add(
-                    partial(self.coordinator._apply_scan_result, action, operation),
+                    partial(self._apply_scan_result, action, operation),
                     report, None, colors)
         except Exception:
             active = plan.session.is_active(plan.token)
             transient = plan.session.is_transient(plan.token)
             if active:
                 if transient:
-                    self.coordinator.finish_page_attempt(
+                    page_attempts.finish_page_attempt(
                         action, plan.attempt_id, 'failed',
                         'Unable to queue scan result',
                         session=plan.session, token=plan.token)
@@ -458,14 +457,14 @@ class ScanLifecycle:
             return
         operation = ScanOperation(
             action, continue_scan=not regenerate,
-            on_complete=self.coordinator._complete_scan_operation)
-        if not self.coordinator._prepare_scan_operation(
+            on_complete=self._complete_scan_operation)
+        if not self._prepare_scan_operation(
                 action, operation, replace=replace, regenerate=regenerate):
             return
         plan = operation.plan
         try:
             operation.bind_worker(Thread(
-                target=partial(self.coordinator._run_scan_worker, action, operation),
+                target=partial(self._run_scan_worker, action, operation),
                 name='hd2-scan', daemon=True))
             if (operation.cancel.is_set() or self.coordinator.closed
                     or not self.coordinator.enabled
@@ -481,7 +480,7 @@ class ScanLifecycle:
             if plan.session.is_active(plan.token):
                 transient = plan.session.is_transient(plan.token)
                 if transient:
-                    self.coordinator.finish_page_attempt(
+                    page_attempts.finish_page_attempt(
                         action, plan.attempt_id, 'cancelled', 'Scan cancelled',
                         session=plan.session, token=plan.token)
                 plan.session.cancel()
@@ -495,7 +494,7 @@ class ScanLifecycle:
                 if plan.session.is_active(plan.token):
                     plan.session.fail(plan.token, str(error))
                 if plan.attempt_id is not None:
-                    self.coordinator.finish_page_attempt(
+                    page_attempts.finish_page_attempt(
                         action, plan.attempt_id, 'failed', error,
                         session=plan.session, token=plan.token)
             else:

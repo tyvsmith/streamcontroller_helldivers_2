@@ -534,7 +534,7 @@ class ActionConfigurationTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.actions.update((second, first))
         context = self.coordinator.context(first)
 
-        self.assertEqual(self.coordinator.slot_filters(
+        self.assertEqual(self.coordinator.reconciler.slot_filters(
             context, self.coordinator.session(first)), {1: 'any', 2: 'blue'})
 
     def test_scan_mode_selector_is_hidden_but_legacy_setting_is_preserved(self):
@@ -613,7 +613,7 @@ class ActionConfigurationTests(ActionTestHarness, unittest.TestCase):
             token = session.begin({1: 'red'})
             session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
                            self.plugin.stratagems, {'A': 'red'})
-            self.coordinator.persist(action, session)
+            self.coordinator.registry.persist(action, session)
 
             restored = self.mod.ScanCoordinator(self.plugin, state_dir=directory)
             self.plugin.scan_coordinator = restored
@@ -640,7 +640,7 @@ class ActionConfigurationTests(ActionTestHarness, unittest.TestCase):
             token = session.begin({1: 'red', 2: 'blue'})
             session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]},
                            self.plugin.stratagems, {'A': 'red', 'B': 'blue'})
-            self.coordinator.persist(first, session)
+            self.coordinator.registry.persist(first, session)
 
             restored = self.mod.ScanCoordinator(self.plugin, state_dir=directory)
             self.plugin.scan_coordinator = restored
@@ -743,7 +743,7 @@ class ActionConfigurationTests(ActionTestHarness, unittest.TestCase):
             token = session.begin({1: 'red'})
             session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
                            self.plugin.stratagems, {'A': 'red'})
-            self.coordinator.persist(action, session)
+            self.coordinator.registry.persist(action, session)
 
             action.configure('group', 'other')
             action.configure('group', 'red-team')

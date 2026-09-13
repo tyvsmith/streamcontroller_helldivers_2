@@ -80,23 +80,19 @@ class Host:
         self.actions = set()
         self.closed = False
         self.enabled = True
-        for name in ('persist', 'persist_context', 'redraw', 'show_action_error',
-                     'cancel_page_attempt', 'finish_page_attempt', 'page_result'):
+        for name in ('persist_context', 'redraw', 'show_action_error'):
             setattr(self, name, Mock())
-        self.delete_cached_page = Mock(return_value=True)
-        self.slot_filters = Mock(return_value={1: 'any'})
-        self._configured_filters = Mock(return_value=({}, False))
-        self._operation_image_settings = Mock(return_value=settings)
-        self._restore_cached_session = Mock(return_value=None)
-        self.begin_page_attempt = Mock(return_value=7)
-        self.bind_page_attempt = Mock(return_value=True)
+        self.registry = types.SimpleNamespace(persist=Mock())
+        self.reconciler = types.SimpleNamespace(
+            slot_filters=Mock(return_value={1: 'any'}),
+            _configured_filters=Mock(return_value=({}, False)))
+        self.page_flow = types.SimpleNamespace(
+            page_result=Mock(), delete_cached_page=Mock(return_value=True),
+            _operation_image_settings=Mock(return_value=settings),
+            _restore_cached_session=Mock(return_value=None))
         self.temporary_pages = Mock()
         self.automatic = []
         self.lifecycle = mod.ScanLifecycle(self, Automatic)
-
-    @property
-    def active_scans(self):
-        return self.lifecycle.active_scans
 
     def context(self, action):
         return action.context
@@ -106,31 +102,6 @@ class Host:
 
     def _attached_actions(self):
         return list(self.automatic)
-
-    def _prepare_scan_operation(self, action, operation, *, replace, regenerate):
-        return self.lifecycle._prepare_scan_operation(
-            action, operation, replace=replace, regenerate=regenerate)
-
-    def _run_scan_worker(self, action, operation):
-        return self.lifecycle._run_scan_worker(action, operation)
-
-    def cancel_context(self, context):
-        return self.lifecycle.cancel_context(context)
-
-    def cancel_all(self):
-        return self.lifecycle.cancel_all()
-
-    def deck_disconnected(self, deck):
-        return self.lifecycle.deck_disconnected(deck)
-
-    def _complete_scan_operation(self, operation):
-        return self.lifecycle._complete_scan_operation(operation)
-
-    def _apply_scan_result(self, action, operation, report, error, colors=None):
-        return self.lifecycle._apply_scan_result(action, operation, report, error, colors)
-
-    def _continue_after_preflight(self, action, operation):
-        return self.lifecycle._continue_after_preflight(action, operation)
 
 
 class ScanLifecycleTestCase(unittest.TestCase):
@@ -164,6 +135,13 @@ class ScanLifecycleTestCase(unittest.TestCase):
                 patch.object(self.mod.GLib, 'idle_add', side_effect=self.queue)):
             patcher.start()
             self.addCleanup(patcher.stop)
+        self.attempts = types.SimpleNamespace()
+        for name, returned in (('begin_page_attempt', {'return_value': 7}),
+                               ('bind_page_attempt', {'return_value': True}),
+                               ('finish_page_attempt', {}), ('cancel_page_attempt', {})):
+            patcher = patch.object(self.mod.page_attempts, name, **returned)
+            setattr(self.attempts, name, patcher.start())
+            self.addCleanup(patcher.stop)
 
     def queue(self, callback, *args):
         self.events.append('queue')
@@ -183,7 +161,7 @@ class ScanLifecycleTestCase(unittest.TestCase):
         token = session.begin({1: 'any'}, replace=True, transient=new_page)
         operation = self.ops.ScanOperation(
             self.action, continue_scan=not regenerate,
-            on_complete=self.host._complete_scan_operation)
+            on_complete=self.lifecycle._complete_scan_operation)
         operation.bind_plan(self.ops.ScanPlan(
             context=self.context, session=session, token=token, backend='gamescope',
             workers=2, source_snapshot=self.mod.source_identity(self.settings),
@@ -191,19 +169,21 @@ class ScanLifecycleTestCase(unittest.TestCase):
             scan_revision=session.snapshot().revision + revision_offset,
             new_page=new_page, regenerate=regenerate,
             attempt_id=7 if new_page else None))
-        self.host.active_scans[self.context] = operation
+        self.lifecycle.active_scans[self.context] = operation
         return session, token, operation
 
     def reset_host(self):
         self.host.sessions.clear()
-        self.host.active_scans.clear()
+        self.lifecycle.active_scans.clear()
         self.host.closed = False
         self.host.enabled = True
         self.action.present = True
         self.action.context = self.context
-        for name in ('persist', 'persist_context', 'redraw', 'show_action_error',
-                     'finish_page_attempt', 'page_result', '_operation_image_settings'):
-            getattr(self.host, name).reset_mock()
+        for mock in (self.host.registry.persist, self.host.persist_context,
+                     self.host.redraw, self.host.show_action_error,
+                     self.attempts.finish_page_attempt, self.host.page_flow.page_result,
+                     self.host.page_flow._operation_image_settings):
+            mock.reset_mock()
 
 
 class WorkerTests(ScanLifecycleTestCase):
@@ -216,9 +196,9 @@ class WorkerTests(ScanLifecycleTestCase):
         run.assert_called_once_with(
             '/plugin', backend='gamescope', workers=2, cancel_event=operation.cancel)
         self.assertEqual(self.events, ['queue', 'release'])
-        self.assertNotIn(self.context, self.host.active_scans)
+        self.assertNotIn(self.context, self.lifecycle.active_scans)
         callback, args = self.queued.pop()
-        self.assertEqual(callback.func, self.host._apply_scan_result)
+        self.assertEqual(callback.func, self.lifecycle._apply_scan_result)
         self.assertEqual(args, (REPORT, None, {'A': 'red'}))
         self.assertTrue(session.is_active(token))
 
@@ -226,7 +206,7 @@ class WorkerTests(ScanLifecycleTestCase):
 
         self.assertEqual(session.snapshot().assignments[1], 'A')
         self.assertFalse(session.is_active(token))
-        self.host.persist.assert_called_once_with(self.action, session)
+        self.host.registry.persist.assert_called_once_with(self.action, session)
         self.assertEqual(self.events, ['queue', 'release'])
 
     def test_setup_and_scan_failures_are_queued_as_messages(self):
@@ -265,7 +245,7 @@ class WorkerTests(ScanLifecycleTestCase):
         self.assertFalse(session.is_active(token))
         self.assertEqual(session.snapshot().assignments[1], 'A')
         self.host.persist_context.assert_called_once_with(self.context, session)
-        self.host.finish_page_attempt.assert_not_called()
+        self.attempts.finish_page_attempt.assert_not_called()
         self.mod.log.exception.assert_called_with('Unable to queue stratagem scan result')
         self.assertEqual(self.events, ['release'])
 
@@ -275,7 +255,7 @@ class WorkerTests(ScanLifecycleTestCase):
              patch.object(self.mod, 'run_scan', return_value=REPORT), \
              patch.object(self.mod.GLib, 'idle_add', side_effect=RuntimeError('queue closed')):
             self.lifecycle._run_scan_worker(self.action, operation)
-        self.host.finish_page_attempt.assert_called_once_with(
+        self.attempts.finish_page_attempt.assert_called_once_with(
             self.action, 7, 'failed', 'Unable to queue scan result',
             session=session, token=token)
         self.host.persist_context.assert_not_called()
@@ -291,10 +271,10 @@ class WorkerTests(ScanLifecycleTestCase):
         check.assert_called_once_with('/plugin', backend='gamescope',
                                       cancel_event=operation.cancel)
         run.assert_not_called()
-        self.assertEqual(self.queued[0][0].func, self.host._continue_after_preflight)
+        self.assertEqual(self.queued[0][0].func, self.lifecycle._continue_after_preflight)
         self.assertTrue(operation.cancel.is_set())
         self.assertFalse(session.is_active(token))
-        self.host.finish_page_attempt.assert_called_once_with(
+        self.attempts.finish_page_attempt.assert_called_once_with(
             self.action, 7, 'failed', message, session=session, token=token)
         self.mod.log.warning.assert_called_once_with(message)
         self.assertEqual(self.events, ['queue', 'release'])
@@ -332,8 +312,8 @@ class ResultTests(ScanLifecycleTestCase):
                     None))
                 self.assertEqual(session.snapshot(), before)
                 self.host.redraw.assert_not_called()
-                self.host.persist.assert_not_called()
-                self.host._operation_image_settings.assert_not_called()
+                self.host.registry.persist.assert_not_called()
+                self.host.page_flow._operation_image_settings.assert_not_called()
 
     def test_feature_presence_and_context_are_rechecked_before_capture_identity(self):
         for case in ('disabled', 'absent', 'moved'):
@@ -349,29 +329,29 @@ class ResultTests(ScanLifecycleTestCase):
                 self.lifecycle._apply_scan_result(self.action, operation, REPORT, None)
                 self.assertFalse(session.is_active(token))
                 self.assertEqual(session.snapshot().assignments[1], 'A')
-                self.host.finish_page_attempt.assert_called_once_with(
+                self.attempts.finish_page_attempt.assert_called_once_with(
                     self.action, 7, 'cancelled', 'Scan cancelled',
                     session=session, token=token)
-                self.host._operation_image_settings.assert_not_called()
-                self.host.page_result.assert_not_called()
+                self.host.page_flow._operation_image_settings.assert_not_called()
+                self.host.page_flow.page_result.assert_not_called()
                 self.host.redraw.assert_called_once_with(self.context)
 
     def test_a_changed_capture_identity_cancels_the_result(self):
         session, token, operation = self.scan()
-        self.host._operation_image_settings.return_value = self.capture.source_settings(
+        self.host.page_flow._operation_image_settings.return_value = self.capture.source_settings(
             {'capture_backend': 'screenshot'}, {})
         self.lifecycle._apply_scan_result(
             self.action, operation, {'status': 'matched', 'rows': [{'id': 'B'}]}, None)
         self.assertFalse(session.is_active(token))
         self.assertEqual(session.snapshot().assignments[1], 'A')
-        self.host.persist.assert_not_called()
+        self.host.registry.persist.assert_not_called()
 
     def test_a_scan_error_fails_the_session_without_releasing_input(self):
         session, token, operation = self.scan()
         self.lifecycle._apply_scan_result(self.action, operation, None, 'capture failed')
         self.assertEqual(session.snapshot().status, 'failed')
         self.assertEqual(session.snapshot().message, 'capture failed')
-        self.host.persist.assert_called_once_with(self.action, session)
+        self.host.registry.persist.assert_called_once_with(self.action, session)
         self.host.show_action_error.assert_called_once_with(self.action)
         self.mod.log.warning.assert_called_once_with('Stratagem scan failed: {}', 'capture failed')
         self.host.redraw.assert_called_once_with(self.context)
@@ -379,14 +359,14 @@ class ResultTests(ScanLifecycleTestCase):
 
     def test_a_generated_page_result_opens_its_page_through_the_coordinator(self):
         session, token, operation = self.scan(new_page=True)
-        self.host.page_result.return_value = types.SimpleNamespace(
+        self.host.page_flow.page_result.return_value = types.SimpleNamespace(
             status='ready', message='1 recognized')
         self.lifecycle._apply_scan_result(self.action, operation, REPORT, None, {'A': 'red'})
-        self.host.page_result.assert_called_once_with(
+        self.host.page_flow.page_result.assert_called_once_with(
             self.action, REPORT, {'A': 'red'}, replace_path=None)
-        self.host.finish_page_attempt.assert_called_once_with(
+        self.attempts.finish_page_attempt.assert_called_once_with(
             self.action, 7, 'ready', '1 recognized', session=session, token=token)
-        self.host.persist.assert_not_called()
+        self.host.registry.persist.assert_not_called()
         self.assertFalse(session.is_active(token))
 
 
@@ -397,17 +377,17 @@ class ContinuationTests(ScanLifecycleTestCase):
         self.assertFalse(self.lifecycle._continue_after_preflight(self.action, operation))
         self.assertTrue(operation.cancel.is_set())
         self.assertFalse(session.is_active(token))
-        self.host.finish_page_attempt.assert_called_once_with(
+        self.attempts.finish_page_attempt.assert_called_once_with(
             self.action, 7, 'cancelled', 'Scan cancelled', session=session, token=token)
-        self.host.delete_cached_page.assert_not_called()
+        self.host.page_flow.delete_cached_page.assert_not_called()
         self.assertFalse(operation.continue_scan)
         self.assertTrue(operation.continuation.is_set())
 
     def test_a_valid_continuation_deletes_the_cache_through_the_coordinator(self):
         _, _, operation = self.scan(new_page=True, regenerate=True, cached_path=CACHED)
-        self.host._restore_cached_session.return_value = CACHED
+        self.host.page_flow._restore_cached_session.return_value = CACHED
         self.assertFalse(self.lifecycle._continue_after_preflight(self.action, operation))
-        self.host.delete_cached_page.assert_called_once_with(
+        self.host.page_flow.delete_cached_page.assert_called_once_with(
             self.action, preserve_operation=operation)
         self.assertTrue(operation.continue_scan)
         self.assertFalse(operation.cancel.is_set())
@@ -416,11 +396,11 @@ class ContinuationTests(ScanLifecycleTestCase):
     def test_a_cache_that_changed_during_setup_fails_the_scan(self):
         session, token, operation = self.scan(new_page=True, regenerate=True,
                                               cached_path=CACHED)
-        self.host._restore_cached_session.return_value = CACHED
-        self.host.delete_cached_page.return_value = False
+        self.host.page_flow._restore_cached_session.return_value = CACHED
+        self.host.page_flow.delete_cached_page.return_value = False
         self.lifecycle._continue_after_preflight(self.action, operation)
         message = 'Cached page changed during scan setup'
-        self.host.finish_page_attempt.assert_called_once_with(
+        self.attempts.finish_page_attempt.assert_called_once_with(
             self.action, 7, 'failed', message, session=session, token=token)
         self.assertFalse(operation.continue_scan)
         self.assertTrue(operation.continuation.is_set())
@@ -431,17 +411,17 @@ class CancellationTests(ScanLifecycleTestCase):
         for new_page in (False, True):
             with self.subTest(new_page=new_page):
                 self.reset_host()
-                self.host.cancel_page_attempt.reset_mock()
+                self.attempts.cancel_page_attempt.reset_mock()
                 session, token, operation = self.scan(new_page=new_page)
                 self.lifecycle.cancel_context(self.context)
                 self.assertTrue(operation.cancel.is_set())
                 self.assertFalse(session.is_active(token))
                 self.assertEqual(session.snapshot().assignments[1], 'A')
                 if new_page:
-                    self.host.cancel_page_attempt.assert_called_once_with(self.context, session)
+                    self.attempts.cancel_page_attempt.assert_called_once_with([], self.context, session)
                     self.host.persist_context.assert_not_called()
                 else:
-                    self.host.cancel_page_attempt.assert_not_called()
+                    self.attempts.cancel_page_attempt.assert_not_called()
                     self.host.persist_context.assert_called_once_with(self.context, session)
 
     def test_cancel_all_reaches_active_operations_and_scanning_sessions(self):
@@ -464,7 +444,7 @@ class CancellationTests(ScanLifecycleTestCase):
         self.assigned_session(sibling)
         other = (Deck(), '/pages/source.json', 'HD2')
         kept = self.assigned_session(other)
-        self.lifecycle.disconnect(self.action)
+        self.lifecycle.deck_disconnected(self.action.deck_controller)
         self.assertTrue(operation.cancel.is_set())
         self.assertFalse(session.is_active(token))
         self.assertEqual(self.host.sessions, {other: kept})
@@ -496,7 +476,7 @@ class CancellationTests(ScanLifecycleTestCase):
         slot._scan_context = self.context
         self.host.actions.add(slot)
         self.lifecycle.remove_action(slot)
-        self.host._configured_filters.assert_called_once_with(self.context)
+        self.host.reconciler._configured_filters.assert_called_once_with(self.context)
         self.assertEqual(dict(session.snapshot().assignments), {})
         self.host.persist_context.assert_called_with(self.context, session)
         self.host.redraw.assert_called_once_with(self.context)
@@ -506,14 +486,14 @@ class CompletionAndShutdownTests(ScanLifecycleTestCase):
     def test_finalizing_releases_input_once_and_forgets_only_its_own_operation(self):
         _, _, operation = self.scan()
         stray = self.ops.ScanOperation(
-            self.action, continue_scan=True, on_complete=self.host._complete_scan_operation)
+            self.action, continue_scan=True, on_complete=self.lifecycle._complete_scan_operation)
         stray.bind_plan(operation.plan)
         self.assertTrue(stray.complete())
         self.assertTrue(stray.setup_done.is_set())
-        self.assertIs(self.host.active_scans[self.context], operation)
+        self.assertIs(self.lifecycle.active_scans[self.context], operation)
         self.assertTrue(operation.complete())
         self.assertFalse(operation.complete())
-        self.assertNotIn(self.context, self.host.active_scans)
+        self.assertNotIn(self.context, self.lifecycle.active_scans)
         self.assertEqual(self.events, ['release', 'release'])
 
     def test_shutdown_closes_cancels_joins_and_leaves_queued_results_inert(self):
@@ -574,7 +554,7 @@ class EntryTests(ScanLifecycleTestCase):
         return session
 
     def page_token(self):
-        return self.host.bind_page_attempt.call_args.args[3]
+        return self.attempts.bind_page_attempt.call_args.args[3]
 
     def exception_messages(self):
         return [call.args[0] for call in self.mod.log.exception.call_args_list]
@@ -587,16 +567,16 @@ class EntryTests(ScanLifecycleTestCase):
         target = create.call_args.kwargs['target']
         self.assertEqual((create.call_args.kwargs['name'], create.call_args.kwargs['daemon']),
                          ('hd2-scan', True))
-        self.assertEqual(target.func, self.host._run_scan_worker)
+        self.assertEqual(target.func, self.lifecycle._run_scan_worker)
         self.assertIs(target.args[0], self.action)
         operation = target.args[1]
         self.assertIs(operation.worker, thread)
         thread.start.assert_called_once_with()
         self.assertTrue(operation.started)
-        self.assertEqual(operation._on_complete, self.host._complete_scan_operation)
-        self.assertIs(self.host.active_scans[self.context], operation)
+        self.assertEqual(operation._on_complete, self.lifecycle._complete_scan_operation)
+        self.assertIs(self.lifecycle.active_scans[self.context], operation)
         self.assertTrue(session.is_active(operation.plan.token))
-        self.host.persist.assert_called_once_with(self.action, session)
+        self.host.registry.persist.assert_called_once_with(self.action, session)
         self.assertEqual(self.events, ['acquire'])
 
     def test_regenerating_an_update_button_fails_its_setup(self):
@@ -610,7 +590,7 @@ class EntryTests(ScanLifecycleTestCase):
         self.host.persist_context.assert_called_once_with(self.context, session)
         self.host.show_action_error.assert_called_once_with(self.action)
         self.assertEqual(self.exception_messages(), ['Unable to start stratagem scan'])
-        self.assertEqual(self.host.active_scans, {})
+        self.assertEqual(self.lifecycle.active_scans, {})
         self.assertEqual(self.events, ['acquire', 'release'])
 
     def test_a_page_opener_refused_a_session_token_cancels_its_attempt(self):
@@ -619,15 +599,15 @@ class EntryTests(ScanLifecycleTestCase):
              patch.object(self.mod, 'Thread') as create:
             self.lifecycle.start(self.action, replace=True)
         create.assert_not_called()
-        self.host.finish_page_attempt.assert_called_once_with(
+        self.attempts.finish_page_attempt.assert_called_once_with(
             self.action, 7, 'cancelled', 'Scan already in progress')
-        self.host.bind_page_attempt.assert_not_called()
+        self.attempts.bind_page_attempt.assert_not_called()
         self.host.show_action_error.assert_called_once_with(self.action)
         self.assertEqual(self.events, ['acquire', 'release'])
 
     def test_cancellation_while_saving_a_prepared_scan_keeps_assignments(self):
         session = self.update_setup()
-        self.host.persist.side_effect = CancelledError()
+        self.host.registry.persist.side_effect = CancelledError()
         with patch.object(self.mod, 'Thread') as create:
             self.lifecycle.start(self.action, replace=True)
         create.assert_not_called()
@@ -636,7 +616,7 @@ class EntryTests(ScanLifecycleTestCase):
         self.host.persist_context.assert_called_once_with(self.context, session)
         self.host.show_action_error.assert_not_called()
         self.host.redraw.assert_not_called()
-        self.assertEqual(self.host.active_scans, {})
+        self.assertEqual(self.lifecycle.active_scans, {})
         self.assertEqual(self.events, ['acquire', 'release'])
 
     def test_cancellation_while_drawing_a_prepared_page_scan_cancels_its_attempt(self):
@@ -647,16 +627,16 @@ class EntryTests(ScanLifecycleTestCase):
         create.assert_not_called()
         token = self.page_token()
         self.assertFalse(session.is_active(token))
-        self.host.finish_page_attempt.assert_called_once_with(
+        self.attempts.finish_page_attempt.assert_called_once_with(
             self.action, 7, 'cancelled', 'Scan cancelled', session=session, token=token)
         self.host.persist_context.assert_not_called()
         self.assertEqual(self.events, ['acquire', 'release'])
 
     def test_a_setup_failure_without_a_failure_token_is_still_saved_and_shown(self):
         session = self.update_setup()
-        self.host._operation_image_settings.side_effect = ValueError(
+        self.host.page_flow._operation_image_settings.side_effect = ValueError(
             'Global screenshot settings changed')
-        self.host.slot_filters.side_effect = RuntimeError('filters unavailable')
+        self.host.reconciler.slot_filters.side_effect = RuntimeError('filters unavailable')
         with patch.object(self.mod, 'Thread') as create:
             self.lifecycle.start(self.action, replace=True)
         create.assert_not_called()
@@ -671,7 +651,7 @@ class EntryTests(ScanLifecycleTestCase):
 
     def test_a_setup_failure_that_cannot_be_saved_is_logged_and_shown(self):
         session = self.update_setup()
-        self.host._operation_image_settings.side_effect = ValueError(
+        self.host.page_flow._operation_image_settings.side_effect = ValueError(
             'Global screenshot settings changed')
         self.host.persist_context.side_effect = OSError('disk full')
         with patch.object(self.mod, 'Thread'):
@@ -702,9 +682,9 @@ class EntryTests(ScanLifecycleTestCase):
         self.assertNotEqual(session.snapshot().status, 'scanning')
         self.assertEqual(session.snapshot().assignments[1], 'A')
         self.host.persist_context.assert_called_once_with(self.context, session)
-        self.host.finish_page_attempt.assert_not_called()
+        self.attempts.finish_page_attempt.assert_not_called()
         self.host.show_action_error.assert_not_called()
-        self.assertEqual(self.host.active_scans, {})
+        self.assertEqual(self.lifecycle.active_scans, {})
         self.assertEqual(self.events, ['acquire', 'release'])
 
     def test_a_launch_cancelled_before_start_cancels_a_page_attempt(self):
@@ -713,7 +693,7 @@ class EntryTests(ScanLifecycleTestCase):
         thread.start.assert_not_called()
         token = self.page_token()
         self.assertFalse(session.is_active(token))
-        self.host.finish_page_attempt.assert_called_once_with(
+        self.attempts.finish_page_attempt.assert_called_once_with(
             self.action, 7, 'cancelled', 'Scan cancelled', session=session, token=token)
         self.host.persist_context.assert_not_called()
         self.assertEqual(self.events, ['acquire', 'release'])
@@ -734,7 +714,7 @@ class EntryTests(ScanLifecycleTestCase):
         self.assertEqual(self.exception_messages(), ['Unable to start stratagem scan'])
         self.host.show_action_error.assert_called_once_with(self.action)
         self.assertEqual(self.host.redraw.call_args_list[-1].args, (self.context,))
-        self.assertEqual(self.host.active_scans, {})
+        self.assertEqual(self.lifecycle.active_scans, {})
         self.assertEqual(self.events, ['acquire', 'release'])
 
     def test_a_worker_that_cannot_start_fails_a_page_attempt(self):
@@ -742,7 +722,7 @@ class EntryTests(ScanLifecycleTestCase):
         self.launch_failure()
         token = self.page_token()
         self.assertFalse(session.is_active(token))
-        attempt = self.host.finish_page_attempt.call_args
+        attempt = self.attempts.finish_page_attempt.call_args
         self.assertEqual(attempt.args[:3], (self.action, 7, 'failed'))
         self.assertEqual(str(attempt.args[3]), 'thread unavailable')
         self.assertEqual(attempt.kwargs, {'session': session, 'token': token})

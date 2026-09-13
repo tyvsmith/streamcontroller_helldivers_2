@@ -27,8 +27,8 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
             session = self.coordinator.session(a)
             token = session.begin([1])
             session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
-            self.coordinator.persist(a, session)
-            self.coordinator.disconnect(a)
+            self.coordinator.registry.persist(a, session)
+            self.coordinator.deck_disconnected(a.deck_controller)
             a.deck_controller = type(self.deck)()
             restored = self.coordinator.session(a).snapshot()
             self.assertEqual(restored.assignments[1], 'A')
@@ -55,7 +55,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
             token = session.begin([1])
             session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
             with patch.object(self.coordinator.store, 'save', side_effect=OSError('disk full')):
-                self.coordinator.persist(a, session)
+                self.coordinator.registry.persist(a, session)
             self.assertEqual(session.snapshot().assignments[1], 'A')
             self.assertEqual(session.snapshot().status, 'ready')
             self.assertIn('disk full', self.coordinator.state_errors[self.coordinator.context(a)])
@@ -68,7 +68,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         session = self.coordinator.session(original)
         token = session.begin([1])
         session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
-        self.coordinator.persist(original, session)
+        self.coordinator.registry.persist(original, session)
         before = session.checkpoint()
         source_state = self.coordinator.store.path(self.coordinator.identity(original))
         source_bytes = source_state.read_bytes()
@@ -236,7 +236,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         back.get_settings.return_value = {'group': 'HD2'}
         self.coordinator.back(back)
         events = []
-        delete = self.coordinator.delete_cached_page
+        delete = self.coordinator.page_flow.delete_cached_page
 
         def preflight(*args, **kwargs):
             events.append(('preflight', args, kwargs))
@@ -252,7 +252,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         with patch.object(self.mod.scan_lifecycle, 'Thread') as thread, \
              patch.object(self.mod.scan_lifecycle, 'check_scan_setup', create=True,
                           side_effect=preflight), \
-             patch.object(self.coordinator, 'delete_cached_page',
+             patch.object(self.coordinator.page_flow, 'delete_cached_page',
                           side_effect=delete_cached), \
              patch.object(self.mod.scan_lifecycle, 'run_scan', side_effect=scan), \
              patch.object(self.mod.scan_lifecycle.GLib, 'idle_add',
@@ -1181,7 +1181,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         source = self.coordinator.session(launcher)
         token = source.begin({1: 'any'})
         source.finish(token, {'status': 'partial', 'rows': [{'id': 'A'}, {'id': None}]}, self.plugin.stratagems)
-        self.coordinator.persist(launcher, source)
+        self.coordinator.registry.persist(launcher, source)
         self.synchronous_scan(launcher, {'status': 'partial', 'rows': [{'id': 'A'}, {'id': None}]})
         path = self.deck.active_page.json_path
         scan = self.temporary_scan_action(path)
@@ -1245,7 +1245,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         source = self.coordinator.session(launcher)
         token = source.begin({1: 'any'})
         source.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]}, self.plugin.stratagems)
-        self.coordinator.persist(launcher, source)
+        self.coordinator.registry.persist(launcher, source)
         self.synchronous_scan(launcher, {'status': 'matched', 'rows': [{'id': 'A'}]})
         path = self.deck.active_page.json_path
         back = self.action(); back.page = types.SimpleNamespace(json_path=path)
@@ -1298,7 +1298,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         token = source.begin({1: 'any'})
         source.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
                       self.plugin.stratagems)
-        self.coordinator.persist(launcher, source)
+        self.coordinator.registry.persist(launcher, source)
         self.synchronous_scan(launcher, {'status': 'matched', 'rows': [{'id': 'A'}]})
         path = self.deck.active_page.json_path
         back = self.action(); back.page = types.SimpleNamespace(json_path=path)
@@ -1397,7 +1397,7 @@ class ActionPageTests(ActionTestHarness, unittest.TestCase):
         with patch.object(self.coordinator.temporary_pages, 'show',
                           side_effect=RuntimeError('load failed')):
             with self.assertRaisesRegex(RuntimeError, 'load failed'):
-                self.coordinator.open_temporary(launcher, replacement)
+                self.coordinator.page_flow.open_temporary(launcher, replacement)
 
         self.assertTrue(Path(path).exists())
         self.assertIs(self.coordinator.sessions[context], previous_session)

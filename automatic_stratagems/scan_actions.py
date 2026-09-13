@@ -12,7 +12,6 @@ from . import generated_page_flow
 from .generated_page_flow import (
     capture_backend, image_page_settings as _image_page_settings,
 )
-from . import page_attempts
 from .page_attempts import ScanAttempt
 from . import scan_lifecycle
 from .scan_lifecycle import SHUTDOWN_TIMEOUT_SECONDS, scan_mode
@@ -122,23 +121,6 @@ class ScanCoordinator:
         return ScanOperation.action_presentation_is_active(
             action, context, clear_stale=True)
 
-    @staticmethod
-    def begin_page_attempt(action):
-        return page_attempts.begin_page_attempt(action)
-
-    @staticmethod
-    def bind_page_attempt(action, attempt_id, session, token):
-        return page_attempts.bind_page_attempt(action, attempt_id, session, token)
-
-    @staticmethod
-    def finish_page_attempt(action, attempt_id, status, message,
-                            *, session=None, token=None):
-        return page_attempts.finish_page_attempt(
-            action, attempt_id, status, message, session=session, token=token)
-
-    def cancel_page_attempt(self, context, session):
-        page_attempts.cancel_page_attempt(self._attached_actions(), context, session)
-
     def settings_changed(self):
         if not self.enabled:
             self.cancel_all()
@@ -178,15 +160,6 @@ class ScanCoordinator:
     def session_for(self, context):
         return self.registry.session_for(context)
 
-    def context_identity(self, context):
-        return self.registry.context_identity(context)
-
-    def slot_filters(self, context, session):
-        return self.reconciler.slot_filters(context, session)
-
-    def persist(self, action, session):
-        self.registry.persist(action, session)
-
     def persist_context(self, context, session):
         self.registry.persist_context(context, session)
 
@@ -200,33 +173,14 @@ class ScanCoordinator:
         self.persist_context(context, session)
         self.redraw(context)
 
-    def page_result(self, action, report, colors, *, replace_path=None):
-        return self.page_flow.page_result(
-            action, report, colors, replace_path=replace_path)
-
-    def write_state(self, identity, session):
-        self.registry.write_state(identity, session)
-
-    def _cached_image_source_matches(self, action, path):
-        return self.page_flow._cached_image_source_matches(action, path)
-
     def is_temporary_action(self, action):
         return self.page_flow.is_temporary_action(action)
-
-    def _operation_image_settings(self, action):
-        return self.page_flow._operation_image_settings(action)
-
-    def open_temporary(self, action, session, *, replace_path=None):
-        return self.page_flow.open_temporary(action, session, replace_path=replace_path)
 
     def back(self, action):
         return self.page_flow.back(action)
 
     def cached_page(self, action):
         return self.page_flow.cached_page(action)
-
-    def _restore_cached_session(self, source, source_action):
-        return self.page_flow._restore_cached_session(source, source_action)
 
     def open_cached_page(self, action):
         return self.page_flow.open_cached_page(action)
@@ -244,9 +198,6 @@ class ScanCoordinator:
     def deck_disconnected(self, deck):
         return self.lifecycle.deck_disconnected(deck)
 
-    def disconnect(self, action):
-        return self.lifecycle.disconnect(action)
-
     def remove_action(self, action):
         return self.lifecycle.remove_action(action)
 
@@ -258,12 +209,6 @@ class ScanCoordinator:
         if isinstance(action, AutomaticStratagem):
             self.reconcile_action(action)
 
-    def configured_filters(self, context):
-        return self.reconciler.configured_filters(context)
-
-    def _configured_filters(self, context):
-        return self.reconciler._configured_filters(context)
-
     def reconcile_action(self, action, *, old_context=None, old_slot=None):
         self.reconciler.reconcile_action(
             action, old_context=old_context, old_slot=old_slot)
@@ -273,22 +218,6 @@ class ScanCoordinator:
 
     def page_changed(self, controller, old_path, new_path):
         return self.lifecycle.page_changed(controller, old_path, new_path)
-
-    def _complete_scan_operation(self, operation):
-        return self.lifecycle._complete_scan_operation(operation)
-
-    def _prepare_scan_operation(self, action, operation, *, replace, regenerate):
-        return self.lifecycle._prepare_scan_operation(
-            action, operation, replace=replace, regenerate=regenerate)
-
-    def _apply_scan_result(self, action, operation, report, error, colors=None):
-        return self.lifecycle._apply_scan_result(action, operation, report, error, colors)
-
-    def _continue_after_preflight(self, action, operation):
-        return self.lifecycle._continue_after_preflight(action, operation)
-
-    def _run_scan_worker(self, action, operation):
-        return self.lifecycle._run_scan_worker(action, operation)
 
     def start(self, action, *, replace=False, regenerate=False):
         return self.lifecycle.start(action, replace=replace, regenerate=regenerate)

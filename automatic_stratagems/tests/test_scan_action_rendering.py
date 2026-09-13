@@ -46,7 +46,7 @@ class ActionRenderingTests(ActionTestHarness, unittest.TestCase):
     def test_cache_lookup_error_does_not_start_another_scan(self):
         action = self.rendering_action(self.mod.AutomaticStratagemPage)
         action.show_error = Mock()
-        self.coordinator.cached_page = Mock(side_effect=PermissionError('unreadable'))
+        self.coordinator.page_flow.cached_page = Mock(side_effect=PermissionError('unreadable'))
         self.coordinator.start = Mock()
         action.on_key_down()
         action.on_key_short_up()
@@ -467,7 +467,7 @@ class ActionRenderingTests(ActionTestHarness, unittest.TestCase):
         token = source.begin([1])
         source.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}]},
                       self.plugin.stratagems)
-        self.coordinator.persist(launcher, source)
+        self.coordinator.registry.persist(launcher, source)
         self.synchronous_scan(launcher, {'status': 'matched', 'rows': [{'id': 'A'}]})
         scan = self.temporary_scan_action(self.deck.active_page.json_path)
         other = self.action()

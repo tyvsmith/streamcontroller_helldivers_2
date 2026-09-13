@@ -46,7 +46,7 @@ class GeneratedPageFlow:
         token = result.begin(range(1, rows * columns - 1))
         result.finish(token, report, self.coordinator.plugin.stratagems, colors)
         if result.snapshot().recognized:
-            self.coordinator.open_temporary(action, result, replace_path=replace_path)
+            self.open_temporary(action, result, replace_path=replace_path)
         return result.snapshot()
 
     def _cached_image_source_matches(self, action, path):
@@ -80,7 +80,7 @@ class GeneratedPageFlow:
         source_action = source_action_address(action)
         path = self.temporary_pages.find(deck, source, group, source_action)
         if (path is not None and replace_path is None
-                and self.coordinator._cached_image_source_matches(action, path)):
+                and self._cached_image_source_matches(action, path)):
             self.coordinator.session_for((deck, path, group))
             self.temporary_pages.show(deck, path)
             return
@@ -94,7 +94,7 @@ class GeneratedPageFlow:
         context = deck, path, group
         try:
             self.coordinator.sessions[context] = session
-            self.coordinator.write_state(
+            self.coordinator.registry.write_state(
                 dict(deck=deck.serial_number(), page=path, group=group), session)
             self.temporary_pages.show(deck, path)
             if replace_path is not None:
@@ -129,7 +129,7 @@ class GeneratedPageFlow:
         deck, source, group = self.coordinator.context(action)
         path = self.temporary_pages.find(
             deck, source, group, source_action_address(action))
-        if path is not None and not self.coordinator._cached_image_source_matches(action, path):
+        if path is not None and not self._cached_image_source_matches(action, path):
             return None
         if path is not None:
             self.coordinator.session_for((deck, path, group))
@@ -147,7 +147,7 @@ class GeneratedPageFlow:
     def open_cached_page(self, action):
         if self.coordinator.closed or not self.coordinator.enabled or not action.get_is_present():
             return False
-        path = self.coordinator.cached_page(action)
+        path = self.cached_page(action)
         if path is None:
             return False
         self.temporary_pages.show(action.deck_controller, path)
@@ -162,7 +162,7 @@ class GeneratedPageFlow:
                      or self.coordinator.active_scans.get(source) is not preserve_operation)):
             self.coordinator.cancel_context(source)
         source_action = source_action_address(action)
-        path = self.coordinator._restore_cached_session(source, source_action)
+        path = self._restore_cached_session(source, source_action)
         if path is None:
             return False
         context = source[0], path, source[2]

@@ -34,7 +34,7 @@ class Host:
         self.closed = False
         self.enabled = True
         self.store = types.SimpleNamespace(directory=Path('/state/scan-state'))
-        self.write_state = Mock()
+        self.registry = types.SimpleNamespace(write_state=Mock())
         self.cancel_context = Mock()
         self.redraw = Mock()
         self.flow = mod.GeneratedPageFlow(self)
@@ -45,18 +45,6 @@ class Host:
 
     def session_for(self, context):
         return self.sessions.setdefault(context, 'restored')
-
-    def cached_page(self, action):
-        return self.flow.cached_page(action)
-
-    def open_temporary(self, action, session, *, replace_path=None):
-        return self.flow.open_temporary(action, session, replace_path=replace_path)
-
-    def _cached_image_source_matches(self, action, path):
-        return self.flow._cached_image_source_matches(action, path)
-
-    def _restore_cached_session(self, source, source_action):
-        return self.flow._restore_cached_session(source, source_action)
 
 
 class GeneratedPageFlowTestCase(unittest.TestCase):
@@ -185,7 +173,7 @@ class CachedPageTests(GeneratedPageFlowTestCase):
 
     def test_opening_a_cached_page_requires_an_enabled_present_action(self):
         action = self.action()
-        self.host.cached_page = Mock(return_value=CACHED)
+        self.host.flow.cached_page = Mock(return_value=CACHED)
         for attribute, value in (('closed', True), ('enabled', False)):
             with self.subTest(attribute=attribute):
                 setattr(self.host, attribute, value)
@@ -193,15 +181,15 @@ class CachedPageTests(GeneratedPageFlowTestCase):
                 setattr(self.host, attribute, not value)
         action.get_is_present = lambda: False
         self.assertFalse(self.host.flow.open_cached_page(action))
-        self.host.cached_page.assert_not_called()
+        self.host.flow.cached_page.assert_not_called()
 
     def test_opening_a_cached_page_shows_it_through_the_coordinator_lookup(self):
         action = self.action()
-        self.host.cached_page = Mock(return_value=None)
+        self.host.flow.cached_page = Mock(return_value=None)
         self.assertFalse(self.host.flow.open_cached_page(action))
-        self.host.cached_page.return_value = CACHED
+        self.host.flow.cached_page.return_value = CACHED
         self.assertTrue(self.host.flow.open_cached_page(action))
-        self.host.cached_page.assert_called_with(action)
+        self.host.flow.cached_page.assert_called_with(action)
         self.pages.show.assert_called_once_with(self.deck, CACHED)
 
 
@@ -233,21 +221,21 @@ class BackTests(GeneratedPageFlowTestCase):
 class OpenTemporaryTests(GeneratedPageFlowTestCase):
     def test_a_recognized_report_seeds_a_separate_page_session(self):
         action = self.action()
-        self.host.open_temporary = Mock()
+        self.host.flow.open_temporary = Mock()
         report = {'status': 'matched', 'rows': [{'id': 'A'}]}
         snapshot = self.host.flow.page_result(action, report, {}, replace_path=CACHED)
         self.assertEqual(snapshot.assignments[1], 'A')
         self.assertEqual(len(snapshot.assignments), 13)
-        session = self.host.open_temporary.call_args.args[1]
+        session = self.host.flow.open_temporary.call_args.args[1]
         self.assertIsInstance(session, self.mod.ScanSession)
-        self.host.open_temporary.assert_called_once_with(action, session, replace_path=CACHED)
+        self.host.flow.open_temporary.assert_called_once_with(action, session, replace_path=CACHED)
 
     def test_an_unrecognized_report_opens_no_page(self):
-        self.host.open_temporary = Mock()
+        self.host.flow.open_temporary = Mock()
         snapshot = self.host.flow.page_result(
             self.action(), {'status': 'matched', 'rows': [{'id': None}]}, {})
         self.assertFalse(snapshot.recognized)
-        self.host.open_temporary.assert_not_called()
+        self.host.flow.open_temporary.assert_not_called()
 
     def test_a_matching_cached_page_is_reopened_without_replacing_its_session(self):
         action = self.action()
@@ -265,7 +253,7 @@ class OpenTemporaryTests(GeneratedPageFlowTestCase):
             self.deck, SOURCE, 'HD2', 'auto', 'address',
             image_settings=self.mod.image_page_settings(action))
         self.assertEqual(self.host.sessions, {(self.deck, NEW, 'HD2'): 'page session'})
-        self.host.write_state.assert_called_once_with(
+        self.host.registry.write_state.assert_called_once_with(
             dict(deck='deck-one', page=NEW, group='HD2'), 'page session')
         self.pages.show.assert_called_once_with(self.deck, NEW)
         self.pages.discard.assert_not_called()
@@ -293,7 +281,7 @@ class OpenTemporaryTests(GeneratedPageFlowTestCase):
         self.pages.create.assert_not_called()
 
     def test_a_failed_new_page_is_removed_while_the_source_stays_active(self):
-        self.host.write_state.side_effect = OSError('disk full')
+        self.host.registry.write_state.side_effect = OSError('disk full')
         with self.assertRaisesRegex(OSError, 'disk full'):
             self.host.flow.open_temporary(self.action(), 'page session')
         self.assertEqual(self.host.sessions, {})

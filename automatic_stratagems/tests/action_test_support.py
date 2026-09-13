@@ -40,7 +40,7 @@ class ActionTestHarness:
         return a
 
     def operation_source(self, action, *, allow_rescan=False):
-        settings = self.coordinator._operation_image_settings(action)
+        settings = self.coordinator.page_flow._operation_image_settings(action)
         return self.mod.scan_lifecycle.operation_source(
             settings, allow_rescan=allow_rescan)
 

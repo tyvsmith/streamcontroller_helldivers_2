@@ -116,7 +116,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
 
     def test_persistence_failure_after_begin_releases_input(self):
         action = self.action()
-        with patch.object(self.coordinator, 'persist', side_effect=RuntimeError('write failed')):
+        with patch.object(self.coordinator.registry, 'persist', side_effect=RuntimeError('write failed')):
             self.coordinator.start(action)
         self.assertFalse(self.plugin.input_lock.locked())
         self.assertNotEqual(self.coordinator.session(action).snapshot().status, 'scanning')
@@ -251,7 +251,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.actions.add(action)
         entered = threading.Event()
         resume = threading.Event()
-        original_persist = self.coordinator.persist
+        original_persist = self.coordinator.registry.persist
 
         def blocked_persist(*args):
             entered.set()
@@ -259,7 +259,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
             original_persist(*args)
 
         scanner_thread = Mock()
-        with patch.object(self.coordinator, 'persist', side_effect=blocked_persist), \
+        with patch.object(self.coordinator.registry, 'persist', side_effect=blocked_persist), \
              patch.object(self.mod.scan_lifecycle, 'Thread', return_value=scanner_thread):
             setup = threading.Thread(target=self.coordinator.start, args=(action,),
                                      kwargs={'replace': True})
@@ -280,7 +280,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
         self.coordinator.actions.add(action)
         entered = threading.Event()
         resume = threading.Event()
-        original_persist = self.coordinator.persist
+        original_persist = self.coordinator.registry.persist
 
         def blocked_persist(*args):
             entered.set()
@@ -289,7 +289,7 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
 
         scanner_thread = Mock()
         result = []
-        with patch.object(self.coordinator, 'persist', side_effect=blocked_persist), \
+        with patch.object(self.coordinator.registry, 'persist', side_effect=blocked_persist), \
              patch.object(self.mod.scan_lifecycle, 'Thread', return_value=scanner_thread):
             setup = threading.Thread(target=self.coordinator.start, args=(action,),
                                      kwargs={'replace': True})

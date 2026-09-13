@@ -48,7 +48,7 @@ class ReplayLifecycleTests(ActionTestHarness, unittest.TestCase):
         token = source_session.begin([99])
         source_session.finish(token, {'status': 'matched', 'rows': [{'id': 'MachineGun'}]},
                               self.plugin.stratagems)
-        self.coordinator.persist(self.opener, source_session)
+        self.coordinator.registry.persist(self.opener, source_session)
         self.source_state = self.coordinator.store.path(self.coordinator.identity(self.opener))
         self.source_state_bytes = self.source_state.read_bytes()
         self.queued = Queue()
@@ -156,7 +156,7 @@ class ReplayLifecycleTests(ActionTestHarness, unittest.TestCase):
         state = ScanSession()
         token = state.begin([1])
         state.finish(token, {'status': 'matched', 'rows': [{'id': 'Reinforce'}]}, self.plugin.stratagems)
-        self.coordinator.write_state(identity, state)
+        self.coordinator.registry.write_state(identity, state)
         page_bytes = Path(cached).read_bytes()
         state_bytes = self.coordinator.store.path(identity).read_bytes()
         before = self.coordinator.session(self.opener).checkpoint()
