@@ -14,6 +14,12 @@ class RecognitionCache:
     """Callers provide a matcher/catalog fingerprint and cache only trusted results."""
 
     def __init__(self, directory, fingerprint, *, max_entries=512, max_entry_bytes=65536):
+        """Open or create the on-disk cache; corrupt or unwritable storage disables it.
+
+        available is False when the directory or table cannot be created; while
+        unavailable every get returns None and counts a miss, and put does nothing.
+        Later write failures are swallowed.
+        """
         self.path = Path(directory) / 'recognition.sqlite3'
         self.fingerprint = fingerprint
         self.max_entries = max(1, max_entries)
@@ -34,6 +40,7 @@ class RecognitionCache:
             pass
 
     def _connect(self):
+        """Open a new short-timeout connection to the cache database."""
         return sqlite3.connect(self.path, timeout=.1)
 
     def key(self, input_bytes, context):
@@ -45,11 +52,16 @@ class RecognitionCache:
         return digest.hexdigest()
 
     def info(self):
+        """Return a diagnostics snapshot: availability, path, and hit/miss counts."""
         with self.lock:
             return {'available': self.available, 'path': str(self.path),
                     'hits': self.hits, 'misses': self.misses}
 
     def get(self, key):
+        """Look up key, counting the result as a hit or a miss.
+
+        Returns the cached dict, or None when unavailable, absent, or malformed.
+        """
         with self.lock:
             result = self._get(key)
             if result is None:
@@ -59,6 +71,11 @@ class RecognitionCache:
             return result
 
     def _get(self, key):
+        """Read and validate one cached entry, treating any failure as absent.
+
+        Returns None when the cache is unavailable, the key is missing, or the stored
+        JSON is malformed, oversized, or not a dict.
+        """
         if not self.available:
             return None
         try:
@@ -72,6 +89,12 @@ class RecognitionCache:
             return None
 
     def put(self, key, result):
+        """Store result under key, evicting the oldest entries beyond max_entries.
+
+        Does nothing when the cache is unavailable, result is not a dict, or the
+        serialized payload exceeds max_entry_bytes. The insert and eviction run as one
+        transaction, so an eviction failure rolls back the whole write.
+        """
         if not self.available or not isinstance(result, dict):
             return
         try:
