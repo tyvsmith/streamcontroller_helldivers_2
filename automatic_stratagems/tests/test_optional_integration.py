@@ -237,22 +237,23 @@ class OptionalIntegrationTests(unittest.TestCase):
 
     def test_global_screenshot_rows_default_to_hotkey_steam_folder_and_delete(self):
         module, plugin = self.import_without_automatic_actions()
+        rows = self.feature_namespace(plugin._automatic_integration)['settings_rows']
         plugin.get_settings = lambda: {}
         plugin.scan_coordinator = Mock()
         section, trigger = Mock(), Mock()
         hotkey, script, folder = Mock(), Mock(), Mock()
         delete, browse, help_row = Mock(), Mock(), Mock()
-        module.Gtk.StringList.new.reset_mock()
-        with patch.object(module.Adw, 'ExpanderRow', return_value=section), \
-             patch.object(module.Adw, 'ComboRow', return_value=trigger), \
-             patch.object(module.Adw, 'EntryRow',
+        rows.Gtk.StringList.new.reset_mock()
+        with patch.object(rows.Adw, 'ExpanderRow', return_value=section), \
+             patch.object(rows.Adw, 'ComboRow', return_value=trigger), \
+             patch.object(rows.Adw, 'EntryRow',
                           side_effect=[hotkey, script, folder]), \
-             patch.object(module.Adw, 'SwitchRow', return_value=delete), \
-             patch.object(module.Adw, 'ActionRow', return_value=help_row), \
-             patch.object(module.Gtk, 'Button', return_value=browse):
+             patch.object(rows.Adw, 'SwitchRow', return_value=delete), \
+             patch.object(rows.Adw, 'ActionRow', return_value=help_row), \
+             patch.object(rows.Gtk, 'Button', return_value=browse):
             self.assertIs(plugin._automatic_integration._screenshot_row(), section)
 
-        module.Gtk.StringList.new.assert_called_once_with(['Hotkey', 'Script'])
+        rows.Gtk.StringList.new.assert_called_once_with(['Hotkey', 'Script'])
         trigger.set_selected.assert_called_once_with(0)
         hotkey.set_text.assert_called_once_with('KEY_F12')
         hotkey.set_visible.assert_called_once_with(True)
@@ -264,16 +265,17 @@ class OptionalIntegrationTests(unittest.TestCase):
 
     def test_global_screenshot_rows_reopen_with_only_script_field_visible(self):
         module, plugin = self.import_without_automatic_actions()
+        rows = self.feature_namespace(plugin._automatic_integration)['settings_rows']
         plugin.get_settings = lambda: {'screenshot_trigger': 'script'}
         plugin.scan_coordinator = Mock()
         hotkey, script, folder = Mock(), Mock(), Mock()
-        with patch.object(module.Adw, 'ExpanderRow', return_value=Mock()), \
-             patch.object(module.Adw, 'ComboRow', return_value=Mock()), \
-             patch.object(module.Adw, 'EntryRow',
+        with patch.object(rows.Adw, 'ExpanderRow', return_value=Mock()), \
+             patch.object(rows.Adw, 'ComboRow', return_value=Mock()), \
+             patch.object(rows.Adw, 'EntryRow',
                           side_effect=[hotkey, script, folder]), \
-             patch.object(module.Adw, 'SwitchRow', return_value=Mock()), \
-             patch.object(module.Adw, 'ActionRow', return_value=Mock()), \
-             patch.object(module.Gtk, 'Button', return_value=Mock()):
+             patch.object(rows.Adw, 'SwitchRow', return_value=Mock()), \
+             patch.object(rows.Adw, 'ActionRow', return_value=Mock()), \
+             patch.object(rows.Gtk, 'Button', return_value=Mock()):
             plugin._automatic_integration._screenshot_row()
         hotkey.set_visible.assert_called_once_with(False)
         script.set_visible.assert_called_once_with(True)
@@ -295,13 +297,13 @@ class OptionalIntegrationTests(unittest.TestCase):
             'value', value)
         delete, browse, help_row = Mock(), Mock(), Mock()
         dialog = Mock()
-        with patch.object(module.Adw, 'ExpanderRow', return_value=section), \
-             patch.object(module.Adw, 'ComboRow', return_value=trigger), \
-             patch.object(module.Adw, 'EntryRow',
+        with patch.object(settings_rows.Adw, 'ExpanderRow', return_value=section), \
+             patch.object(settings_rows.Adw, 'ComboRow', return_value=trigger), \
+             patch.object(settings_rows.Adw, 'EntryRow',
                           side_effect=[hotkey, script, folder]), \
-             patch.object(module.Adw, 'SwitchRow', return_value=delete), \
-             patch.object(module.Adw, 'ActionRow', return_value=help_row), \
-             patch.object(module.Gtk, 'Button', return_value=browse), \
+             patch.object(settings_rows.Adw, 'SwitchRow', return_value=delete), \
+             patch.object(settings_rows.Adw, 'ActionRow', return_value=help_row), \
+             patch.object(settings_rows.Gtk, 'Button', return_value=browse), \
              patch.object(settings_rows.Gtk, 'FileDialog') as file_dialog_cls, \
              patch.object(settings_rows.Gio, 'File') as gio_file_cls:
             file_dialog_cls.new.return_value = dialog
@@ -339,13 +341,13 @@ class OptionalIntegrationTests(unittest.TestCase):
             'value', value)
         delete, browse, help_row = Mock(), Mock(), Mock()
         dialog = Mock()
-        with patch.object(module.Adw, 'ExpanderRow', return_value=section), \
-             patch.object(module.Adw, 'ComboRow', return_value=trigger), \
-             patch.object(module.Adw, 'EntryRow',
+        with patch.object(settings_rows.Adw, 'ExpanderRow', return_value=section), \
+             patch.object(settings_rows.Adw, 'ComboRow', return_value=trigger), \
+             patch.object(settings_rows.Adw, 'EntryRow',
                           side_effect=[hotkey, script, folder]), \
-             patch.object(module.Adw, 'SwitchRow', return_value=delete), \
-             patch.object(module.Adw, 'ActionRow', return_value=help_row), \
-             patch.object(module.Gtk, 'Button', return_value=browse), \
+             patch.object(settings_rows.Adw, 'SwitchRow', return_value=delete), \
+             patch.object(settings_rows.Adw, 'ActionRow', return_value=help_row), \
+             patch.object(settings_rows.Gtk, 'Button', return_value=browse), \
              patch.object(settings_rows.Gtk, 'FileDialog') as file_dialog_cls, \
              patch.object(settings_rows.Gio, 'File') as gio_file_cls:
             file_dialog_cls.new.return_value = dialog
@@ -366,12 +368,13 @@ class OptionalIntegrationTests(unittest.TestCase):
 
     def test_automatic_row_shows_compatibility_error_and_disables_switch(self):
         module, plugin = self.import_without_automatic_actions()
+        rows = self.feature_namespace(plugin._automatic_integration)['settings_rows']
         integration = plugin._automatic_integration
         integration.coordinator = Mock(
             enabled=False, compatibility_error='chooser unsupported')
         row = Mock()
 
-        with patch.object(module.Adw, 'SwitchRow', return_value=row) as switch_row:
+        with patch.object(rows.Adw, 'SwitchRow', return_value=row) as switch_row:
             result = integration._automatic_row()
 
         self.assertIs(result, row)
@@ -385,11 +388,12 @@ class OptionalIntegrationTests(unittest.TestCase):
 
     def test_automatic_row_defaults_active_and_sensitive_without_error(self):
         module, plugin = self.import_without_automatic_actions()
+        rows = self.feature_namespace(plugin._automatic_integration)['settings_rows']
         integration = plugin._automatic_integration
         integration.coordinator = Mock(enabled=True, compatibility_error=None)
         row = Mock()
 
-        with patch.object(module.Adw, 'SwitchRow', return_value=row) as switch_row:
+        with patch.object(rows.Adw, 'SwitchRow', return_value=row) as switch_row:
             integration._automatic_row()
 
         self.assertIn(
@@ -400,6 +404,7 @@ class OptionalIntegrationTests(unittest.TestCase):
 
     def test_workers_row_shows_current_worker_count_and_saves_changes(self):
         module, plugin = self.import_without_automatic_actions()
+        rows = self.feature_namespace(plugin._automatic_integration)['settings_rows']
         plugin.get_settings = lambda: {'scan_workers': 5}
         saved = {}
         plugin.set_settings = lambda updated: saved.update(updated)
@@ -408,9 +413,9 @@ class OptionalIntegrationTests(unittest.TestCase):
         integration.scan_workers = lambda value: value
 
         row, spin = Mock(), Mock()
-        with patch.object(module.Adw, 'ActionRow', return_value=row), \
-             patch.object(module.Gtk, 'Adjustment') as adjustment_cls, \
-             patch.object(module.Gtk, 'SpinButton', return_value=spin):
+        with patch.object(rows.Adw, 'ActionRow', return_value=row), \
+             patch.object(rows.Gtk, 'Adjustment') as adjustment_cls, \
+             patch.object(rows.Gtk, 'SpinButton', return_value=spin):
             self.assertIs(integration._workers_row(), row)
 
         adjustment_cls.assert_called_once_with(
