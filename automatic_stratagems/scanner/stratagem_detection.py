@@ -268,6 +268,59 @@ def match_equipped(rgb, references, bank=None, *, fast_filter=True, executor=Non
     return result
 
 
+# Decision branches of _match_equipped, in evaluation order: eight decision values.
+# match_equipped can instead return an earlier cached result; it stores only results with an
+# id and no conflict.
+#
+# Scores. Component overlap: sum(min) / sum(max) of each of the two detail silhouettes (white
+# glyph, largest colored part) against a candidate. Shape: the mean of the two overlaps, which
+# ranks `shapes`. Correlation: the best TM_CCOEFF_NORMED of the features over 13 template sizes
+# from .50 to .89 of the tile width, which ranks `correlation`. Margin: rank 1 minus rank 2.
+#
+# | # | decision                | id                          | conflict       | evidence      |
+# |---|-------------------------|-----------------------------|----------------|---------------|
+# | 1 | insufficient_candidates | None                        | False          | none          |
+# | 2 | silhouette_verified     | top shape key               | False          | shortlist, D  |
+# | 3 | threshold               | the vote, if votes agree    | votes disagree | feature, D    |
+# | 4 | near_exact_consensus    | best correlation key        | False          | feature, D    |
+# | 5 | discriminating_details  | top shape key               | False          | feature, D    |
+# | 6 | component_consensus     | best correlation key        | False          | feature, D    |
+# | 7 | component_conflict      | None                        | True           | feature, D    |
+# | 8 | near_exact_component    | component winner K          | False          | feature, D    |
+#
+# Evidence: shortlist = shortlist_top3, feature = feature_top3, D = detail_top3 plus
+# detail_components for the top three shapes.
+#
+# 1. Fewer than two candidates; returns early. Every later margin needs a runner-up.
+# 2. Runs only when fast_filter is on, top shape >= .85, shape margin >= .15, and both of its
+#    overlaps >= .80. Correlates a shortlist: the 8 best shapes plus any key with an overlap
+#    >= .65. Returns when the best shortlist correlation is the top shape key, >= .93, with
+#    margin >= .10; otherwise its scores are reused below. Intent (comments): skip the full
+#    catalog for well-preserved glyphs, but keep shared-component rivals for conflict checks.
+# 3. Correlates the remaining candidates and starts decision "threshold". Correlation votes for
+#    its top key at >= .80 with margin >= .06; shape votes for its top key at >= .80 with
+#    margin >= .05. Rows 4, 5, 6 and the 7/8 block are one if/elif/else chain after the votes;
+#    whatever none of them replaces is returned here. Intent not documented.
+# 4. Best correlation >= .95, its residual (1 - score) <= .5 of the runner-up's, the same key
+#    tops shape, and top shape >= .85. Replaces the votes. Intent (comment): a near-exact fit
+#    can be decisive even among similar shield icons.
+# 5. Top shape key differs from the best correlation key, both top shape overlaps >= .84,
+#    shape margin >= .15, both best correlation key overlaps < .75, and the top shape key's
+#    correlation >= .70. Replaces the votes. Intent (comment): whole-icon alignment can favor
+#    a different weapon, so both localized components must refute it.
+# 6. No votes, best correlation >= .95, the same key tops shape, top shape >= .85, and both
+#    its overlaps >= .80. Each component's top overlap key wins at >= .80 with margin >= .05;
+#    accepts only when the winners are exactly the best key. If they are not, the result stays
+#    "threshold" with id None and rows 7-8 are not evaluated. Intent (comment): shared shapes
+#    dilute a distinctive badge's margin, so one decisive, uncontested component is required.
+# 7-8. Only when rows 4-6 do not match. Per component, a zero-mean correlation winner at >= .95
+#    and an overlap winner at >= .80, each with margin >= .05, must be the same single key K.
+#    K is corroborated when it tops shape, top shape >= .85, both K overlaps >= .80, and K's
+#    correlation >= .80. Otherwise the votes from row 3 stand.
+# 7. Corroborated and votes exist that are not all K: K is added, making a conflict. Intent not
+#    documented.
+# 8. Corroborated, no votes, and best correlation minus K's correlation < .06: accepts K.
+#    Intent not documented.
 def _match_equipped(width, features, details, references, bank, *, fast_filter, executor):
     shapes, components = [], {}
     for key, _, reference in references:
