@@ -105,6 +105,11 @@ def check_capture_setup(backend, cancel_event=None):
 
 
 def rectangle(value):
+    """Parse an argparse value as a normalized "x,y,width,height" rectangle.
+
+    Raises argparse.ArgumentTypeError unless all four values are finite and
+    the box fits within the 0..1 unit square.
+    """
     try:
         parts = [float(n) for n in value.split(",")]
         if len(parts) != 4 or not all(math.isfinite(n) for n in parts):
@@ -118,15 +123,21 @@ def rectangle(value):
 
 
 def _check_work_deadline(deadline):
+    """Raise ScanError once the monotonic deadline has passed. None disables the check."""
     if deadline is not None and time.monotonic() >= deadline:
         raise ScanError('Scanner work deadline exhausted.')
 
 
 def pixel_rectangle(im, normalized):
+    """Convert a normalized (x, y, width, height) box to rounded pixel coordinates for im."""
     return [round(n * size) for n, size in zip(normalized, (im.width, im.height, im.width, im.height))]
 
 
 def load_replay_image(path):
+    """Read and decode a replay image file.
+
+    Raises ScanError if the encoded file exceeds MAX_ENCODED_IMAGE_BYTES or cannot be read.
+    """
     try:
         if path.stat().st_size > MAX_ENCODED_IMAGE_BYTES:
             raise ScanError('Replay encoded image is too large.')
@@ -163,6 +174,11 @@ def resolve_auto_mode(im):
 
 
 def _locate_selection(im, band):
+    """Locate the Ready bar and split its tiles into empty and occupied, in source pixels.
+
+    Detects the band when none is given. The returned geometry spans every tile,
+    empty tiles included.
+    """
     band = band or find_selection_band(im)
     boxes = selection_boxes(im, band)
     empty = [box for i, box in enumerate(boxes) if empty_tile(im, box, frame_occupancy=i < 7)]
@@ -172,6 +188,7 @@ def _locate_selection(im, band):
 
 
 def _match_selection_tiles(image, located, rows, *, entries, executor, cache, **_):
+    """Match occupied selection tiles against the icon catalog and attach each box to its row."""
     boxes = located["boxes"]
     rows = detect_icons(image, entries, located["geometry"].to_local(boxes),
                         executor=executor, cache=cache)
@@ -181,10 +198,12 @@ def _match_selection_tiles(image, located, rows, *, entries, executor, cache, **
 
 
 def _match_mission_icons(image, located, rows, *, entries, executor, cache, **_):
+    """Detect mission-menu stratagem icons in image."""
     return detect_mission_icons(image, entries, executor=executor, cache=cache)
 
 
 def _apply_mission_fallbacks(image, located, rows, *, entries, deadline, cancel_event, **_):
+    """Resolve rows still unmatched after icon detection by name and arrow-sequence evidence."""
     from .mission_fallbacks import apply_mission_fallbacks
     return apply_mission_fallbacks(image, rows, entries, deadline=deadline,
                                    cancel_event=cancel_event)
@@ -209,6 +228,14 @@ MISSION = ScanMode(
 
 def detect(im, mode, band=None, *, executor=None, cache=None, deadline=None,
            cancel_event=None):
+    """Run one scan mode over im and return a findings report.
+
+    mode "auto" resolves to "selection" or "mission" via resolve_auto_mode; any
+    other value that is not "selection" runs mission recognition regardless of
+    its name. band is a source-pixel Ready bar box that, when given, skips
+    Ready-bar detection for selection mode. Raises CancelledError once
+    cancel_event is set, and ScanError once deadline has passed.
+    """
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError()
     _check_work_deadline(deadline)
@@ -237,6 +264,7 @@ def detect(im, mode, band=None, *, executor=None, cache=None, deadline=None,
 
 
 def print_findings(report):
+    """Print a human-readable summary of a findings report to stdout."""
     print(f"{report['mode']} | {report['size'][0]}x{report['size'][1]} | "
           f"{report['status']} | {report['seconds']:.2f}s")
     if report.get("source", {}).get("backend"):
@@ -256,6 +284,11 @@ def print_findings(report):
 
 
 def annotation_box(im, report):
+    """Compute the source-pixel crop box that covers everything worth annotating.
+
+    Returns None when the report has no boxes to show. Widens each mission row's
+    box to include the name text drawn beside its icon.
+    """
     layout = report.get('layout', {})
     boxes = [row['box'] for row in report.get('rows', [])]
     boxes.extend(layout.get('empty_tiles', []))
@@ -276,6 +309,11 @@ def annotation_box(im, report):
 
 
 def write_debug(directory, im, report):
+    """Save the capture, per-tile normalized crops, an annotated crop, and findings.json.
+
+    Writes annotated.png and normalized-NN.png only when annotation_box finds
+    something to show. Mutates report with debug_annotation_box before saving it.
+    """
     im.save(directory / "capture.png", compress_level=1)
     box = annotation_box(im, report)
     report['debug_annotation_box'] = box
@@ -300,6 +338,7 @@ def write_debug(directory, im, report):
 
 
 def _reject_debug_symlinks(path):
+    """Return path's absolute form, raising ScanError if any existing ancestor is a symlink."""
     path = Path(os.path.abspath(path))
     current = Path(path.anchor)
     for part in path.parts[1:]:
@@ -314,6 +353,14 @@ def _reject_debug_symlinks(path):
 
 
 def prepare_debug_directory(path):
+    """Create or reuse a private debug directory for one scan run.
+
+    Creates path with mode 0700 if it does not exist. If path exists and holds a
+    valid '.hd2-scan-run.json' marker (a regular file naming this tool as owner,
+    status "open", version 1), reuses path as-is; otherwise returns a fresh
+    temporary child directory under it. Raises ScanError if path or an ancestor
+    is a symlink, or if path exists but is not a directory.
+    """
     path = _reject_debug_symlinks(path)
     try:
         path.mkdir(parents=True, mode=0o700, exist_ok=False)
@@ -349,6 +396,11 @@ def reuse_debug_images(source, destination):
 
 
 def main(argv=None):
+    """Parse CLI arguments, run one capture-and-scan cycle, and print or save findings.
+
+    Returns a process exit code: 0 for a matched report or a successful
+    --check-setup, 1 on error, 3 for partial, 4 for no_detections.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--capture-backend", choices=BACKENDS, default="auto")
     parser.add_argument('--workers', type=int, default=2, help='Parallel icon workers, 1–32 (default: 2; 1 disables parallel matching)')
@@ -400,6 +452,7 @@ def main(argv=None):
     previous_signals = {}
     try:
         def cancel_scan(_signum, _frame):
+            """Signal handler: mark the scan cancelled and unwind it immediately."""
             cancel_event.set()
             raise CancelledError()
         for signum in (signal.SIGTERM, signal.SIGINT):
@@ -430,6 +483,7 @@ def main(argv=None):
         if args.debug_dir:
             debug = prepare_debug_directory(args.debug_dir)
         def prepare(image):
+            """Crop to the configured viewport, if any, and reject an image too small to scan."""
             if args.viewport:
                 x, y, w, h = pixel_rectangle(image, args.viewport)
                 image = image.crop((x, y, x + w, y + h))
@@ -438,6 +492,10 @@ def main(argv=None):
             return image
 
         def recognize(image):
+            """Run detect on image with the configured mode, worker pool, cache, and deadline.
+
+            Forces selection mode when --selection-band is given.
+            """
             band = pixel_rectangle(image, args.selection_band) if args.selection_band else None
             pool = ThreadPoolExecutor(max_workers=args.workers, thread_name_prefix='hd2-icon') if args.workers > 1 else nullcontext(None)
             with pool as executor:
@@ -447,6 +505,7 @@ def main(argv=None):
                               cancel_event=cancel_event)
 
         def save_attempt(name, image, findings):
+            """Persist one capture attempt's debug output under its backend name, if enabled."""
             if debug:
                 directory = debug / name
                 directory.mkdir()
