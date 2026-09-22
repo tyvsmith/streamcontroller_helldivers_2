@@ -128,6 +128,7 @@ class AutomaticIntegration:
         self.settings_controls = []
         self.enable_row = None
         self.setup_row = None
+        self.setup_button = None
         self.preparing = False
 
     def install(self):
@@ -251,13 +252,13 @@ class AutomaticIntegration:
         if self.closed or self.preparing:
             return
         self.preparing = True
-        if self.setup_row is not None:
-            self.setup_row.set_subtitle("Preparing the scanner runtime…")
+        self.refresh_setup_row()
         try:
             Thread(target=self._prepare_runtime, name="hd2-scanner-setup",
                    daemon=True).start()
         except Exception as error:
             self.preparing = False
+            self.refresh_setup_row()
             log.error(f"Unable to start the scanner runtime setup: {error}")
 
     def _prepare_runtime(self):
@@ -281,8 +282,7 @@ class AutomaticIntegration:
             log.error(f"Unable to report the scanner runtime state: {error}")
 
     def refresh_setup_row(self):
-        if self.setup_row is not None:
-            self.setup_row.set_subtitle(self.setup_status_text())
+        settings_rows.refresh_setup_row(self)
 
     def _automatic_changed(self, row, _property):
         settings_rows.automatic_changed(self, row, _property)

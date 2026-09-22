@@ -10,7 +10,8 @@ Gamescope or your screenshot hotkey, to recognize stratagems.
 1. Install the HELLDIVERS 2 plugin from the StreamController store.
 2. Open **Settings → Plugins → HELLDIVERS 2** and switch on **Enable automatic
    stratagems**. The scanner prepares itself in the background. The **Scanner
-   setup** row says when it is ready; press **Run setup** there if it failed.
+   setup** row says when it is ready. It shows a **Run setup** button only
+   when the runtime needs it: not yet prepared, or the last attempt failed.
 3. Make sure one capture path works:
    - **Steam screenshot (default):** Steam's F12 screenshot key with the Steam
      overlay enabled. The plugin presses F12 for you and reads the new image
@@ -61,9 +62,10 @@ Requirements beyond the store install:
   buttons need the same access.
 
 Switching the feature on still prepares the runtime. After copying or
-updating the plugin by hand with the feature already on, press **Run setup**,
-or run the hook once from the installed plugin directory with the interpreter
-that runs StreamController:
+updating the plugin by hand with the feature already on, **Run setup** may be
+hidden, because the row trusts the last recorded outcome. Switch the feature
+off and on again, or run the hook once from the installed plugin directory
+with the interpreter that runs StreamController:
 
 ```sh
 # Flatpak StreamController
@@ -270,9 +272,11 @@ When preparation runs:
 - from `__install__.py` after every store install and update, before the
   plugin loads, whenever the feature is already on. An update replaces the
   plugin directory, so the runtime is rebuilt then
-- from the settings switch and **Run setup**, which prepares or repairs it at
-  any time and records the outcome in ignored
-  `automatic_stratagems/runtime/setup-status.json`
+- from the settings switch and **Run setup**, which records the outcome in
+  ignored `automatic_stratagems/runtime/setup-status.json`. The **Scanner
+  setup** row reads only that record, so it offers **Run setup** while the
+  feature is on and the record is missing, failed, or unrecognized, and hides
+  it once the runtime is verified or while preparation runs
 - from a scan whose setup check fails for any reason, including a missing
   capture command. The scan prepares the runtime instead of scanning and asks
   for another scan. That preparation holds the shared input lock until it
@@ -391,7 +395,8 @@ Correct the error and tap or hold again to retry.
 - **Scan fails immediately:** open the initiating button's settings and read
   **Last scan**. A first failure caused by a missing runtime prepares it and
   asks for another scan. Otherwise read **Scanner setup** in the plugin
-  settings, press **Run setup**, and check the selected source's helpers.
+  settings, press **Run setup** if it is shown, and check the selected
+  source's helpers.
   Flatpak users can run the setup tool's `check` command, then `setup` or
   `rollback` when the active profile is invalid. A page button keeps its
   latest attempt separately from source-page assignments; the attempt is not

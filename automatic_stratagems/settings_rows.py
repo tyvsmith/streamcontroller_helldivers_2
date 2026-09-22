@@ -2,7 +2,7 @@
 
 Each `build_*` function builds one row (or row group) for
 `AutomaticIntegration.settings_rows` and stores any handle the integration
-needs later (`enable_row`, `setup_row`) directly on the integration object
+needs later (`enable_row`, `setup_row`, `setup_button`) directly on the integration object
 passed in. Persistence goes back through the integration's own
 `_save_setting`/`_save_screenshot_setting` methods so callers that replace
 those methods (tests included) keep intercepting saves.
@@ -44,9 +44,16 @@ def build_enable_row(integration):
     return row
 
 
+PREPARING_TEXT = "Preparing the scanner runtime…"
+VERIFIED_STATES = ("ready", "installed")
+
+
 def setup_status_text(plugin):
     """Describe the last recorded scanner preparation for the settings row."""
-    record = read_status(plugin.PATH)
+    return _status_text(read_status(plugin.PATH))
+
+
+def _status_text(record):
     if record is None:
         return "The scanner runtime has not been prepared yet."
     state = record.get("state")
@@ -55,20 +62,43 @@ def setup_status_text(plugin):
                 "stratagems are switched off.")
     if state == "error":
         return f"Preparation failed: {record.get('error')}"
-    if state in ("ready", "installed"):
+    if state in VERIFIED_STATES:
         return (f"Ready: {record.get('profile')} runtime verified "
                 f"{record.get('updated_at')}.")
     return "The scanner runtime state is unknown."
 
 
 def build_setup_row(integration):
-    row = Adw.ActionRow(title="Scanner setup",
-                        subtitle=setup_status_text(integration.plugin))
+    row = Adw.ActionRow(title="Scanner setup")
     button = Gtk.Button(label="Run setup", valign=Gtk.Align.CENTER)
     button.connect("clicked", integration.prepare_runtime)
     row.add_suffix(button)
     integration.setup_row = row
+    integration.setup_button = button
+    refresh_setup_row(integration)
     return row
+
+
+def refresh_setup_row(integration):
+    """Show the recorded status, and offer Run setup only when it can help.
+
+    The record is the only check: verifying the runtime runs a child
+    preflight, too slow for the GTK thread. A runtime that breaks after a
+    verified record is repaired by the next scan, which records the outcome.
+    """
+    row = integration.setup_row
+    if row is None:
+        return
+    if integration.preparing:
+        row.set_subtitle(PREPARING_TEXT)
+        needs_action = False
+    else:
+        record = read_status(integration.plugin.PATH)
+        row.set_subtitle(_status_text(record))
+        needs_action = (integration.coordinator.enabled and
+                        (record is None
+                         or record.get("state") not in VERIFIED_STATES))
+    integration.setup_button.set_visible(needs_action)
 
 
 def automatic_changed(integration, row, _property):
@@ -76,6 +106,7 @@ def automatic_changed(integration, row, _property):
     integration.coordinator.settings_changed()
     for setting_row in integration.settings_controls:
         setting_row.set_sensitive(integration.coordinator.enabled)
+    integration.refresh_setup_row()
     if integration.chooser is not None:
         try:
             integration.update_visibility(

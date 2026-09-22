@@ -763,6 +763,125 @@ class OptionalIntegrationTests(unittest.TestCase):
 
         self.assertEqual(len(started), 1)
 
+    def built_setup_row(self, record, *, enabled=True, preparing=False):
+        """Build the setup row against `record`; return (integration, row, button, feature)."""
+        _, integration, feature = self.prepared_integration()
+        integration.coordinator.enabled = enabled
+        integration.preparing = preparing
+        row, button = Mock(), Mock()
+        settings_rows = feature['settings_rows']
+        with patch.object(settings_rows.Adw, 'ActionRow', return_value=row), \
+             patch.object(settings_rows.Gtk, 'Button', return_value=button), \
+             patch.object(settings_rows, 'read_status', lambda root: record):
+            integration._setup_row()
+        return integration, row, button, feature
+
+    @staticmethod
+    def status(state, **values):
+        return {'schema_version': 1, 'state': state, 'profile': 'native',
+                'error': None, 'updated_at': '2026-09-12T00:00:00Z', **values}
+
+    def test_run_setup_is_offered_only_when_the_runtime_needs_action(self):
+        cases = {
+            'never prepared': (None, True),
+            'failed': (self.status('error', error='pip failed'), True),
+            'unknown state': (self.status('mystery'), True),
+            'not prepared while off': (self.status('disabled'), True),
+            'ready': (self.status('ready'), False),
+            'installed': (self.status('installed'), False),
+        }
+        for name, (record, visible) in cases.items():
+            with self.subTest(name):
+                _, row, button, _ = self.built_setup_row(record)
+                button.set_visible.assert_called_with(visible)
+                row.add_suffix.assert_called_once_with(button)
+
+    def test_run_setup_is_hidden_while_the_feature_is_switched_off(self):
+        for record in (None, self.status('error', error='pip failed')):
+            with self.subTest(record=record):
+                _, _, button, _ = self.built_setup_row(record, enabled=False)
+                button.set_visible.assert_called_with(False)
+
+    def test_run_setup_is_hidden_while_preparation_runs(self):
+        _, row, button, _ = self.built_setup_row(None, preparing=True)
+
+        button.set_visible.assert_called_with(False)
+        row.set_subtitle.assert_called_with("Preparing the scanner runtime…")
+
+    def test_starting_preparation_hides_run_setup(self):
+        integration, row, button, feature = self.built_setup_row(None)
+
+        with patch.dict(feature, {'Thread': Mock()}):
+            integration.prepare_runtime()
+
+        button.set_visible.assert_called_with(False)
+        row.set_subtitle.assert_called_with("Preparing the scanner runtime…")
+
+    def run_preparation(self, before, after):
+        """Prepare from the button with `before` recorded; return the refreshed button."""
+        integration, row, button, feature = self.built_setup_row(before)
+        settings_rows = feature['settings_rows']
+        glib = feature['GLib']
+        glib.idle_add.reset_mock()
+        with patch.dict(feature, {'Thread': self.inline_thread()}), \
+             patch.object(feature['runtime_preparation'],
+                          'ensure_scanner_runtime', Mock(return_value=after)):
+            integration.prepare_runtime()
+        refresh = glib.idle_add.call_args.args[0]
+        with patch.object(settings_rows, 'read_status', lambda root: after):
+            self.assertFalse(refresh())
+        return row, button
+
+    def test_a_successful_preparation_hides_run_setup(self):
+        row, button = self.run_preparation(
+            self.status('error', error='pip failed'), self.status('installed'))
+
+        button.set_visible.assert_called_with(False)
+        self.assertIn('Ready', row.set_subtitle.call_args.args[0])
+
+    def test_a_failed_preparation_shows_run_setup(self):
+        row, button = self.run_preparation(
+            None, self.status('error', error='pip failed'))
+
+        button.set_visible.assert_called_with(True)
+        self.assertIn('pip failed', row.set_subtitle.call_args.args[0])
+
+    def test_switching_the_feature_off_hides_run_setup(self):
+        integration, _, button, feature = self.built_setup_row(None)
+        integration.settings_controls = [integration.setup_row]
+        integration.coordinator.enabled = False
+        switch = Mock()
+        switch.get_active.return_value = False
+        button.set_visible.reset_mock()
+
+        with patch.object(feature['settings_rows'], 'read_status',
+                          lambda root: None):
+            integration._automatic_changed(switch, None)
+
+        button.set_visible.assert_called_with(False)
+
+    def test_switching_the_feature_on_offers_run_setup_after_a_failure(self):
+        integration, _, button, feature = self.built_setup_row(
+            None, enabled=False)
+        integration.settings_controls = [integration.setup_row]
+        integration.coordinator.enabled = True
+        switch = Mock()
+        switch.get_active.return_value = True
+        button.set_visible.reset_mock()
+        failed = self.status('error', error='pip failed')
+
+        with patch.dict(feature, {'Thread': self.inline_thread()}), \
+             patch.object(feature['runtime_preparation'],
+                          'ensure_scanner_runtime', Mock(return_value=failed)):
+            integration._automatic_changed(switch, None)
+        button.set_visible.assert_called_with(False)
+        refresh = feature['GLib'].idle_add.call_args.args[0]
+        with patch.object(feature['settings_rows'], 'read_status',
+                          lambda root: failed):
+            refresh()
+
+        button.set_visible.assert_called_with(True)
+
     def test_unavailable_integration_keeps_disabled_settings_rows(self):
         _, plugin = self.import_without_automatic_actions(
             missing_optional='capture_source')
