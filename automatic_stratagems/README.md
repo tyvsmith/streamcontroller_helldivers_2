@@ -26,6 +26,8 @@ Gamescope or your screenshot hotkey, to recognize stratagems.
    stratagem menu, then tap the button. It scans the screen and opens a page
    filled with your stratagems. Tap one to call it; tap **Back** to return.
 
+   ![A generated Automatic Stratagem Page on a 15-key deck](docs/images/generated-page.png)
+
 Your ordinary stratagem buttons keep working whether or not this feature is on.
 
 ## Using it
