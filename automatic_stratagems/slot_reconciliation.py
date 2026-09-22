@@ -103,9 +103,10 @@ class SlotReconciler:
 
     def redraw(self, context):
         for action in self.coordinator._attached_actions():
-            if (getattr(action, 'on_ready_called', False) and action.get_is_present()
-                    and self.coordinator.context(action) == context):
-                try:
+            try:
+                if (getattr(action, 'on_ready_called', False) and action.get_is_present()
+                        and self.coordinator.context(action) == context):
                     action.render()
-                except Exception:
-                    log.exception('Unable to render scan action')
+            except Exception:
+                log.exception('Unable to render scan action')
+                self.coordinator.show_action_error(action)

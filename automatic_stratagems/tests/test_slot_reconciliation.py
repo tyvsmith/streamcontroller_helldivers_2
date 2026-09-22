@@ -63,6 +63,7 @@ class Host:
         self.sessions = {}
         self.cancel_context = Mock()
         self.persist_context = Mock()
+        self.show_action_error = Mock()
         self.reconciler = mod.SlotReconciler(self, Automatic)
 
     def _attached_actions(self):
@@ -219,6 +220,26 @@ class SlotReconcilerTests(ModuleTestCase):
         for action in skipped:
             action.render.assert_not_called()
         log.exception.assert_called_once_with('Unable to render scan action')
+        host.show_action_error.assert_called_once_with(failing)
+
+    def test_redraw_reports_an_action_whose_settings_cannot_be_read(self):
+        class SettingsHost(Host):
+            def context(self, action):
+                # Like the registry, the context comes from the action's settings.
+                return CONTEXT[:2] + (action.get_settings()['group'],)
+
+        rendered = Automatic()
+        failing = Automatic()
+        failing.get_settings = Mock(side_effect=RuntimeError('settings unavailable'))
+        later = Automatic()
+        host = SettingsHost(self.mod, rendered, failing, later)
+        with patch.object(self.mod, 'log') as log:
+            host.reconciler.redraw(CONTEXT)
+        rendered.render.assert_called_once_with()
+        later.render.assert_called_once_with()
+        failing.render.assert_not_called()
+        log.exception.assert_called_once_with('Unable to render scan action')
+        host.show_action_error.assert_called_once_with(failing)
 
 
 if __name__ == '__main__':
