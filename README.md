@@ -58,7 +58,7 @@ The `update/` module automates asset generation. It scrapes stratagem data from 
 
 #### Setup
 
-Create the developer virtual environment and install dependencies. This environment serves the asset updater and the test suite; the automatic-stratagem scanner owns a separate environment that the plugin prepares for itself (see [automatic stratagems](automatic_stratagems/README.md#setup)):
+Create the developer virtual environment and install dependencies. This environment serves the asset updater and the test suite; the automatic-stratagem scanner owns a separate environment that the plugin prepares for itself (see [automatic stratagems](automatic_stratagems/README.md#runtime-details)):
 
 ```bash
 cd /path/to/net_jslay_helldivers_2
@@ -72,6 +72,9 @@ source .venv/bin/activate  # Linux/macOS
 
 # Install dependencies
 pip install -r update/requirements.txt
+
+# Automatic stratagem tests also need the scanner's libraries
+pip install -r automatic_stratagems/requirements.txt
 ```
 
 > **Note**: The `.venv` directory is already in `.gitignore`.

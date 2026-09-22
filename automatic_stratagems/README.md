@@ -5,8 +5,6 @@ Helldivers 2 and puts them on your Stream Deck buttons. It is opt-in and off by
 default. When you switch it on, it captures images of the game screen, through
 Gamescope or your screenshot hotkey, to recognize stratagems.
 
-<a name="setup"></a>
-
 ## Getting started
 
 1. Install the HELLDIVERS 2 plugin from the StreamController store.
