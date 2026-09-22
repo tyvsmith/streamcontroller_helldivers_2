@@ -128,6 +128,14 @@ allocated from authoritative page topology in row, column, state, and action-ind
 order. `streamcontroller_adapter.py` validates and sorts raw beta.15 action
 records; `slot_reconciliation.py` holds group and slot policy. An unresolved automatic
 position cannot scan or execute an assignment.
+
+An update scan fills the group's present slots. The group's other slots, from
+page topology or attached actions on another key state, pass to
+`ScanSession.begin` as `keep`: they keep their assignments, filters, and badges,
+and their IDs count as placed. Slots the page no longer has are dropped. With
+no present slot, or duplicate slot numbers, the scan fails before capture and
+keeps every assignment. A generated page's scan fills its own slots, every key
+but Back and the scanner.
 Release-time binding and revision checks prevent a press from executing a changed
 assignment.
 
@@ -311,8 +319,12 @@ obey scan cancellation and deadlines.
 `ScanSession` keeps uncertainty explicit. Unknown observations are not guessed
 into IDs; prior assignments can remain unconfirmed and still execute when tapped.
 A question mark on an empty slot represents a partial scan, not unused capacity.
-Overflow alone does not make a scan partial. Color filters constrain assignment;
-press/release guards protect the displayed binding.
+Overflow fails a scan: recognized IDs are placed in the usual order while
+slots allow, the rest are not placed, and the scan fails with "N stratagems
+did not fit; add more Automatic slots". What fit stays assigned. An ID whose
+color no slot filter accepts counts as overflow; unknown rows do not. Color
+filters constrain assignment; press/release guards protect the displayed
+binding.
 
 ## State, cache, and diagnostics
 

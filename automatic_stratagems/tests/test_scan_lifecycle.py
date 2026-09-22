@@ -358,6 +358,17 @@ class ResultTests(ScanLifecycleTestCase):
         self.host.redraw.assert_called_once_with(self.context)
         self.assertEqual(self.events, [])
 
+    def test_a_generated_page_overflow_fails_its_attempt_on_the_opener(self):
+        session, token, operation = self.scan(new_page=True)
+        message = '2 stratagems did not fit; add more Automatic slots'
+        self.host.page_flow.page_result.return_value = types.SimpleNamespace(
+            status='failed', message=message)
+        self.lifecycle._apply_scan_result(self.action, operation, REPORT, None, {})
+        self.attempts.finish_page_attempt.assert_called_once_with(
+            self.action, 7, 'failed', message, session=session, token=token)
+        self.host.show_action_error.assert_called_once_with(self.action)
+        self.assertEqual(session.snapshot().assignments[1], 'A')
+
     def test_a_generated_page_result_opens_its_page_through_the_coordinator(self):
         session, token, operation = self.scan(new_page=True)
         self.host.page_flow.page_result.return_value = types.SimpleNamespace(
@@ -803,25 +814,59 @@ class EntryExitTests(EntryTestCase):
         self.host.registry.persist.assert_not_called()
         self.assertEqual(self.events, ['acquire', 'release'])
 
-    def test_duplicate_or_missing_slots_fail_the_scan(self):
-        # The session begins over the present slots, so a context with none
-        # keeps no assignments; duplicates keep the shared slot's assignment.
-        for automatic, assignments in (
-                ([Automatic(self.context, 1), Automatic(self.context, 1)], {1: 'A'}),
-                ([], {})):
+    def test_duplicate_or_missing_slots_fail_the_scan_without_clearing(self):
+        hidden = Automatic(self.context, 2)
+        hidden.present = False
+        for automatic, message in (
+                ([Automatic(self.context, 1), Automatic(self.context, 1)],
+                 'Add uniquely numbered Automatic slots'),
+                ([], 'No Automatic slots to fill; add Automatic Stratagem buttons'),
+                ([hidden], 'No Automatic slots to fill; add Automatic Stratagem buttons')):
             with self.subTest(slots=len(automatic)):
                 self.reset_host()
                 self.events.clear()
                 session = self.assigned_session()
+                token = session.begin({1: 'any', 2: 'red'})
+                session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]},
+                               self.host.plugin.stratagems, {'B': 'red'})
                 self.host.automatic = automatic
                 self.start_refused(replace=True)
                 self.assertEqual((session.snapshot().status, session.snapshot().message),
-                                 ('failed', 'Add uniquely numbered Automatic slots'))
-                self.assertEqual(dict(session.snapshot().assignments), assignments)
+                                 ('failed', message))
+                self.assertEqual(dict(session.snapshot().assignments), {1: 'A', 2: 'B'})
+                self.assertEqual(session.checkpoint()['slots']['2']['filter'], 'red')
                 self.host.registry.persist.assert_called_with(self.action, session)
                 self.host.show_action_error.assert_called_once_with(self.action)
                 self.assertEqual(self.host.redraw.call_args_list[-1].args, (self.context,))
                 self.assertEqual(self.events, ['acquire', 'release'])
+
+
+class ScanSlotSetTests(EntryTestCase):
+    """An update scan fills present slots and leaves the group's other slots alone."""
+
+    def test_slots_outside_the_scan_keep_assignments_and_removed_slots_drop(self):
+        session = self.scan_session.ScanSession()
+        token = session.begin([1, 2, 3, 4])
+        session.finish(token, {'status': 'matched', 'rows': [
+            {'id': 'A'}, {'id': 'B'}, {'id': 'C'}, {'id': 'D'}]},
+            dict.fromkeys('ABCD'))
+        self.host.sessions[self.context] = session
+        hidden = Automatic(self.context, 2)
+        hidden.present = False
+        # Slot 3 exists only in the page topology, on a state never attached.
+        self.host.reconciler._configured_filters.return_value = (
+            {1: 'any', 2: 'any', 3: 'any'}, True)
+        self.host.automatic = [Automatic(self.context, 1), hidden]
+        with patch.object(self.mod, 'Thread'):
+            self.lifecycle.start(self.action, replace=True)
+        plan = self.lifecycle.active_scans[self.context].plan
+        self.assertEqual(dict(session.snapshot().assignments), {1: 'A', 2: 'B', 3: 'C'})
+        session.finish(plan.token, {'status': 'matched', 'rows': [{'id': 'E'}, {'id': 'F'}]},
+                       dict.fromkeys('ABCDEF'))
+        snapshot = session.snapshot()
+        self.assertEqual(dict(snapshot.assignments), {1: 'E', 2: 'B', 3: 'C'})
+        self.assertEqual((snapshot.status, snapshot.message),
+                         ('failed', '1 stratagem did not fit; add more Automatic slots'))
 
 
 class CleanupFailureTests(EntryTestCase):

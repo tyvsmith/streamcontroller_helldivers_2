@@ -230,6 +230,21 @@ class OpenTemporaryTests(GeneratedPageFlowTestCase):
         self.assertIsInstance(session, self.mod.ScanSession)
         self.host.flow.open_temporary.assert_called_once_with(action, session, replace_path=CACHED)
 
+    def test_a_page_too_small_for_the_report_opens_with_what_fits_and_fails(self):
+        # A 1x3 deck leaves one slot beside Back and the scanner.
+        self.pages.layout.return_value = (1, 3)
+        self.host.plugin.stratagems = {'A': ['UP'], 'B': ['DOWN'], 'C': ['LEFT']}
+        action = self.action()
+        self.host.flow.open_temporary = Mock()
+        report = {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}, {'id': 'C'}]}
+        snapshot = self.host.flow.page_result(action, report, {})
+        self.assertEqual(dict(snapshot.assignments), {1: 'A'})
+        self.assertEqual((snapshot.status, snapshot.message, snapshot.overflow),
+                         ('failed', '2 stratagems did not fit; add more Automatic slots', 2))
+        session = self.host.flow.open_temporary.call_args.args[1]
+        self.assertIs(session.snapshot(), snapshot)
+        self.host.flow.open_temporary.assert_called_once_with(action, session, replace_path=None)
+
     def test_an_unrecognized_report_opens_no_page(self):
         self.host.flow.open_temporary = Mock()
         snapshot = self.host.flow.page_result(

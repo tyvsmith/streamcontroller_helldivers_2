@@ -40,6 +40,7 @@ class IncrementalTests(unittest.TestCase):
         s=self.scan(['A','B'],{1:'red',2:'yellow'})
         self.assertEqual(dict(s.assignments),{1:'A',2:None})
         self.assertEqual(s.overflow,1)
+        self.assertEqual(s.status,'failed')
 
     def test_hold_replaces_only_after_success(self):
         self.scan(['A','B'])
@@ -136,6 +137,7 @@ class ReplacementPriorityTests(unittest.TestCase):
         s = self.scan('green1', 'blue1')
         self.assertEqual(dict(s.assignments), {1: 'red1', 2: 'green1'})
         self.assertEqual(s.overflow, 1)
+        self.assertEqual(s.status, 'failed')
         self.assertEqual(s.unconfirmed_slots, frozenset({1}))
 
     def test_unknown_alone_does_not_evict(self):

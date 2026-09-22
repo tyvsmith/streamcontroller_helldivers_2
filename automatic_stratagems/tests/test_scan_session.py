@@ -70,26 +70,69 @@ class ScanSessionTests(unittest.TestCase):
         snapshot = self.scan(['A', 'A', None, 'B', 'C'], slots=(1, 2))
         self.assertEqual(dict(snapshot.assignments), {1: 'A', 2: 'B'})
         self.assertEqual((snapshot.recognized, snapshot.unknown, snapshot.overflow), (3, 1, 1))
-        self.assertEqual(snapshot.status, 'partial')
+        self.assertEqual(snapshot.status, 'failed')
 
-    def test_complete_recognition_remains_ready_with_limited_page_capacity(self):
-        for slots in ((), (1,), (1, 2)):
+    def test_too_few_slots_fill_what_fits_then_fail(self):
+        for slots, placed in (((), {}), ((1,), {1: 'A'}), ((1, 2), {1: 'A', 2: 'B'})):
             with self.subTest(slots=slots):
                 session = ScanSession()
                 token = session.begin(slots, replace=True)
                 session.finish(token, report('A', 'B', 'C'), CATALOG)
                 snapshot = session.snapshot()
-                self.assertEqual(snapshot.status, 'ready')
-                self.assertEqual(snapshot.overflow, 3 - len(slots))
+                missing = 3 - len(slots)
+                self.assertEqual(dict(snapshot.assignments), placed)
+                self.assertEqual(snapshot.status, 'failed')
+                self.assertEqual(snapshot.message, (
+                    f'{missing} stratagem{"s" if missing != 1 else ""} did not fit; '
+                    'add more Automatic slots'))
+                self.assertEqual(snapshot.overflow, missing)
                 self.assertEqual(snapshot.recognized, 3)
+                self.assertIsNotNone(snapshot.last_scan_at)
                 self.assertEqual(session.latest_report(), report('A', 'B', 'C'))
 
-    def test_partial_recognition_stays_partial_without_vacancies(self):
+    def test_overflow_fails_even_when_rows_are_also_unknown(self):
         token = self.session.begin([1], replace=True)
         self.session.finish(token, report('A', 'B', None), CATALOG)
-        self.assertEqual(self.session.snapshot().status, 'partial')
+        self.assertEqual(self.session.snapshot().status, 'failed')
         self.assertEqual(self.session.snapshot().unknown, 1)
         self.assertEqual(self.session.snapshot().overflow, 1)
+
+    def test_a_color_with_no_allowing_slot_does_not_fit(self):
+        token = self.session.begin({1: 'red'})
+        self.session.finish(token, report('A', 'B'), CATALOG, {'A': 'red', 'B': 'blue'})
+        snapshot = self.session.snapshot()
+        self.assertEqual(dict(snapshot.assignments), {1: 'A'})
+        self.assertEqual((snapshot.status, snapshot.overflow), ('failed', 1))
+        self.assertEqual(snapshot.message, '1 stratagem did not fit; add more Automatic slots')
+
+    def test_a_full_fit_stays_ready(self):
+        snapshot = self.scan(['A', 'B'], slots=(1, 2))
+        self.assertEqual((snapshot.status, snapshot.overflow), ('ready', 0))
+
+    def test_kept_slots_sit_outside_the_scan_and_keep_their_assignments(self):
+        token = self.session.begin([1, 2, 3])
+        self.session.finish(token, report('A', 'B', 'C'), CATALOG)
+        token = self.session.begin([1, 2, 3])
+        self.session.finish(token, report('A', 'B'), CATALOG)
+        self.assertEqual(self.session.snapshot().unconfirmed_slots, frozenset({3}))
+        # Slot 3 is hidden; slots 1 and 2 are present and in the scan.
+        token = self.session.begin([1, 2], replace=True, keep={3, 9})
+        self.assertEqual(dict(self.session.snapshot().assignments), {1: 'A', 2: 'B', 3: 'C'})
+        self.session.finish(token, report('D', 'C'), CATALOG)
+        snapshot = self.session.snapshot()
+        # C stays on its kept slot rather than appearing twice.
+        self.assertEqual(dict(snapshot.assignments), {1: 'D', 2: None, 3: 'C'})
+        self.assertEqual(snapshot.unconfirmed_slots, frozenset({3}))
+        self.assertEqual(snapshot.status, 'ready')
+        self.assertEqual(self.session.checkpoint()['slots']['3']['unconfirmed_since_scan'], 2)
+
+    def test_failure_with_kept_slots_clears_nothing(self):
+        token = self.session.begin({1: 'any', 2: 'red'})
+        self.session.finish(token, report('A', 'B'), CATALOG, {'B': 'red'})
+        token = self.session.begin({}, keep={1, 2})
+        self.assertTrue(self.session.fail(token, 'No Automatic slots'))
+        self.assertEqual(dict(self.session.snapshot().assignments), {1: 'A', 2: 'B'})
+        self.assertEqual(self.session.checkpoint()['slots']['2']['filter'], 'red')
 
     def test_failure_retains_ids(self):
         self.scan(['A'])
@@ -130,6 +173,7 @@ class ScanSessionTests(unittest.TestCase):
         snapshot = self.scan(['A', 'C', 'D'], slots=(5, 3, 3))
         self.assertEqual(dict(snapshot.assignments), {3: 'C', 5: 'A'})
         self.assertEqual(snapshot.overflow, 1)
+        self.assertEqual(snapshot.status, 'failed')
 
     def test_only_one_concurrent_begin_wins(self):
         with ThreadPoolExecutor(max_workers=8) as pool:

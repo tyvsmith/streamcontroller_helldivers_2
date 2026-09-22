@@ -37,6 +37,7 @@ class ScanSession:
         self._filters = {}
         self._last_report = None
         self._transient = None
+        self._scan_slots = frozenset()
         self._snapshot = ScanSnapshot(MappingProxyType({}))
 
     def snapshot(self) -> ScanSnapshot:
@@ -114,7 +115,12 @@ class ScanSession:
                           recognized=data['recognized'], unknown=data['unknown'], overflow=data['overflow'],
                           last_scan_at=data['last_scan_at'])
 
-    def begin(self, slots, *, replace=False, transient=False) -> int | None:
+    def begin(self, slots, *, replace=False, transient=False, keep=()) -> int | None:
+        """Start a scan over ``slots``.
+
+        Existing ``keep`` slots stay assigned, with their filters and badges,
+        but sit outside the scan; every other slot not in ``slots`` is dropped.
+        """
         with self._lock:
             if self._active is not None:
                 return None
@@ -125,9 +131,13 @@ class ScanSession:
                 raise ValueError('Invalid slot color')
             preserved = ((self._snapshot, dict(self._filters), deepcopy(self._last_report),
                           dict(self._unconfirmed_since)) if transient else None)
-            self._filters = filters
+            kept = {slot for slot in keep
+                    if slot not in filters and slot in self._snapshot.assignments}
+            self._scan_slots = frozenset(filters)
+            self._filters = {**{slot: self._filters.get(slot, 'any') for slot in kept},
+                             **filters}
             assignments = {slot: self._snapshot.assignments.get(slot)
-                           for slot in sorted(set(slots))}
+                           for slot in sorted(kept.union(filters))}
             self._unconfirmed_since = {slot: age for slot, age in self._unconfirmed_since.items()
                                        if slot in assignments}
             self._serial += 1
@@ -244,10 +254,16 @@ class ScanSession:
             def accepts(slot, key):
                 return self._filters[slot] == 'any' or self._filters[slot] == colors.get(key)
 
+            # Kept slots sit outside the scan: unchanged, but their IDs are placed.
+            kept = {slot: key for slot, key in self._snapshot.assignments.items()
+                    if slot not in self._scan_slots}
+            previous = {slot: key for slot, key in self._snapshot.assignments.items()
+                        if slot in self._scan_slots}
             assignments = {slot: (key if not self._snapshot.replacing
                                    and key in catalog and accepts(slot, key) else None)
-                           for slot, key in self._snapshot.assignments.items()}
-            surviving = {key for key in assignments.values() if key is not None}
+                           for slot, key in previous.items()}
+            surviving = {key for key in (*assignments.values(), *kept.values())
+                         if key is not None}
             unconfirmed = {slot for slot, key in assignments.items()
                            if key is not None and key not in recognized}
             unconfirmed_since = {slot: self._unconfirmed_since.get(slot, token)
@@ -280,18 +296,31 @@ class ScanSession:
             # Unknown screen rows have no reliable color or previous identity.
             available = [slot for slot, key in assignments.items()
                          if key is None and self._filters[slot] == 'any']
-            rebuilding = self._snapshot.replacing or not any(self._snapshot.assignments.values())
+            rebuilding = self._snapshot.replacing or not any(previous.values())
             unknown_slots = set(available[:unknown]) if rebuilding else set()
+            # Recognized IDs left without an accepting slot did not fit; what fit stays.
             overflow = len(pending)
+            if overflow:
+                result = 'failed'
+                message = (f'{overflow} stratagem{"s" if overflow != 1 else ""} did not fit; '
+                           'add more Automatic slots')
+            else:
+                result = 'partial' if unknown or unconfirmed or status == 'partial' else 'ready'
+                message = (f'{len(recognized)} recognized, {len(unconfirmed)} unconfirmed, '
+                           f'{unknown} unknown, {overflow} overflow')
+            kept_unknown = self._snapshot.unknown_slots.intersection(kept)
+            kept_unconfirmed = self._snapshot.unconfirmed_slots.intersection(kept)
 
             self._active = None
-            self._unconfirmed_since = unconfirmed_since
+            self._unconfirmed_since = {
+                **{slot: age for slot, age in self._unconfirmed_since.items()
+                   if slot in kept_unconfirmed},
+                **unconfirmed_since}
             self._publish(
-                assignments=MappingProxyType(assignments),
-                unknown_slots=frozenset(unknown_slots),
-                unconfirmed_slots=frozenset(unconfirmed), replacing=False,
-                status='partial' if unknown or unconfirmed or status == 'partial' else 'ready',
-                message=f'{len(recognized)} recognized, {len(unconfirmed)} unconfirmed, {unknown} unknown, {overflow} overflow',
+                assignments=MappingProxyType(dict(sorted({**kept, **assignments}.items()))),
+                unknown_slots=frozenset(unknown_slots) | kept_unknown,
+                unconfirmed_slots=frozenset(unconfirmed) | kept_unconfirmed, replacing=False,
+                status=result, message=message,
                 recognized=len(recognized), unknown=unknown, overflow=overflow,
                 last_scan_at=datetime.now(timezone.utc).isoformat())
             return True

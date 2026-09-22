@@ -131,7 +131,8 @@ class ActionRenderingTests(ActionTestHarness, unittest.TestCase):
                 self.coordinator.register_action(action)
                 session = self.coordinator.session(action)
                 if status != 'idle':
-                    token = session.begin({1: 'red'})
+                    # Blue A fits slot 2, so a ready scan leaves red slot 1 empty.
+                    token = session.begin({1: 'red', 2: 'any'})
                     if status == 'failed':
                         session.fail(token, 'capture failed')
                     else:

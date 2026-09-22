@@ -351,7 +351,9 @@ group** and leave **Automatic slot** at `-1` for automatic numbering.
 | **Back** | Return to the source and keep the generated page | None |
 
 - A generated page holds **Back**, a scanner, and Automatic Stratagem buttons
-  on the remaining keys. It needs a deck with at least three keys
+  on the remaining keys. It needs a deck with at least three keys. If the
+  scan finds more stratagems than those keys, the page opens with what fits
+  and the page button shows the failure
 - A **+** on Automatic Stratagem Page marks a missing cache; the plain icon
   marks an existing cache
 - Back keeps the cache across app restarts and stays available while
@@ -382,13 +384,20 @@ group** and leave **Automatic slot** at `-1` for automatic numbering.
 - Assignments, scans, and clears apply only to that deck, page, and group.
   Use separate groups for independent sets of slots on one page, each with its
   own scanner
+- A scan fills the slots on the keys showing now. Slots on another key state
+  keep their assignments
+- When stratagems outnumber the slots, the scan assigns as many as fit in
+  slot order, leaves the rest out, and fails with "N stratagems did not fit;
+  add more Automatic slots". The assignments that fit stay
+- A group with no Automatic slot showing, or with two slots sharing a number,
+  fails before capture and keeps its assignments
 - Creating a generated page seeds it from the scan without changing the
   source page. Later scans and clears on either page do not change the other
   page's assignments
 - **Color filter** (Any, Red, Blue, Green, Yellow) fills a slot only with a
   stratagem whose icon has that color, and leaves uncertain matches empty. For
   example, keep red orbital and Eagle strikes in one row and green sentries in
-  another
+  another. A stratagem with no free slot allowing its color did not fit
 - Each Automatic Stratagem Page button owns a separate cache, even when
   several use the same group. Holding one leaves other page caches and source
   assignments unchanged
@@ -436,7 +445,13 @@ Correct the error and tap or hold again to retry.
   slot 1; explicit positive slots stay usable.
 - **Partial result:** one or more rows were unknown, unconfirmed, or reported
   as partial. Check uncertain assignments and scan the intended game screen
-  again. Capacity overflow alone does not make a scan partial.
+  again.
+- **"N stratagems did not fit":** the scan found more stratagems than free
+  slots allow. The ones that fit are assigned; add Automatic Stratagem
+  buttons, or loosen a color filter, and scan again.
+- **"No Automatic slots to fill":** no Automatic Stratagem button in the
+  scanner's group is showing on the current page and key state. Existing
+  assignments are kept.
 - **Steam capture fails:** check `/dev/uinput` access, the configured keycode,
   and the Steam overlay. Steam creates the screenshot in its folder; safe
   cleanup removes it and its thumbnail when deletion is on.

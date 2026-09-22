@@ -151,14 +151,26 @@ class ScanLifecycle:
                     return False
             if new_page:
                 attempt_id = page_attempts.begin_page_attempt(action)
-            automatic = [a for a in self.coordinator._attached_actions()
-                         if isinstance(a, self.automatic_type)
-                         and a.get_is_present()
-                         and self.coordinator.context(a) == context]
+            grouped = [a for a in self.coordinator._attached_actions()
+                       if isinstance(a, self.automatic_type)
+                       and self.coordinator.context(a) == context]
+            automatic = [a for a in grouped if a.get_is_present()]
             slots = [a.slot() for a in automatic]
             filters = {slot: a.color_filter()
                        for a, slot in zip(automatic, slots)
                        if slot is not None}
+            unusable = not slots or len(slots) != len(set(slots))
+            if new_page:
+                keep = ()
+            elif unusable:
+                # A scan that cannot run clears nothing.
+                keep = set(session.snapshot().assignments)
+            else:
+                # The scan fills present slots; the group's other slots, such as
+                # those on another key state, keep their assignments.
+                keep = set(self.coordinator.reconciler._configured_filters(context)[0])
+                keep.update(slot for a in grouped if a not in automatic
+                            and (slot := a.slot()) is not None)
             if new_page:
                 if self.coordinator.temporary_pages is None:
                     raise ValueError('Temporary pages are unavailable')
@@ -182,7 +194,7 @@ class ScanLifecycle:
                 self.coordinator.show_action_error(action)
                 operation.complete()
                 return False
-            token = session.begin(filters, replace=replace, transient=new_page)
+            token = session.begin(filters, replace=replace, transient=new_page, keep=keep)
             if token is None:
                 if new_page:
                     page_attempts.finish_page_attempt(
@@ -210,8 +222,9 @@ class ScanLifecycle:
             if not new_page:
                 self.coordinator.registry.persist(action, session)
             self.coordinator.redraw(context)
-            if not new_page and (not slots or len(slots) != len(set(slots))):
-                session.fail(token, 'Add uniquely numbered Automatic slots')
+            if not new_page and unusable:
+                session.fail(token, 'Add uniquely numbered Automatic slots' if slots
+                             else 'No Automatic slots to fill; add Automatic Stratagem buttons')
                 self.coordinator.registry.persist(action, session)
                 self.coordinator.show_action_error(action)
                 operation.complete()

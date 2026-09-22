@@ -611,5 +611,51 @@ class ActionEntryExitTests(ActionTestHarness, unittest.TestCase):
         action.show_error.assert_called_once_with(duration=3)
         self.assertFalse(self.plugin.input_lock.locked())
 
+
+class ActionSlotCapacityTests(ActionTestHarness, unittest.TestCase):
+    """Update scans fill the present slots they can and fail on what does not fit."""
+
+    def slots(self, *present):
+        self.plugin.stratagems = {key: ['UP'] for key in 'ABCD'}
+        actions = []
+        for slot, visible in enumerate(present, start=1):
+            action = self.page_automatic_action(
+                (0, slot), {'slot': slot}, state=0 if visible else 1)
+            action.get_is_present = lambda visible=visible: visible
+            action.on_ready_called = True
+            self.coordinator.actions.add(action)
+            actions.append(action)
+        session = self.coordinator.session(actions[0])
+        token = session.begin(range(1, len(present) + 1))
+        session.finish(token, {'status': 'matched', 'rows': [{'id': 'A'}, {'id': 'B'}]},
+                       self.plugin.stratagems)
+        scanner = self.action()
+        scanner.get_settings.return_value = {'capture_backend': 'gamescope'}
+        return session, scanner
+
+    def test_overflow_fills_present_slots_keeps_hidden_ones_and_fails(self):
+        session, scanner = self.slots(True, False)
+        self.synchronous_scan(scanner, {'status': 'matched', 'rows': [
+            {'id': 'C'}, {'id': 'D'}]}, replace=True)
+        snapshot = session.snapshot()
+        self.assertEqual(dict(snapshot.assignments), {1: 'C', 2: 'B'})
+        self.assertEqual((snapshot.status, snapshot.message),
+                         ('failed', '1 stratagem did not fit; add more Automatic slots'))
+        scanner.show_error.assert_called_with(duration=3)
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_no_present_slot_fails_before_capture_and_clears_nothing(self):
+        session, scanner = self.slots(False, False)
+        with patch.object(self.mod.scan_lifecycle, 'Thread') as thread:
+            self.coordinator.start(scanner, replace=True)
+        thread.assert_not_called()
+        snapshot = session.snapshot()
+        self.assertEqual(dict(snapshot.assignments), {1: 'A', 2: 'B'})
+        self.assertEqual((snapshot.status, snapshot.message), (
+            'failed', 'No Automatic slots to fill; add Automatic Stratagem buttons'))
+        scanner.show_error.assert_called_once_with(duration=3)
+        self.assertFalse(self.plugin.input_lock.locked())
+
+
 if __name__ == '__main__':
     unittest.main()
