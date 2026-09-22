@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -234,13 +235,70 @@ class InstallHookTests(unittest.TestCase):
             self.assertEqual(
                 runtime_install.installed_plugin_settings(plugin_root), ENABLED)
 
-    def test_an_envelope_without_a_settings_object_reads_as_empty(self):
+    def settings_file(self, plugin_root):
+        return (plugin_root.parent.parent
+                / 'settings/plugins/net_jslay_helldivers_2/settings.json')
+
+    def assert_unusable(self, plugin_root, reason):
+        with self.assertRaisesRegex(runtime_install.PluginSettingsError, reason):
+            runtime_install.installed_plugin_settings(plugin_root)
+
+    def test_an_envelope_without_a_settings_object_is_unusable(self):
         with tempfile.TemporaryDirectory() as directory:
             plugin_root = self.installed_tree(
                 directory, ENABLED,
                 document=lambda settings: {'file-version': '2.0', 'settings': []})
-            self.assertEqual(
-                runtime_install.installed_plugin_settings(plugin_root), {})
+            self.assert_unusable(plugin_root, 'settings object')
+
+    def test_an_unknown_settings_file_version_is_unusable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plugin_root = self.installed_tree(
+                directory, ENABLED,
+                document=lambda settings: {'file-version': '3.0', 'settings': settings})
+            self.assert_unusable(plugin_root, 'file-version 3.0')
+
+    def test_invalid_settings_json_is_unusable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plugin_root = self.installed_tree(directory, ENABLED)
+            self.settings_file(plugin_root).write_text('{"automatic')
+            self.assert_unusable(plugin_root, 'Invalid JSON')
+
+    def test_a_settings_document_that_is_not_an_object_is_unusable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plugin_root = self.installed_tree(
+                directory, ENABLED, document=lambda settings: [settings])
+            self.assert_unusable(plugin_root, 'not an object')
+
+    def test_oversized_settings_are_unusable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plugin_root = self.installed_tree(directory, ENABLED)
+            self.settings_file(plugin_root).write_text(
+                ' ' * (runtime_install.MAX_SETTINGS_BYTES + 1))
+            self.assert_unusable(plugin_root, 'too large')
+
+    @unittest.skipIf(os.geteuid() == 0, 'root ignores file permissions')
+    def test_unreadable_settings_are_unusable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plugin_root = self.installed_tree(directory, ENABLED)
+            path = self.settings_file(plugin_root)
+            path.chmod(0)
+            try:
+                self.assert_unusable(plugin_root, 'Permission denied')
+            finally:
+                path.chmod(0o600)
+
+    def test_an_unusable_settings_file_is_recorded_as_a_setup_error(self):
+        error = runtime_install.PluginSettingsError('Invalid JSON document')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = runtime_install.record_settings_error(
+                root, error, flatpak=False)
+            recorded = runtime_install.read_status(root)
+        self.assertEqual(recorded, status)
+        self.assertEqual(status['state'], runtime_install.STATE_ERROR)
+        self.assertEqual(status['profile'], 'native')
+        self.assertEqual(
+            status['error'], 'cannot read plugin settings: Invalid JSON document')
 
     def test_plugin_settings_are_empty_without_a_settings_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -271,6 +329,41 @@ class InstallHookTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             status = runtime_install.read_status(plugin_root)
         self.assertEqual(status['state'], runtime_install.STATE_DISABLED)
+
+    def run_hook(self, plugin_root):
+        feature = Path(runtime_install.__file__).resolve().parents[1]
+        hook = feature.parent / '__install__.py'
+        (plugin_root / '__install__.py').write_bytes(hook.read_bytes())
+        installed_feature = plugin_root / 'automatic_stratagems'
+        installed_feature.mkdir()
+        for entry in feature.iterdir():
+            if entry.name not in ('runtime', '.venv'):
+                (installed_feature / entry.name).symlink_to(entry)
+        return subprocess.run(
+            [sys.executable, str(plugin_root / '__install__.py')],
+            capture_output=True, text=True, timeout=120)
+
+    def test_the_install_hook_records_unusable_settings_as_an_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plugin_root = self.installed_tree(directory, ENABLED)
+            self.settings_file(plugin_root).write_text('{"automatic')
+            result = self.run_hook(plugin_root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            status = runtime_install.read_status(plugin_root)
+        self.assertEqual(status['state'], runtime_install.STATE_ERROR)
+        self.assertEqual(
+            status['error'], 'cannot read plugin settings: Invalid JSON document')
+        self.assertEqual(result.stderr, '')
+        self.assertEqual(len(result.stdout.splitlines()), 1)
+
+    def test_the_install_hook_treats_a_missing_settings_file_as_disabled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plugin_root = self.installed_tree(directory, None)
+            result = self.run_hook(plugin_root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            status = runtime_install.read_status(plugin_root)
+        self.assertEqual(status['state'], runtime_install.STATE_DISABLED)
+        self.assertIsNone(status['error'])
 
     def test_the_install_hook_module_avoids_the_scanner_dependencies(self):
         script = ('import sys\n'

@@ -402,7 +402,10 @@ result, and records `state`, `profile`, `error`, and `updated_at` in ignored
 feature setting is off, reports failures instead of raising them, and is called
 from three places: `__install__.py` (StreamController's store install and update
 hook, using the plugin's own directory layout to find its settings and unwrapping
-StreamController's `file-version` 2.0 envelope; flat pre-2.0 files are read as-is), the settings
+StreamController's `file-version` 2.0 envelope; flat pre-2.0 files are read as-is.
+A missing settings file is a fresh install and reads as switched off; a file that
+exists but cannot be read, parsed, or unwrapped is recorded as `state: error`
+rather than `disabled`), the settings
 switch and its **Scanner setup** row, and the scan worker thread, inside the scan
 operation, on any `ScanSetupError` (including a missing capture command). That
 last caller holds the shared input lock until preparation finishes, so no scan

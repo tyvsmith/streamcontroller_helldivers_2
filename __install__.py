@@ -20,9 +20,15 @@ sys.path.insert(0, str(ROOT))
 def main() -> int:
     try:
         from automatic_stratagems.provision.runtime_install import (
-            ensure_scanner_runtime, installed_plugin_settings,
+            PluginSettingsError, ensure_scanner_runtime,
+            installed_plugin_settings, record_settings_error,
         )
-        status = ensure_scanner_runtime(ROOT, installed_plugin_settings(ROOT))
+        try:
+            settings = installed_plugin_settings(ROOT)
+        except PluginSettingsError as error:
+            status = record_settings_error(ROOT, error)
+        else:
+            status = ensure_scanner_runtime(ROOT, settings)
     except Exception as error:  # noqa: BLE001 - never fail the installation
         print(f"automatic stratagems: setup skipped: {error}", file=sys.stderr)
         return 0

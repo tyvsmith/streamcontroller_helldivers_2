@@ -89,6 +89,10 @@ def install_scanner_venv(
     return target
 
 
+class PluginSettingsError(Exception):
+    """The plugin settings file exists but its values cannot be used."""
+
+
 def installed_plugin_settings(root: Path) -> dict:
     """Read the plugin settings the install hook cannot request from the app.
 
@@ -98,16 +102,44 @@ def installed_plugin_settings(root: Path) -> dict:
 
     StreamController 2.0 settings files wrap the values as
     ``{"file-version": "2.0", "settings": {...}}``; older files are flat.
+    A missing file is a fresh install and reads as empty; a file that exists
+    but cannot be read or understood raises ``PluginSettingsError``.
     """
     root = Path(os.path.abspath(root))
     path = root.parent.parent / "settings/plugins" / root.name / "settings.json"
     try:
         value = read_bounded_json(path, max_bytes=MAX_SETTINGS_BYTES)
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return {}
-    if isinstance(value, dict) and value.get("file-version") == SETTINGS_FILE_VERSION:
-        value = value.get("settings")
-    return value if isinstance(value, dict) else {}
+    except OSError as error:
+        raise PluginSettingsError(error.strerror or str(error)) from error
+    except ValueError as error:
+        raise PluginSettingsError(str(error)) from error
+    if not isinstance(value, dict):
+        raise PluginSettingsError("the settings document is not an object")
+    if "file-version" not in value:
+        return value
+    version = value["file-version"]
+    if version != SETTINGS_FILE_VERSION:
+        raise PluginSettingsError(f"unsupported file-version {version}")
+    settings = value.get("settings")
+    if not isinstance(settings, dict):
+        raise PluginSettingsError("the settings envelope has no settings object")
+    return settings
+
+
+def record_settings_error(
+    root: Path,
+    error: PluginSettingsError,
+    *,
+    flatpak: bool | None = None,
+) -> dict:
+    """Record unusable plugin settings as a setup error instead of a disabled feature."""
+    if flatpak is None:
+        flatpak = _is_flatpak(os.environ)
+    profile = "flatpak" if flatpak else "native"
+    return _record(Path(root), _status(
+        STATE_ERROR, profile, f"cannot read plugin settings: {error}"))
 
 
 def status_path(root: Path) -> Path:
