@@ -319,11 +319,23 @@ operation_dir=$1
 pattern="$operation_dir/.nonce-query.$$"
 trap '/usr/bin/rm -f -- "$pattern"' EXIT HUP INT TERM
 printf '%s\n' "$HD2_OPERATION_QUERY" > "$pattern" || exit 2
-/usr/bin/grep -z -F -x -q -f "$pattern" /proc/[0-9]*/cmdline 2>/dev/null
-status=$?
-if [ "$status" -eq 0 ]; then exit 1; fi
-if [ "$status" -eq 1 ]; then exit 0; fi
-exit 2
+set -- /proc/[0-9]*/cmdline
+while :; do
+  /usr/bin/grep -z -F -x -q -f "$pattern" -- "$@" 2>/dev/null
+  status=$?
+  if [ "$status" -eq 0 ]; then exit 1; fi
+  if [ "$status" -eq 1 ]; then exit 0; fi
+  if [ "$status" -ne 2 ]; then exit 2; fi
+  # A read error from a process that has since exited is not a match; drop
+  # entries whose /proc directory is gone and rescan the rest. Any error that
+  # remains once nothing more has vanished fails closed.
+  count=$#
+  for entry do
+    shift
+    if [ -e "${entry%/cmdline}" ]; then set -- "$@" "$entry"; fi
+  done
+  if [ "$#" -eq 0 ] || [ "$#" -eq "$count" ]; then exit 2; fi
+done
 '''
 
 

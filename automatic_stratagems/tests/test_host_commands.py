@@ -363,6 +363,67 @@ with shared_host_directory(retain_on_error=True) as directory:
             self.assertEqual(result.stderr, b'')
             self.assertEqual(list(operation.iterdir()), [])
 
+    def _query_fake_proc(self, root, token, *, vanish=None):
+        """Run the operation query over a fake /proc tree under root.
+
+        Entry 100 has a FIFO for cmdline, so grep blocks there after the glob has
+        expanded; vanish is then removed, as if that process exited mid-query.
+        """
+        proc = root / 'proc'
+        (proc / '100').mkdir(parents=True)
+        os.mkfifo(proc / '100' / 'cmdline')
+        operation = root / 'operation'
+        operation.mkdir()
+        script = hc.HOST_OPERATION_QUERY.replace('/proc/', f'{proc}/')
+        self.assertNotEqual(script, hc.HOST_OPERATION_QUERY)
+        process = subprocess.Popen(
+            ['/usr/bin/sh', '-c', script, 'test-operation-query', str(operation)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env={**os.environ, 'HD2_OPERATION_QUERY': token})
+        self.addCleanup(process.kill)
+        deadline = time.monotonic() + 10
+        while process.poll() is None and time.monotonic() < deadline:
+            try:
+                writer = os.open(proc / '100' / 'cmdline', os.O_WRONLY | os.O_NONBLOCK)
+            except OSError:
+                time.sleep(.005)
+                continue
+            if vanish is not None:
+                for path in sorted(vanish.iterdir()):
+                    path.unlink()
+                vanish.rmdir()
+                vanish = None
+            os.close(writer)
+        return process.wait(timeout=1)
+
+    def _fake_process(self, root, pid, cmdline):
+        directory = root / 'proc' / str(pid)
+        directory.mkdir(parents=True)
+        (directory / 'cmdline').write_bytes(cmdline)
+        return directory
+
+    def test_operation_query_ignores_process_that_exits_during_query(self):
+        with tempfile.TemporaryDirectory() as base:
+            root = Path(base)
+            vanished = self._fake_process(root, 200, b'hd2-other\0')
+            self._fake_process(root, 300, b'sleep\0')
+            self.assertEqual(self._query_fake_proc(root, 'hd2-token', vanish=vanished), 0)
+
+    def test_operation_query_finds_match_after_process_exits_during_query(self):
+        with tempfile.TemporaryDirectory() as base:
+            root = Path(base)
+            vanished = self._fake_process(root, 200, b'hd2-other\0')
+            self._fake_process(root, 300, b'sh\0hd2-token\0')
+            self.assertEqual(self._query_fake_proc(root, 'hd2-token', vanish=vanished), 1)
+
+    def test_operation_query_fails_closed_on_unreadable_live_process(self):
+        with tempfile.TemporaryDirectory() as base:
+            root = Path(base)
+            vanished = self._fake_process(root, 200, b'hd2-other\0')
+            unreadable = self._fake_process(root, 300, b'hd2-token\0')
+            (unreadable / 'cmdline').chmod(0)
+            self.assertEqual(self._query_fake_proc(root, 'hd2-token', vanish=vanished), 2)
+
     def test_reservation_failure_never_publishes_operation(self):
         with tempfile.TemporaryDirectory() as base:
             with hc.create_host_job(base=Path(base), hard_timeout=.1) as job, \
