@@ -320,9 +320,18 @@ Tesseract and English data. Neither profile changes recognition thresholds.
 
 ### Actions
 
-To fill an existing page, add **Automatic Stratagem Scanner** and **Automatic
-Stratagem** buttons with the same **Scan group**; leave **Automatic slot** at
-`-1` for automatic numbering.
+Pick an action by where the stratagems should go:
+
+- **Automatic Stratagem Page:** one button that scans and opens its own
+  generated page, with nothing to lay out
+- **Automatic Stratagem Scanner** with **Automatic Stratagem** buttons: fill
+  slots on a page you design. The scanner scans and assigns; each Automatic
+  Stratagem button holds one assignment and calls it when tapped
+- **Automatic Stratagem** buttons on their own also work: tapping an empty one
+  scans its group
+
+To fill an existing page, give the scanner and its slots the same **Scan
+group** and leave **Automatic slot** at `-1` for automatic numbering.
 
 | Action | Tap | Hold |
 | --- | --- | --- |
@@ -360,12 +369,16 @@ Stratagem** buttons with the same **Scan group**; leave **Automatic slot** at
 - **Scan group** (default `default`) matches exactly within the same deck and
   page. Finish a group edit with Apply, Enter, or leaving the field; typing
   alone does not change assignments or cancel a scan
-- Assignments, scans, and clears apply only to that deck, page, and group
+- Assignments, scans, and clears apply only to that deck, page, and group.
+  Use separate groups for independent sets of slots on one page, each with its
+  own scanner
 - Creating a generated page seeds it from the scan without changing the
   source page. Later scans and clears on either page do not change the other
   page's assignments
-- **Color filter** fills a slot only with an allowed icon color and leaves
-  uncertain matches empty
+- **Color filter** (Any, Red, Blue, Green, Yellow) fills a slot only with a
+  stratagem whose icon has that color, and leaves uncertain matches empty. For
+  example, keep red orbital and Eagle strikes in one row and green sentries in
+  another
 - Each Automatic Stratagem Page button owns a separate cache, even when
   several use the same group. Holding one leaves other page caches and source
   assignments unchanged
