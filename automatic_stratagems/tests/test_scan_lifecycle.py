@@ -744,6 +744,86 @@ class EntryTests(EntryTestCase):
         self.assertEqual(self.events, ['acquire', 'release'])
 
 
+class EntryExitTests(EntryTestCase):
+    """Presses refused before a scan starts leave no lock, operation, or worker."""
+
+    def start_refused(self, **kwargs):
+        with patch.object(self.mod, 'Thread') as create:
+            self.lifecycle.start(self.action, **kwargs)
+        create.assert_not_called()
+        self.assertEqual(self.lifecycle.active_scans, {})
+
+    def test_a_closed_disabled_or_absent_coordinator_ignores_the_press(self):
+        for name, change in (('closed', lambda: setattr(self.host, 'closed', True)),
+                             ('disabled', lambda: setattr(self.host, 'enabled', False)),
+                             ('absent', lambda: setattr(self.action, 'present', False))):
+            with self.subTest(name):
+                self.reset_host()
+                self.events.clear()
+                session = self.update_setup()
+                revision = session.snapshot().revision
+                change()
+                self.start_refused(replace=True)
+                self.assertEqual(self.events, [])
+                self.host.show_action_error.assert_not_called()
+                self.assertEqual(session.snapshot().revision, revision)
+
+    def test_busy_input_marks_the_initiator_without_touching_its_session(self):
+        session = self.update_setup()
+        revision = session.snapshot().revision
+        self.host.plugin.input_lock.busy = True
+        self.start_refused(replace=True)
+        self.assertEqual(self.events, ['busy'])
+        self.host.show_action_error.assert_called_once_with(self.action)
+        self.assertEqual(session.snapshot().revision, revision)
+
+    def test_a_page_opener_already_scanning_is_refused_without_a_new_attempt(self):
+        for regenerate in (False, True):
+            with self.subTest(regenerate=regenerate):
+                self.reset_host()
+                self.events.clear()
+                session = self.page_setup()
+                token = session.begin({1: 'any'}, transient=True)
+                self.start_refused(replace=True, regenerate=regenerate)
+                self.assertEqual(self.events, ['acquire', 'release'])
+                self.host.show_action_error.assert_called_once_with(self.action)
+                self.attempts.begin_page_attempt.assert_not_called()
+                self.assertTrue(session.is_active(token))
+
+    def test_an_unresolved_slot_is_refused_before_the_session_begins(self):
+        session = self.assigned_session()
+        self.host.automatic = [Automatic(self.context, 1), Automatic(self.context, None)]
+        revision = session.snapshot().revision
+        self.start_refused(replace=True)
+        self.mod.log.warning.assert_called_once_with(
+            'Automatic slot position unavailable; choose an explicit slot')
+        self.host.show_action_error.assert_called_once_with(self.action)
+        self.assertEqual(session.snapshot().revision, revision)
+        self.assertEqual(session.snapshot().assignments[1], 'A')
+        self.host.registry.persist.assert_not_called()
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def test_duplicate_or_missing_slots_fail_the_scan(self):
+        # The session begins over the present slots, so a context with none
+        # keeps no assignments; duplicates keep the shared slot's assignment.
+        for automatic, assignments in (
+                ([Automatic(self.context, 1), Automatic(self.context, 1)], {1: 'A'}),
+                ([], {})):
+            with self.subTest(slots=len(automatic)):
+                self.reset_host()
+                self.events.clear()
+                session = self.assigned_session()
+                self.host.automatic = automatic
+                self.start_refused(replace=True)
+                self.assertEqual((session.snapshot().status, session.snapshot().message),
+                                 ('failed', 'Add uniquely numbered Automatic slots'))
+                self.assertEqual(dict(session.snapshot().assignments), assignments)
+                self.host.registry.persist.assert_called_with(self.action, session)
+                self.host.show_action_error.assert_called_once_with(self.action)
+                self.assertEqual(self.host.redraw.call_args_list[-1].args, (self.context,))
+                self.assertEqual(self.events, ['acquire', 'release'])
+
+
 class CleanupFailureTests(EntryTestCase):
     """A raising cleanup step still completes the operation and frees input."""
 

@@ -548,5 +548,68 @@ class ActionLifecycleTests(ActionTestHarness, unittest.TestCase):
                          'scanner crashed')
 
 
+
+class ActionEntryExitTests(ActionTestHarness, unittest.TestCase):
+    """Action presses that end before reaching the scan lifecycle."""
+
+    def pressed_slot(self, *, scanning=False):
+        action = self.rendering_action(self.mod.AutomaticStratagem)
+        action.show_error = Mock()
+        session = self.coordinator.session(action)
+        if scanning:
+            session.begin({1: 'any'})
+        action.on_key_down()
+        action.displayed = (session.snapshot().revision, 1, None)
+        return action, session
+
+    def test_tapping_an_empty_slot_while_its_group_scans_marks_it_busy(self):
+        action, session = self.pressed_slot(scanning=True)
+        with patch.object(self.coordinator, 'start') as start:
+            action.on_key_short_up()
+        start.assert_not_called()
+        action.show_error.assert_called_once_with(duration=3)
+        self.assertEqual(session.snapshot().status, 'scanning')
+        self.assertFalse(self.plugin.input_lock.locked())
+
+    def test_tapping_an_empty_slot_while_disabled_does_nothing(self):
+        action, _ = self.pressed_slot()
+        self.plugin_settings['automatic_stratagems_enabled'] = False
+        with patch.object(self.coordinator, 'start') as start:
+            action.on_key_short_up()
+        start.assert_not_called()
+        action.show_error.assert_not_called()
+
+    def test_tapping_an_idle_empty_slot_starts_a_scan(self):
+        action, _ = self.pressed_slot()
+        with patch.object(self.coordinator, 'start') as start:
+            action.on_key_short_up()
+        start.assert_called_once_with(action, replace=True)
+
+    def page_opener(self):
+        action = self.rendering_action(
+            self.mod.AutomaticStratagemPage, {'capture_backend': 'gamescope'})
+        action.show_error = Mock()
+        action.on_key_down()
+        return action
+
+    def test_a_page_opener_with_a_cached_page_opens_it_without_scanning(self):
+        action = self.page_opener()
+        with patch.object(self.coordinator, 'open_cached_page', return_value=True), \
+             patch.object(self.coordinator, 'start') as start:
+            action.on_key_short_up()
+        start.assert_not_called()
+        action.show_error.assert_not_called()
+
+    def test_a_page_opener_whose_cache_cannot_open_is_marked_without_scanning(self):
+        action = self.page_opener()
+        with patch.object(self.coordinator, 'open_cached_page',
+                          side_effect=OSError('unreadable')), \
+             patch.object(self.coordinator, 'start') as start, \
+             patch.object(self.mod, 'log'):
+            action.on_key_short_up()
+        start.assert_not_called()
+        action.show_error.assert_called_once_with(duration=3)
+        self.assertFalse(self.plugin.input_lock.locked())
+
 if __name__ == '__main__':
     unittest.main()
