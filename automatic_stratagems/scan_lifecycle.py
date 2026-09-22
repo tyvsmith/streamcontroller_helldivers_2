@@ -122,6 +122,18 @@ class ScanLifecycle:
         self.coordinator.plugin.input_lock.release()
 
     def _prepare_scan_operation(self, action, operation, *, replace, regenerate):
+        # A refused or failed preparation completes the operation even when
+        # its cleanup raises; completion is idempotent.
+        prepared = False
+        try:
+            prepared = self._prepare_scan_plan(
+                action, operation, replace=replace, regenerate=regenerate)
+            return prepared
+        finally:
+            if not prepared:
+                operation.complete()
+
+    def _prepare_scan_plan(self, action, operation, *, replace, regenerate):
         context = session = token = None
         source_action = cached_path = None
         attempt_id = None
@@ -460,6 +472,14 @@ class ScanLifecycle:
         if not self._prepare_scan_operation(
                 action, operation, replace=replace, regenerate=regenerate):
             return
+        try:
+            self._launch_scan_worker(action, operation)
+        finally:
+            # A started worker owns completion; completion is idempotent.
+            if not operation.started:
+                operation.complete()
+
+    def _launch_scan_worker(self, action, operation):
         plan = operation.plan
         try:
             operation.bind_worker(Thread(

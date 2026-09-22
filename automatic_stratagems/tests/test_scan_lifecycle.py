@@ -1,3 +1,4 @@
+import contextlib
 import importlib
 import inspect
 import sys
@@ -540,11 +541,7 @@ class CompletionAndShutdownTests(ScanLifecycleTestCase):
         self.assertEqual(self.mod.MAIN_CONTEXT_TIMEOUT_SECONDS, 5)
 
 
-class EntryTests(ScanLifecycleTestCase):
-    """Scan start and preparation: worker launch, and input released once after a refused
-    page token, regenerating an update button, cancellation while preparing or launching,
-    or a setup or worker-start failure, including failures that cannot be saved."""
-
+class EntryTestCase(ScanLifecycleTestCase):
     def update_setup(self):
         session = self.assigned_session()
         self.host.automatic = [Automatic(self.context, 1)]
@@ -560,6 +557,30 @@ class EntryTests(ScanLifecycleTestCase):
 
     def exception_messages(self):
         return [call.args[0] for call in self.mod.log.exception.call_args_list]
+
+    def launch_cancelled(self):
+        thread = Mock()
+
+        def create(**_kwargs):
+            self.host.enabled = False
+            return thread
+
+        with patch.object(self.mod, 'Thread', side_effect=create):
+            self.lifecycle.start(self.action, replace=True)
+        return thread
+
+    def launch_failure(self):
+        thread = Mock()
+        thread.start.side_effect = RuntimeError('thread unavailable')
+        with patch.object(self.mod, 'Thread', return_value=thread):
+            self.lifecycle.start(self.action, replace=True)
+        return thread
+
+
+class EntryTests(EntryTestCase):
+    """Scan start and preparation: worker launch, and input released once after a refused
+    page token, regenerating an update button, cancellation while preparing or launching,
+    or a setup or worker-start failure, including failures that cannot be saved."""
 
     def test_a_launch_binds_a_named_daemon_worker_before_starting_it(self):
         session = self.update_setup()
@@ -666,17 +687,6 @@ class EntryTests(ScanLifecycleTestCase):
         self.host.show_action_error.assert_called_once_with(self.action)
         self.assertEqual(self.events, ['acquire', 'release'])
 
-    def launch_cancelled(self):
-        thread = Mock()
-
-        def create(**_kwargs):
-            self.host.enabled = False
-            return thread
-
-        with patch.object(self.mod, 'Thread', side_effect=create):
-            self.lifecycle.start(self.action, replace=True)
-        return thread
-
     def test_a_launch_cancelled_before_start_cancels_an_update_scan(self):
         session = self.update_setup()
         thread = self.launch_cancelled()
@@ -699,13 +709,6 @@ class EntryTests(ScanLifecycleTestCase):
             self.action, 7, 'cancelled', 'Scan cancelled', session=session, token=token)
         self.host.persist_context.assert_not_called()
         self.assertEqual(self.events, ['acquire', 'release'])
-
-    def launch_failure(self):
-        thread = Mock()
-        thread.start.side_effect = RuntimeError('thread unavailable')
-        with patch.object(self.mod, 'Thread', return_value=thread):
-            self.lifecycle.start(self.action, replace=True)
-        return thread
 
     def test_a_worker_that_cannot_start_fails_an_update_scan(self):
         session = self.update_setup()
@@ -739,6 +742,71 @@ class EntryTests(ScanLifecycleTestCase):
                          ['Unable to persist failed stratagem scan setup',
                           'Unable to start stratagem scan'])
         self.assertEqual(self.events, ['acquire', 'release'])
+
+
+class CleanupFailureTests(EntryTestCase):
+    """A raising cleanup step still completes the operation and frees input."""
+
+    def assert_released(self):
+        self.assertEqual(self.lifecycle.active_scans, {})
+        self.assertEqual(self.events, ['acquire', 'release'])
+
+    def start_suppressing(self, error_type, thread=None):
+        with patch.object(self.mod, 'Thread', return_value=thread or Mock()), \
+             contextlib.suppress(error_type):
+            self.lifecycle.start(self.action, replace=True)
+
+    def test_a_refused_page_token_whose_attempt_cannot_finish_releases_input(self):
+        session = self.page_setup()
+        self.attempts.finish_page_attempt.side_effect = RuntimeError('attempt')
+        with patch.object(session, 'begin', return_value=None):
+            self.start_suppressing(RuntimeError)
+        self.assert_released()
+
+    def test_a_cancelled_preparation_that_cannot_be_saved_releases_input(self):
+        self.update_setup()
+        self.host.registry.persist.side_effect = CancelledError()
+        self.host.persist_context.side_effect = OSError('disk full')
+        self.start_suppressing(OSError)
+        self.assert_released()
+
+    def test_a_cancelled_page_preparation_whose_attempt_cannot_finish_releases_input(self):
+        self.page_setup()
+        self.host.redraw.side_effect = CancelledError()
+        self.attempts.finish_page_attempt.side_effect = RuntimeError('attempt')
+        self.start_suppressing(RuntimeError)
+        self.assert_released()
+
+    def test_a_failed_page_preparation_whose_attempt_cannot_finish_releases_input(self):
+        self.page_setup()
+        self.host.page_flow._operation_image_settings.side_effect = ValueError('settings')
+        self.attempts.finish_page_attempt.side_effect = RuntimeError('attempt')
+        self.start_suppressing(RuntimeError)
+        self.assert_released()
+
+    def test_a_cancelled_launch_that_cannot_be_saved_releases_input(self):
+        self.update_setup()
+        self.host.persist_context.side_effect = OSError('disk full')
+        with contextlib.suppress(OSError):
+            self.launch_cancelled()
+        self.assert_released()
+
+    def test_a_failed_page_launch_whose_attempt_cannot_finish_releases_input(self):
+        self.page_setup()
+        self.attempts.finish_page_attempt.side_effect = RuntimeError('attempt')
+        thread = Mock()
+        thread.start.side_effect = RuntimeError('thread unavailable')
+        self.start_suppressing(RuntimeError, thread)
+        self.assert_released()
+
+    def test_a_started_worker_keeps_input_until_it_finalizes(self):
+        self.update_setup()
+        thread = Mock()
+        with patch.object(self.mod, 'Thread', return_value=thread):
+            self.lifecycle.start(self.action, replace=True)
+        thread.start.assert_called_once_with()
+        self.assertEqual(self.events, ['acquire'])
+        self.assertEqual(len(self.lifecycle.active_scans), 1)
 
 
 if __name__ == '__main__':
