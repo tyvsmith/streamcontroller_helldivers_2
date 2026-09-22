@@ -22,7 +22,7 @@ Access settings via **Settings → Plugins → HELLDIVERS 2 → ⚙️**
 | **Modifier Key** | Key to open stratagem menu (Left/Right Ctrl, Alt, or Shift) | Left Ctrl |
 | **Direction Keys** | Keys used for Up, Down, Left, and Right stratagem inputs (Arrow keys or WASD) | Arrow keys |
 | **Hold Modifier Key** | Hold modifier during sequence vs press-and-release | ON |
-| **Enable automatic stratagems** | Show Scan and Auto actions, prepare the scanner runtime, and enable Gamescope/Screenshot capture | OFF |
+| **Enable automatic stratagems** | Capture images of the game screen (Gamescope or your screenshot hotkey) to recognize stratagems; shows Scan and Auto actions and prepares the scanner runtime | OFF |
 | **Scan workers** | Parallel recognition workers (1–32); fewer workers reduce memory use | 2 |
 | **Screenshot capture** | Shared keycode or script, screenshot folder, and deletion settings | F12, Steam folder, delete after success |
 | **Show Labels** | Display text labels on buttons (OFF for icon-only look) | ON |

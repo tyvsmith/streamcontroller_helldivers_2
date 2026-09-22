@@ -449,7 +449,7 @@ class OptionalIntegrationTests(unittest.TestCase):
             integration._automatic_row()
 
         self.assertIn(
-            'Show automatic scan actions',
+            'Captures images of the game screen',
             switch_row.call_args.kwargs['subtitle'])
         row.set_active.assert_called_once_with(True)
         row.set_sensitive.assert_called_once_with(True)

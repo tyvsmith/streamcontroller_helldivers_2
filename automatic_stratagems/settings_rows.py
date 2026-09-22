@@ -33,8 +33,9 @@ def build_enable_row(integration):
     row = Adw.SwitchRow(
         title="Enable automatic stratagems",
         subtitle=(error or
-                  "Show automatic scan actions in the action chooser and enable "
-                  "screenshot scanning. Off by default."),
+                  "Captures images of the game screen, through Gamescope or your "
+                  "screenshot hotkey, to recognize equipped stratagems and show "
+                  "automatic scan actions. Off by default."),
     )
     row.set_active(integration.coordinator.enabled)
     row.set_sensitive(error is None)
