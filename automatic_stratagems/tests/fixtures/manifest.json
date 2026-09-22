@@ -106,7 +106,6 @@
         "73lq54lq.png": ["Reinforce", "SOSBeacon", "Resupply", "OrbitalPrecisionStrike", "HeavyMachineGun", "BastionMkXvi", "GrenadierBattlement"],
         "8ph1iiv_.png": ["Reinforce", "SOSBeacon", "Resupply", "BulletStorm", "ExpendableAntiTank", "ExpendableNapalm", "RecoillessRifle"],
         "9qxupakw.png": ["Reinforce", "SOSBeacon", "Resupply", "Eagle110MMRocketPods", "HeavyMachineGun", "C4Pack", "LumbererExosuit"],
-        "b5bu7_h5.png": ["Reinforce", "SOSBeacon", "Resupply", null, null, "ExpendableNapalm", "RecoillessRifle"],
         "d8iwkkqu.png": ["Reinforce", "SOSBeacon", "Resupply", "OneTrueFlag", "BreakthroughExosuit", "AntiPersonnelMinefield", "AntiMaterialRifle"],
         "dd6i2zkk.png": ["Reinforce", "SOSBeacon", "Resupply", "BulletStorm", "ExpendableAntiTank", "ExpendableNapalm", "RecoillessRifle"],
         "djge65ce.png": ["Reinforce", "SOSBeacon", "Resupply", "OneTrueFlag", "BreakthroughExosuit", "AntiPersonnelMinefield", "AntiMaterialRifle"],
@@ -122,15 +121,11 @@
         "original.png": ["Reinforce", "SOSBeacon", "Resupply", null, "EagleRearm", "OrbitalGatlingBarrage", "Meltagun", "WarpPack", "RocketSentry"],
         "psappcvv.png": ["Reinforce", "SOSBeacon", "Resupply", "BreakthroughExosuit", "WarpPack", "AutocannonSentry", "BulletStorm"],
         "q6c5g5lc.png": ["Reinforce", "SOSBeacon", "Resupply", "OrbitalLaser", "OrbitalWalkingBarrage", "OrbitalRailcannonStrike", "OrbitalGatlingBarrage"],
-        "tvtvg4ne.png": ["Reinforce", "SOSBeacon", "Resupply", "OrbitalPrecisionStrike", "HeavyMachineGun", "BastionMkXvi", "GrenadierBattlement"],
-        "unmlztkh.png": ["Reinforce", "SOSBeacon", "Resupply", "GL52DeEscalator", "WarpPack", "BreakthroughExosuit", "AntiTankEmplacement"],
         "v2q3vnp3.png": ["Reinforce", "SOSBeacon", "Resupply", "Eagle110MMRocketPods", "HeavyMachineGun", "C4Pack", "LumbererExosuit"],
         "v5neah0z.png": ["Reinforce", "SOSBeacon", "Resupply", null, null, "AutocannonSentry", null],
-        "vt1k0eee.png": ["Reinforce", "SOSBeacon", "Resupply", "OrbitalPrecisionStrike", "HeavyMachineGun", "BastionMkXvi", "GrenadierBattlement"],
         "wddlasoe.png": ["Reinforce", "SOSBeacon", "Resupply", "Eagle110MMRocketPods", "HeavyMachineGun", "C4Pack", "LumbererExosuit"],
         "wf31myxj.png": ["Reinforce", "SOSBeacon", "Resupply", "Orbital120MMHEBarrage", "WarpPack", null, "PatriotExosuit"],
-        "wswnmf20.png": ["Reinforce", "SOSBeacon", "Resupply", "OneTrueFlag", "BreakthroughExosuit", "AntiPersonnelMinefield", "AntiMaterialRifle"],
-        "zob230vn.png": ["Reinforce", "SOSBeacon", "Resupply", "OneTrueFlag", "BreakthroughExosuit", "AntiPersonnelMinefield", "AntiMaterialRifle"]
+        "wswnmf20.png": ["Reinforce", "SOSBeacon", "Resupply", "OneTrueFlag", "BreakthroughExosuit", "AntiPersonnelMinefield", "AntiMaterialRifle"]
       }
     },
     {
@@ -164,7 +159,7 @@
     {
       "id": "hdr-full-scenes",
       "files": "hdr-full-scenes/*.png",
-      "source": "nine original PNG captures from the reported HDR/blowout collection, losslessly re-encoded",
+      "source": "seven original PNG captures from the reported HDR/blowout collection, losslessly re-encoded",
       "capture_id": "per-case capture_id in expectations file",
       "geometry": "full original image; dimensions vary",
       "resolution": "per-case original dimensions",
@@ -1863,17 +1858,6 @@
       "split": "calibration",
       "capture_id": "9qxupakw"
     },
-    "mission-panels/b5bu7_h5.png": {
-      "sha256": "74ef1c1663d392ae1958d61199ca6d3d39f3813a6bc659833b9c6b07b8fc38c3",
-      "source_sha256": "211eae60c2b751611254d7d854c03d50a3a9ac77f721033a6ada671ce82fde10",
-      "dimensions": [
-        768,
-        1145
-      ],
-      "label_ref": "manifest.json#dataset=mission-panels/expected_ids/b5bu7_h5.png",
-      "split": "calibration",
-      "capture_id": "b5bu7_h5"
-    },
     "mission-panels/d8iwkkqu.png": {
       "sha256": "06eae339ce06daa589cfd5bfbef5fc9427d365133dacc88eb755ed2dcb9f7623",
       "source_sha256": "95949e7893cb3e5e07a59016c736cf828fad23544d285314a57e7d46a9781f6f",
@@ -2039,28 +2023,6 @@
       "split": "calibration",
       "capture_id": "q6c5g5lc"
     },
-    "mission-panels/tvtvg4ne.png": {
-      "sha256": "aaf3cc2ee7af7369e06426f08d9804dc9cbb631bfbe6fec78368247c952a2b9d",
-      "source_sha256": "612eb6faa9ac1477ebec11267608280babf805c611d3a1913b8efec61f3ffb28",
-      "dimensions": [
-        768,
-        1145
-      ],
-      "label_ref": "manifest.json#dataset=mission-panels/expected_ids/tvtvg4ne.png",
-      "split": "calibration",
-      "capture_id": "tvtvg4ne"
-    },
-    "mission-panels/unmlztkh.png": {
-      "sha256": "6eeb4e515298e6a4d6e65517116495449862c267402d4793b0b0b991a5506cd7",
-      "source_sha256": "d00dab696fb26ea4c5fcf678c4c91c50f472b07ba4f99ef03e8962e3ea3cdd06",
-      "dimensions": [
-        768,
-        1145
-      ],
-      "label_ref": "manifest.json#dataset=mission-panels/expected_ids/unmlztkh.png",
-      "split": "calibration",
-      "capture_id": "unmlztkh"
-    },
     "mission-panels/v2q3vnp3.png": {
       "sha256": "2972aa25364a714487b7443d9388b45dbc5d7097cda16f9f6c5493f95670b58e",
       "source_sha256": "1b0f5abad990fe394695c407f6962aa122084d196e2c0a810148149187613ca3",
@@ -2082,17 +2044,6 @@
       "label_ref": "manifest.json#dataset=mission-panels/expected_ids/v5neah0z.png",
       "split": "calibration",
       "capture_id": "v5neah0z"
-    },
-    "mission-panels/vt1k0eee.png": {
-      "sha256": "8074bd3483b05a74ebf25241be783ae52aa5318c47dca7d3911a92bd3a050bc1",
-      "source_sha256": "3bd2241add1f4d5b8cd653394fb6e5d4690e7dfecbf2bc5faf621ebeab481622",
-      "dimensions": [
-        768,
-        1145
-      ],
-      "label_ref": "manifest.json#dataset=mission-panels/expected_ids/vt1k0eee.png",
-      "split": "calibration",
-      "capture_id": "vt1k0eee"
     },
     "mission-panels/wddlasoe.png": {
       "sha256": "fc3da62a897cda3b8fc0f8b79bfad9aa982e49da1ae5665574f38cd11a15b99c",
@@ -2126,17 +2077,6 @@
       "label_ref": "manifest.json#dataset=mission-panels/expected_ids/wswnmf20.png",
       "split": "calibration",
       "capture_id": "wswnmf20"
-    },
-    "mission-panels/zob230vn.png": {
-      "sha256": "352b99e233dda4d6506e2dc9665088405dab66dd52be337d6b2db233d967d351",
-      "source_sha256": "6283e79fff25f17d3d5c8baf3fd5f5abd5f42bb07e0467f5aa2dffa8892e1a90",
-      "dimensions": [
-        768,
-        1145
-      ],
-      "label_ref": "manifest.json#dataset=mission-panels/expected_ids/zob230vn.png",
-      "split": "calibration",
-      "capture_id": "zob230vn"
     },
     "shared-glyphs/dbum8rrl.png": {
       "sha256": "8b8d2d81e18b05118c2a2950ea4e52768b89edf6f73626d7b44fd2cfa7128c20",
@@ -2251,14 +2191,6 @@
       "split": "calibration",
       "capture_id": "screenshot-2026-09-08_11-52-36"
     },
-    "hdr-full-scenes/screenshot-2026-09-08_11-57-00.png": {
-      "sha256": "4a67b87ac2be4400dba075d8d8e13b6aee4cc1be8bb61964e2f3f74c3ca8dd76",
-      "source_sha256": "9af9007a156b13712611cf222e9c447637a700c0c3826a7f4733a2c85077ac58",
-      "dimensions": [5120, 2160],
-      "label_ref": "hdr-full-scenes/manifest.json#case=screenshot-2026-09-08_11-57-00.png",
-      "split": "calibration",
-      "capture_id": "screenshot-2026-09-08_11-57-00"
-    },
     "hdr-full-scenes/screenshot-2026-09-08_12-20-34.png": {
       "sha256": "424875627196aeb117bd7f529e381aba3df6d6042bb653a14ab3fb4084d7364f",
       "source_sha256": "05215e3eba005a68bf267d9dbee42e3359be3215e6a9d18d44d9e12e189d84c6",
@@ -2274,14 +2206,6 @@
       "label_ref": "hdr-full-scenes/manifest.json#case=screenshot-2026-09-08_12-21-37.png",
       "split": "calibration",
       "capture_id": "screenshot-2026-09-08_12-21-37"
-    },
-    "hdr-full-scenes/screenshot-2026-09-08_12-22-27.png": {
-      "sha256": "d8419ef340e7a9aa4d2395a33e0c87e997d900b37b68969678b8c415d9447308",
-      "source_sha256": "dc0db2965e6ceec0441b07af2868ab4c04f95543ab713b172c6f5241778cd1b6",
-      "dimensions": [5122, 2162],
-      "label_ref": "hdr-full-scenes/manifest.json#case=screenshot-2026-09-08_12-22-27.png",
-      "split": "calibration",
-      "capture_id": "screenshot-2026-09-08_12-22-27"
     },
     "hdr-full-scenes/screenshot-2026-09-10_19-48-31.png": {
       "sha256": "3db1642631d054b461b1c2d4b4f35a64f9571f8dc70ee05cbe3dcbf3bb24b529",

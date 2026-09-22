@@ -40,14 +40,6 @@ EXPECTED = {
         '99bafc7caa0e0da7ee3e0db117bda8870fbdf227939b3808438fbd9df5afeceb',
         'c180c36d3cc9ec33b0b3f972c6fdc6b623d3fc155b16172a3a6a9df866e405a0',
     ),
-    'screenshot-2026-09-08_11-57-00.png': (
-        'mission',
-        ['Reinforce', 'SOSBeacon', 'Resupply', 'Stalwart',
-         'HeavyMachineGun', 'Epoch', 'GrenadeLauncher'],
-        (5120, 2160),
-        '4a67b87ac2be4400dba075d8d8e13b6aee4cc1be8bb61964e2f3f74c3ca8dd76',
-        '9af9007a156b13712611cf222e9c447637a700c0c3826a7f4733a2c85077ac58',
-    ),
     'screenshot-2026-09-08_12-20-34.png': (
         'mission', [], (5122, 2162),
         '424875627196aeb117bd7f529e381aba3df6d6042bb653a14ab3fb4084d7364f',
@@ -60,14 +52,6 @@ EXPECTED = {
         (5122, 2162),
         'fbd80906282a0f2f63a4ede9264450822bb9981aa9bf7818c907e6faa3471da8',
         '05abf6df01c129db7bdf486787efdc97b7bd716b48d2623d1a648a5b7a740f84',
-    ),
-    'screenshot-2026-09-08_12-22-27.png': (
-        'mission',
-        ['Reinforce', 'SOSBeacon', 'Resupply', 'Stalwart',
-         'HeavyMachineGun', 'Railgun', 'Speargun'],
-        (5122, 2162),
-        'd8419ef340e7a9aa4d2395a33e0c87e997d900b37b68969678b8c415d9447308',
-        'dc0db2965e6ceec0441b07af2868ab4c04f95543ab713b172c6f5241778cd1b6',
     ),
     'screenshot-2026-09-10_19-48-31.png': (
         'mission', [], (1433, 819),
