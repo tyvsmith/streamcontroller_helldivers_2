@@ -1,0 +1,4 @@
+- retain the top-left 768 × 1145 pixels from thirty-three 5120 × 2160 captures
+- restore the original canvas size in tests to preserve normalized HUD coordinates
+- label names by inspecting the captured menus; keep the original Eagle Gas Airstrike unknown
+- treat these as calibration regressions, not held-out accuracy measurements

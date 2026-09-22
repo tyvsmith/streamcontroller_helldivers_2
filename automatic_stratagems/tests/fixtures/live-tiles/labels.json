@@ -1,0 +1,770 @@
+[
+  {
+    "file": "1-0.png",
+    "expected": "Reinforce",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "1-1.png",
+    "expected": "SOSBeacon",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "1-2.png",
+    "expected": "Resupply",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "1-3.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "1-4.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "1-5.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "1-6.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "1-7.png",
+    "expected": "OrbitalRailcannonStrike",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "1-8.png",
+    "expected": "GL52DeEscalator",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "1-9.png",
+    "expected": "WarpPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "1-10.png",
+    "expected": "MachineGunSentry",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "2-0.png",
+    "expected": "Reinforce",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "2-1.png",
+    "expected": "SOSBeacon",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "2-2.png",
+    "expected": "Resupply",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "2-3.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "2-4.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "2-5.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "2-6.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "2-7.png",
+    "expected": "EagleClusterBomb",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "2-8.png",
+    "expected": "AirburstRocketLauncher",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "2-9.png",
+    "expected": "GuardDogK9",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "2-10.png",
+    "expected": "FlameSentry",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "3-0.png",
+    "expected": "Reinforce",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "3-1.png",
+    "expected": "SOSBeacon",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "3-2.png",
+    "expected": "Resupply",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "3-3.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "3-4.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "3-5.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "3-6.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "3-7.png",
+    "expected": "Orbital120MMHEBarrage",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "3-8.png",
+    "expected": "GL52DeEscalator",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "3-9.png",
+    "expected": "WarpPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "3-10.png",
+    "expected": "AutocannonSentry",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "4-0.png",
+    "expected": "Reinforce",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "4-1.png",
+    "expected": "SOSBeacon",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "4-2.png",
+    "expected": "Resupply",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "4-3.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "4-4.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "4-5.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "4-6.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "4-7.png",
+    "expected": "OrbitalRailcannonStrike",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "4-8.png",
+    "expected": "GL52DeEscalator",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "4-9.png",
+    "expected": "WarpPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "4-10.png",
+    "expected": "RocketSentry",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "5-0.png",
+    "expected": "Reinforce",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "5-1.png",
+    "expected": "SOSBeacon",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "5-2.png",
+    "expected": "Resupply",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "5-3.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "5-4.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "5-5.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "5-6.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "5-7.png",
+    "expected": "Stalwart",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "5-8.png",
+    "expected": "OrbitalEMSStrike",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "5-9.png",
+    "expected": "TeslaTower",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "5-10.png",
+    "expected": "Maxigun",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "uncataloged-gas.png",
+    "expected": null,
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "meltagun.png",
+    "expected": "Meltagun",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-hd2-scan-001-0.png",
+    "expected": "SupplyPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-hd2-scan-001-1.png",
+    "expected": "OrbitalNapalmBarrage",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-hd2-scan-001-2.png",
+    "expected": "EmancipatorExosuit",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-hd2-scan-001-3.png",
+    "expected": "Epoch",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-7ek2tbxr-0.png",
+    "expected": "C4Pack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-7ek2tbxr-1.png",
+    "expected": "SupplyPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-7ek2tbxr-2.png",
+    "expected": "ShieldPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-7ek2tbxr-3.png",
+    "expected": "DirectionalShield",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-bzvr9sbj-0.png",
+    "expected": "C4Pack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-bzvr9sbj-1.png",
+    "expected": "SupplyPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-bzvr9sbj-2.png",
+    "expected": "ShieldPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-bzvr9sbj-3.png",
+    "expected": "DirectionalShield",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-e0qycrts-0.png",
+    "expected": "QuasarCannon",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-e0qycrts-1.png",
+    "expected": "LaserCannon",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-e0qycrts-2.png",
+    "expected": "ShieldPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-e0qycrts-3.png",
+    "expected": "RecoillessRifle",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-ilvqc0jr-0.png",
+    "expected": "Meltagun",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-ilvqc0jr-1.png",
+    "expected": "EagleStrafingRun",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-ilvqc0jr-2.png",
+    "expected": "MachineGunSentry",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-ilvqc0jr-3.png",
+    "expected": "SupplyFRV",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-loete9pf-0.png",
+    "expected": "HoverPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-loete9pf-1.png",
+    "expected": "JumpPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-loete9pf-2.png",
+    "expected": "FastReconVehicle",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-loete9pf-3.png",
+    "expected": "BreakthroughExosuit",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-nyk906x1-0.png",
+    "expected": "Commando",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-nyk906x1-1.png",
+    "expected": "ExpendableNapalm",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-nyk906x1-2.png",
+    "expected": "ShieldPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-nyk906x1-3.png",
+    "expected": "SPEARLauncher",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-ooogc69j-0.png",
+    "expected": "C4Pack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-ooogc69j-1.png",
+    "expected": "SupplyPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-ooogc69j-2.png",
+    "expected": "ShieldPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-ooogc69j-3.png",
+    "expected": "DirectionalShield",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-trdl3jh8-0.png",
+    "expected": "Gl28",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-trdl3jh8-1.png",
+    "expected": "Eagle500kgBomb",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-trdl3jh8-2.png",
+    "expected": "ShieldGenerator",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "round2-scan-trdl3jh8-3.png",
+    "expected": "DefoliationTool",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-0-0.png",
+    "expected": "Reinforce",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-0-1.png",
+    "expected": "SOSBeacon",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-0-2.png",
+    "expected": "Resupply",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-0-3.png",
+    "expected": "Hellbomb",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-0-4.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "pale-0-5.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "pale-0-6.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "pale-0-7.png",
+    "expected": "EagleStrafingRun",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-0-8.png",
+    "expected": "Meltagun",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-0-9.png",
+    "expected": "WarpPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-0-10.png",
+    "expected": "EmancipatorExosuit",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-1-0.png",
+    "expected": "Reinforce",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-1-1.png",
+    "expected": "SOSBeacon",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-1-2.png",
+    "expected": "Resupply",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-1-3.png",
+    "expected": "Hellbomb",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-1-4.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "pale-1-5.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "pale-1-6.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "pale-1-7.png",
+    "expected": "EagleStrafingRun",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-1-8.png",
+    "expected": "Meltagun",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-1-9.png",
+    "expected": "WarpPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-1-10.png",
+    "expected": "EmancipatorExosuit",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-2-0.png",
+    "expected": "Reinforce",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-2-1.png",
+    "expected": "SOSBeacon",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-2-2.png",
+    "expected": "Resupply",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-2-3.png",
+    "expected": null,
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-2-4.png",
+    "expected": "Hellbomb",
+    "empty": false,
+    "mission": true
+  },
+  {
+    "file": "pale-2-5.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "pale-2-6.png",
+    "expected": null,
+    "empty": true,
+    "mission": true
+  },
+  {
+    "file": "pale-2-7.png",
+    "expected": "Meltagun",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-2-8.png",
+    "expected": "WarpPack",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-2-9.png",
+    "expected": "Eagle110MMRocketPods",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "pale-2-10.png",
+    "expected": "Orbital120MMHEBarrage",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "bullet-naok0wzp.png",
+    "expected": "BulletStorm",
+    "empty": false,
+    "mission": false
+  },
+  {
+    "file": "bullet-1_m25d_t.png",
+    "expected": "BulletStorm",
+    "empty": false,
+    "mission": false
+  }
+]

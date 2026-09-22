@@ -1,0 +1,319 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "path": "20260911164029_1.jpg",
+      "sha256": "d45077012069ff1477a491d2aad66c9694d2a7c0a02c6af581edf426e0070d38",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "20260911164029_1",
+        "source": "user-provided Steam screenshot",
+        "captured_at": "unknown",
+        "backend": "steam-screenshot",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "unknown",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "selection",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "EagleNapalmAirstrike",
+          "Autocannon",
+          "GuardDog",
+          "EMSMortarSentry"
+        ]
+      }
+    },
+    {
+      "path": "20260911164130_1.jpg",
+      "sha256": "c76b67304b6811c3a996da64a6a0eb59cf0a429071d4f4bfaa391eeea65cc3ba",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "20260911164130_1",
+        "source": "user-provided Steam screenshot",
+        "captured_at": "unknown",
+        "backend": "steam-screenshot",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "unknown",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "EagleNapalmAirstrike",
+          "Autocannon",
+          "GuardDog",
+          "EMSMortarSentry"
+        ]
+      }
+    },
+    {
+      "path": "20260911164153_1.jpg",
+      "sha256": "1508dc8c9e1b1387ee1e23e74acc8652760213b86f5b54c2e7dc69cd4080e63b",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "20260911164153_1",
+        "source": "user-provided Steam screenshot",
+        "captured_at": "unknown",
+        "backend": "steam-screenshot",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "unknown",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": []
+      }
+    },
+    {
+      "path": "20260911164450_1.jpg",
+      "sha256": "aa2453c6fe1aa62803ffd47d7830715081d25e8a84aa7512c8009c30c41c00ec",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "20260911164450_1",
+        "source": "user-provided Steam screenshot",
+        "captured_at": "unknown",
+        "backend": "steam-screenshot",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "unknown",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 4,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "selection",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "Hellbomb",
+          null,
+          "Flamethrower",
+          "FlameSentry",
+          "OrbitalAirburstStrike",
+          "AntiTankMines"
+        ]
+      }
+    },
+    {
+      "path": "20260911164548_1.jpg",
+      "sha256": "bf63473bab4247dd93479d99990b84717296eeeeb189bb7ff85a9094a08db838",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "20260911164548_1",
+        "source": "user-provided Steam screenshot",
+        "captured_at": "unknown",
+        "backend": "steam-screenshot",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "unknown",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 4,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": [
+          "Reinforce",
+          "Resupply",
+          "Hellbomb",
+          "Flamethrower",
+          "FlameSentry",
+          "OrbitalAirburstStrike",
+          "AntiTankMines"
+        ]
+      }
+    },
+    {
+      "path": "20260911164727_1.jpg",
+      "sha256": "754459d01a11b18d70f7de0369975d6fb809a3d25a8600d38add851dd58d9172",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "20260911164727_1",
+        "source": "user-provided Steam screenshot",
+        "captured_at": "unknown",
+        "backend": "steam-screenshot",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "unknown",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 2,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "selection",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "Hellbomb",
+          "GuardDogRover",
+          "Railgun",
+          "HMGEmplacement",
+          "OrbitalGasStrike"
+        ]
+      }
+    },
+    {
+      "path": "20260911164808_1.jpg",
+      "sha256": "7c9be36a8258d9fbcc3dd9f0aabceac3375bb8265d579cc75201a1120c8d6d47",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "20260911164808_1",
+        "source": "user-provided Steam screenshot",
+        "captured_at": "unknown",
+        "backend": "steam-screenshot",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "unknown",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 2,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": []
+      }
+    },
+    {
+      "path": "20260911164816_1.jpg",
+      "sha256": "4c10f125952d2b3bd6bfce0dc9670b32fc9f3c271f1b7519c40480192370760e",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "20260911164816_1",
+        "source": "user-provided Steam screenshot",
+        "captured_at": "unknown",
+        "backend": "steam-screenshot",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "unknown",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 2,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": [
+          "Reinforce",
+          "Resupply",
+          "GuardDogRover",
+          "Railgun",
+          "HMGEmplacement",
+          "OrbitalGasStrike"
+        ]
+      }
+    }
+  ]
+}

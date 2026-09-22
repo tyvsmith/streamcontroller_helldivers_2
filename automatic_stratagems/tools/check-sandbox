@@ -1,0 +1,559 @@
+#!/usr/bin/env python3
+"""Run isolated scanner validation in the StreamController Flatpak."""
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import struct
+import subprocess
+import sys
+import time
+
+
+APP_ID = "com.core447.StreamController"
+INSTALLED_BASENAME = "net_jslay_helldivers_2"
+ROOT = Path(__file__).resolve().parents[2]
+REQUIRED_HARNESS_FILES = (
+    Path("automatic_stratagems/tools/check-sandbox"),
+    Path("automatic_stratagems/tests/sandbox_support.py"),
+    Path("automatic_stratagems/tests/test_sandbox_lifecycle.py"),
+)
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from automatic_stratagems.tests import sandbox_support
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _png_size(path):
+    with path.open("rb") as source:
+        header = source.read(24)
+    if header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        raise ValueError(f"fixture is not a PNG: {path}")
+    return struct.unpack(">II", header[16:24])
+
+
+def _git(source, arguments):
+    result = subprocess.run(
+        ["git", "-C", str(source), *arguments],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stderr.decode(errors="replace").strip())
+    if len(result.stdout) > 4 * 1024 * 1024 or len(result.stderr) > 64 * 1024:
+        raise RuntimeError("git source inspection produced excessive output")
+    return result.stdout
+
+
+def _source_tree(source):
+    commit = _git(source, ["rev-parse", "--verify", "HEAD^{commit}"]).decode().strip()
+    dirty = _git(source, ["status", "--porcelain=v1", "-z", "--untracked-files=no"])
+    if dirty:
+        raise ValueError("source has tracked changes; commit or restore them before validation")
+    records = {}
+    tree = _git(source, ["ls-tree", "-rz", "--full-tree", commit])
+    for value in tree.split(b"\0"):
+        if not value:
+            continue
+        metadata, name = value.split(b"\t", 1)
+        mode, kind, object_id = metadata.decode().split(" ", 2)
+        path = Path(name.decode())
+        if kind != "blob" or mode not in {"100644", "100755"}:
+            raise ValueError(f"tracked source is not a regular file: {path}")
+        records[path] = (mode, object_id)
+    missing = [path for path in REQUIRED_HARNESS_FILES if path not in records]
+    if missing:
+        raise ValueError(
+            "required harness files are not tracked in the recorded commit: "
+            + ", ".join(path.as_posix() for path in missing))
+    return commit, records
+
+
+def _copy_blob(source, object_id, target):
+    with target.open("xb") as destination:
+        result = subprocess.run(
+            ["git", "-C", str(source), "cat-file", "blob", object_id],
+            stdout=destination, stderr=subprocess.PIPE, check=False,
+        )
+    if result.returncode:
+        target.unlink(missing_ok=True)
+        raise RuntimeError(result.stderr.decode(errors="replace").strip())
+    staged_object = _git(source, ["hash-object", "--no-filters", str(target)]).decode().strip()
+    if staged_object != object_id:
+        target.unlink(missing_ok=True)
+        raise RuntimeError(f"staged source differs from recorded commit: {target.name}")
+
+
+def _stage_source(source, destination):
+    if destination.name != INSTALLED_BASENAME:
+        raise ValueError(f"staged source must be named {INSTALLED_BASENAME}")
+    commit, tracked = _source_tree(source)
+    destination.mkdir(parents=True, mode=0o700)
+    manifest = []
+    for relative in sorted(tracked, key=lambda path: path.as_posix()):
+        mode, object_id = tracked[relative]
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _copy_blob(source, object_id, target)
+        target.chmod(0o755 if mode == "100755" else 0o644)
+        manifest.append({
+            "path": relative.as_posix(),
+            "sha256": _sha256(target),
+            "size": target.stat().st_size,
+        })
+    return manifest, commit
+
+
+def _flatpak_environment():
+    runtime = f"/run/user/{os.getuid()}"
+    return {
+        **os.environ,
+        "DBUS_SESSION_BUS_ADDRESS": f"unix:path={runtime}/bus",
+        "XDG_RUNTIME_DIR": runtime,
+    }
+
+
+def _flatpak_metadata():
+    def info(option, name):
+        return subprocess.check_output(
+            ["flatpak", "info", option, name], text=True).strip()
+
+    runtime = info("--show-runtime", APP_ID)
+    runtime_name, _arch, branch = runtime.split("/", 2)
+    return {
+        "app_ref": info("--show-ref", APP_ID),
+        "app_commit": info("--show-commit", APP_ID),
+        "runtime_ref": runtime,
+        "runtime_commit": info("--show-commit", f"{runtime_name}//{branch}"),
+    }
+
+
+def _flatpak_command(root, tool_args, environment):
+    forwarded = []
+    for name, value in environment.items():
+        if name.startswith("HD2_SANDBOX_") or name in {
+                "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE", "WAYLAND_DISPLAY"}:
+            forwarded.append(f"--env={name}={value}")
+    return [
+        "flatpak", "run", *forwarded, "--command=/usr/bin/python3", APP_ID,
+        str(root / "automatic_stratagems/tools/check-sandbox"),
+        "--inner-root", str(root), *tool_args,
+    ]
+
+
+def _process_record(pid, parent, rss):
+    def readlink(name):
+        try:
+            return os.readlink(f"/proc/{pid}/{name}")
+        except OSError as error:
+            return f"unavailable: {error}"
+
+    try:
+        command = Path(f"/proc/{pid}/cmdline").read_bytes()[:4096]
+        argv = [part.decode(errors="replace") for part in command.split(b"\0") if part]
+    except OSError:
+        argv = []
+    try:
+        start_time = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+    except (OSError, IndexError):
+        start_time = None
+    return {
+        "pid": pid,
+        "ppid": parent,
+        "start_time": start_time,
+        "rss_bytes": rss * os.sysconf("SC_PAGE_SIZE"),
+        "argv": argv,
+        "executable": readlink("exe"),
+        "mount_namespace": readlink("ns/mnt"),
+    }
+
+
+def _run(command, *, environment, output, timeout, allowed_returncodes=(0,),
+         output_limit=sandbox_support.DEFAULT_OUTPUT_LIMIT):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    stderr_path = output.with_suffix(output.suffix + ".stderr")
+    metrics = sandbox_support.run_validation_process(
+        command, environment=environment, stdout_path=output,
+        stderr_path=stderr_path, timeout=timeout, output_limit=output_limit,
+        process_record=_process_record)
+    metrics.update(stdout_sha256=_sha256(output), stderr_sha256=_sha256(stderr_path))
+    output.with_suffix(output.suffix + ".metrics.json").write_text(
+        json.dumps(metrics, indent=2) + "\n")
+    if metrics["timed_out"]:
+        raise RuntimeError(f"command timed out after {timeout}s: {command!r}")
+    if metrics["output_overflow"]:
+        raise RuntimeError(
+            f"command output exceeded {output_limit} bytes per stream: {command!r}")
+    if metrics["lingering_process_group"]:
+        raise RuntimeError(f"command left processes in its process group: {command!r}")
+    if metrics["returncode"] not in allowed_returncodes:
+        with stderr_path.open("rb") as stream:
+            stream.seek(max(0, stderr_path.stat().st_size - 4000))
+            detail = stream.read().decode(errors="replace")
+        raise RuntimeError(f"command failed ({metrics['returncode']}): {detail}")
+    return metrics
+
+
+def _copy_fixture_manifest(manifest_path, destination, cases):
+    destination.mkdir(mode=0o700)
+    target_manifest = destination / "manifest.json"
+    shutil.copyfile(manifest_path, target_manifest)
+    for case in cases:
+        relative = Path(case.get("path", ""))
+        if (relative.is_absolute() or not relative.parts or ".." in relative.parts
+                or relative.as_posix() != case.get("path")):
+            raise ValueError("fixture manifest contains an unsafe path")
+        source = manifest_path.parent / relative
+        if _sha256(source) != case.get("sha256"):
+            raise ValueError(f"fixture hash mismatch: {relative}")
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+    return target_manifest
+
+
+def _normalized_evaluation(path):
+    value = json.loads(path.read_text())
+    return [{
+        name: case.get(name)
+        for name in ("path", "actual_mode", "actual_status", "actual_ids",
+                     "status", "error")
+    } for case in value.get("cases", [])]
+
+
+def _process_identity_state(record):
+    try:
+        fields = Path(f"/proc/{record['pid']}/stat").read_text().rsplit(")", 1)[1].split()
+    except FileNotFoundError:
+        return "dead"
+    except (OSError, KeyError, IndexError):
+        return "unknown"
+    return "live" if fields[19] == record.get("location", {}).get("start_time") else "reused"
+
+
+def _validate_tesseract_observations(observed, installed, scanner_namespaces):
+    profile_root = installed / "automatic_stratagems/runtime/profiles"
+    executed = []
+    for record in observed:
+        argv = record.get("argv", [])
+        if len(argv) < 3 or Path(argv[0]).name != "tesseract":
+            continue
+        if argv[1:3] != ["stdin", "stdout"]:
+            continue
+        try:
+            Path(record["executable"]).resolve().relative_to(profile_root.resolve())
+        except (KeyError, TypeError, ValueError):
+            continue
+        if record.get("mount_namespace") not in scanner_namespaces:
+            continue
+        executed.append(record)
+    if not executed:
+        raise RuntimeError(
+            "Tesseract execution was not observed in the packaged scanner runtime")
+    return executed
+
+
+def _validate_process_audit(path, geometry, host_jobs, installed,
+                            observed_processes):
+    records = [json.loads(line) for line in path.read_text().splitlines() if line]
+    host_commands = [record for record in records
+                     if record.get("event") == "host-cli-started"]
+    host = [record for record in records if record.get("event") in {
+        "host-cli-started", "linger-child-started"}]
+    scanner = [record for record in records
+               if record.get("event") == "scanner-wrapper-started"]
+    if not host_commands or any(
+            record.get("location", {}).get("flatpak_info") is not False
+            for record in host):
+        raise RuntimeError("host acquisition location audit failed")
+    if not any(record.get("event") == "linger-child-started" for record in host):
+        raise RuntimeError("cancel scenario did not observe a host descendant")
+    if len(scanner) != 2 or any(
+            record.get("location", {}).get("flatpak_info") is not True
+            for record in scanner):
+        raise RuntimeError("scanner sandbox location audit failed")
+    host_namespaces = {record["location"].get("mount_namespace") for record in host}
+    scanner_namespaces = {
+        record["location"].get("mount_namespace") for record in scanner}
+    if host_namespaces & scanner_namespaces:
+        raise RuntimeError("host and scanner mount namespaces were not separated")
+    profile_root = installed / "automatic_stratagems/runtime/profiles"
+    try:
+        for record in scanner:
+            Path(record["tesseract"]).resolve().relative_to(profile_root.resolve())
+    except (KeyError, TypeError, ValueError):
+        raise RuntimeError("scanner did not select packaged Tesseract") from None
+    executed_tesseract = _validate_tesseract_observations(
+        observed_processes, installed, scanner_namespaces)
+    captures = [record for record in host_commands
+                if record.get('argv', [None])[0] == 'screenshot']
+    if not captures or any(len(record['argv']) != 2 or
+                           not Path(record['argv'][1]).is_absolute()
+                           for record in captures):
+        raise RuntimeError('screenshot script argv audit failed')
+    states = {str(record["pid"]): _process_identity_state(record) for record in host}
+    if any(state in {"live", "unknown"} for state in states.values()):
+        raise RuntimeError(f"audited host process remains unconfirmed: {states}")
+    retained_jobs = list(host_jobs.iterdir()) if host_jobs.exists() else []
+    if retained_jobs:
+        raise RuntimeError(f"host jobs remain after cleanup: {retained_jobs[0]}")
+    summary = {
+        "records": len(records),
+        "host_commands": len(host_commands),
+        "host_processes": len(host),
+        "scanner_children": len(scanner),
+        "host_process_states": states,
+        "host_jobs_empty": True,
+        "geometry": geometry,
+        "scanner_tesseract": [record.get("tesseract") for record in scanner],
+        "executed_tesseract": executed_tesseract,
+        "host_mount_namespaces": sorted(host_namespaces),
+        "scanner_mount_namespaces": sorted(scanner_namespaces),
+    }
+    path.with_name("process-audit-summary.json").write_text(
+        json.dumps(summary, indent=2) + "\n")
+    return summary
+
+
+def _inner_runtime_exec(root, command):
+    if not (os.environ.get("FLATPAK_ID") or Path("/.flatpak-info").exists()):
+        raise RuntimeError("inner runtime command must run inside Flatpak")
+    sys.path.insert(0, str(root))
+    from automatic_stratagems.provision.scanner_runtime import resolve_scanner_runtime
+
+    runtime = resolve_scanner_runtime(root, flatpak=True)
+    os.chdir(root)
+    os.execve(runtime.interpreter, command, dict(runtime.env))
+
+
+def _inner_main(arguments):
+    root = arguments.inner_root.resolve()
+    if arguments.inner_command == "runtime-exec":
+        command = arguments.command
+        if command[:1] == ["--"]:
+            command = command[1:]
+        if not command:
+            raise ValueError("runtime-exec requires a command")
+        _inner_runtime_exec(root, command)
+    raise ValueError("unknown inner command")
+
+
+def _orchestrate(arguments):
+    if arguments.artifact_dir is None:
+        raise ValueError("--artifact-dir is required")
+    if arguments.fixture_manifest is None:
+        raise ValueError("--fixture-manifest is required")
+    source = arguments.source.resolve()
+    work = arguments.work_dir.resolve() / f"run-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+    installed = work / INSTALLED_BASENAME
+    results = work / "results"
+    manifest, source_commit = _stage_source(source, installed)
+    results.mkdir(mode=0o700)
+    (results / "source-manifest.json").write_text(json.dumps({
+        "source": str(source),
+        "git_head": source_commit,
+        "files": manifest,
+    }, indent=2) + "\n")
+
+    manifest_path = arguments.fixture_manifest.resolve()
+    fixture_manifest = json.loads(manifest_path.read_text())
+    cases = fixture_manifest.get("cases")
+    if not isinstance(cases, list):
+        raise ValueError("fixture manifest has no cases list")
+    selected = next((case for case in cases
+                     if case.get("path") == arguments.fixture_case), None)
+    if selected is None:
+        raise ValueError(f"fixture case is absent: {arguments.fixture_case}")
+    fixture = manifest_path.parent / arguments.fixture_case
+    if _sha256(fixture) != selected.get("sha256"):
+        raise ValueError("fixture hash does not match its manifest")
+    width, height = _png_size(fixture)
+    if selected.get("dimensions") != [width, height]:
+        raise ValueError("fixture dimensions do not match its manifest")
+    expected = selected.get("expected", {}).get("ids")
+    if not isinstance(expected, list):
+        raise ValueError("fixture expected IDs are unavailable")
+    staged_fixture = results / "capture-fixture.png"
+    shutil.copyfile(fixture, staged_fixture)
+    environment = {
+        **_flatpak_environment(),
+        "XDG_CURRENT_DESKTOP": "Hyprland",
+        "XDG_SESSION_TYPE": "wayland",
+        "WAYLAND_DISPLAY": "wayland-test-fixture-only",
+        "HD2_SANDBOX_LIFECYCLE": "1",
+        "HD2_SANDBOX_AUDIT": str(results / "process-audit.jsonl"),
+        "HD2_SANDBOX_FIXTURE": str(staged_fixture),
+        "HD2_SANDBOX_GEOMETRY": f"-128,64 {width}x{height}",
+        "HD2_SANDBOX_HOST_STARTED": str(results / "host-started.txt"),
+        "HD2_SANDBOX_SCENARIO": "complete",
+        "HD2_SANDBOX_EXPECTED_IDS": json.dumps(expected, separators=(",", ":")),
+    }
+    setup = [
+        "flatpak", "run", "--command=/usr/bin/python3", APP_ID,
+        str(installed / "automatic_stratagems/tools/setup-runtime"),
+        "--root", str(installed), "setup", "--artifact-dir",
+        str(arguments.artifact_dir.resolve()), "--offline",
+    ]
+    records = {}
+    records["setup"] = _run(
+        setup, environment=environment, output=results / "setup.stdout", timeout=120)
+
+    lifecycle_command = [
+        "/usr/bin/python3", "-m", "unittest", "-v",
+        "automatic_stratagems.tests.test_sandbox_lifecycle.SandboxLifecycleTests",
+    ]
+    records["lifecycle"] = _run(
+        _flatpak_command(installed, ["runtime-exec", "--", *lifecycle_command], environment),
+        environment=environment, output=results / "lifecycle.stdout", timeout=240)
+    _validate_process_audit(
+        results / "process-audit.jsonl", environment["HD2_SANDBOX_GEOMETRY"],
+        results / "host-jobs", installed,
+        records["lifecycle"]["observed_processes"])
+
+    if arguments.calibration:
+        copied_manifest = _copy_fixture_manifest(
+            manifest_path, results / "calibration", cases)
+        for workers in (1, 2):
+            evaluation = results / f"sandbox-calibration-w{workers}.json"
+            records[f"calibration_w{workers}"] = _run(
+                _flatpak_command(installed, [
+                    "runtime-exec", "--", "/usr/bin/python3",
+                    str(installed / "automatic_stratagems/tools/evaluate-fixtures"),
+                    str(copied_manifest), "--split", "calibration",
+                    "--workers", str(workers), "--output", str(evaluation),
+                ], environment), environment=environment,
+                output=results / f"calibration-w{workers}.stdout", timeout=1800,
+                allowed_returncodes=(0, 1))
+        worker_one = _normalized_evaluation(results / "sandbox-calibration-w1.json")
+        worker_two = _normalized_evaluation(results / "sandbox-calibration-w2.json")
+        if worker_one != worker_two:
+            raise RuntimeError("sandbox worker-count calibration outputs differ")
+        comparison = {
+            "sandbox_workers_equal": True,
+            "normalized_sha256": hashlib.sha256(json.dumps(
+                worker_one, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+        }
+        native_paths = (arguments.native_calibration_w1,
+                        arguments.native_calibration_w2)
+        if any(native_paths) and not all(native_paths):
+            raise ValueError("both native calibration artifacts are required")
+        if all(native_paths):
+            native_one = _normalized_evaluation(native_paths[0])
+            native_two = _normalized_evaluation(native_paths[1])
+            comparison["native_workers_equal"] = native_one == native_two
+            comparison["native_sandbox_equal"] = native_one == worker_one
+            if not all(comparison[name] for name in (
+                    "native_workers_equal", "native_sandbox_equal")):
+                raise RuntimeError("native and sandbox calibration outputs differ")
+        (results / "calibration-comparison.json").write_text(
+            json.dumps(comparison, indent=2) + "\n")
+
+    if arguments.benchmark:
+        benchmark_reports = {}
+        for workers in (1, 2):
+            cache = results / f"recognition-cache-w{workers}"
+            for temperature in ("cold", "warm"):
+                scanner = [
+                    "/usr/bin/python3", "-m", "automatic_stratagems.scanner",
+                    "--image", str(staged_fixture), "--mode", "auto",
+                    "--workers", str(workers), "--cache-dir", str(cache), "--json",
+                ]
+                measurement = results / f"benchmark-{temperature}-w{workers}"
+                records[f"benchmark_{temperature}_w{workers}"] = _run(
+                    _flatpak_command(installed, [
+                        "runtime-exec", "--", "/usr/bin/python3",
+                        str(installed / "automatic_stratagems/tests/sandbox_support.py"),
+                        "measure", "--output-prefix", str(measurement),
+                        "--timeout", "240", "--", *scanner,
+                    ], environment), environment=environment,
+                    output=results / f"benchmark-{temperature}-w{workers}.driver.stdout",
+                    timeout=300)
+                report = json.loads(measurement.with_suffix(".stdout").read_text())
+                if report.get("status") != "matched":
+                    raise RuntimeError("benchmark fixture did not fully match")
+                benchmark_reports[(workers, temperature)] = report
+            cold = benchmark_reports[(workers, "cold")]
+            warm = benchmark_reports[(workers, "warm")]
+            cold_ids = [row.get("id") for row in cold.get("rows", [])]
+            warm_ids = [row.get("id") for row in warm.get("rows", [])]
+            if cold_ids != warm_ids:
+                raise RuntimeError(f"cold/warm IDs differ for workers={workers}")
+            if not any(row.get("method") == "mission-name" for row in cold["rows"]):
+                raise RuntimeError("benchmark fixture did not exercise OCR fallback")
+
+    if arguments.full_suite:
+        suite_environment = {**environment, "HD2_SANDBOX_LIFECYCLE": "0"}
+        records["full_suite"] = _run(
+            _flatpak_command(installed, [
+                "runtime-exec", "--", "/usr/bin/python3",
+                str(installed / "automatic_stratagems/tools/check"),
+            ], suite_environment), environment=suite_environment,
+            output=results / "full-suite.stdout", timeout=600)
+    if arguments.translations:
+        output = results / "sandbox-translations.json"
+        records["translations"] = _run(
+            _flatpak_command(installed, [
+                "runtime-exec", "--", "/usr/bin/python3",
+                str(installed / "automatic_stratagems/tools/check-translations"),
+                "--output", str(output),
+            ], environment), environment=environment,
+            output=results / "translations.stdout", timeout=900)
+
+    (results / "run.json").write_text(json.dumps({
+        "schema_version": 1,
+        "flatpak": _flatpak_metadata(),
+        "installed_root": str(installed),
+        "fixture": str(fixture),
+        "fixture_case": arguments.fixture_case,
+        "fixture_sha256": _sha256(staged_fixture),
+        "records": records,
+    }, indent=2) + "\n")
+    print(work)
+    return 0
+
+
+def parser():
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("--source", type=Path, default=ROOT)
+    result.add_argument(
+        "--work-dir", type=Path,
+        default=(Path.home() / ".var/app" / APP_ID / "cache"
+                 / "hd2-sandbox-validation"),
+    )
+    result.add_argument("--artifact-dir", type=Path)
+    result.add_argument("--fixture-manifest", type=Path, required=False)
+    result.add_argument("--fixture-case", default="wf31myxj.png")
+    result.add_argument("--full-suite", action="store_true")
+    result.add_argument("--translations", action="store_true")
+    result.add_argument("--calibration", action="store_true")
+    result.add_argument("--benchmark", action="store_true")
+    result.add_argument("--native-calibration-w1", type=Path)
+    result.add_argument("--native-calibration-w2", type=Path)
+    result.add_argument("--inner-root", type=Path, help=argparse.SUPPRESS)
+    result.add_argument("inner_command", nargs="?", help=argparse.SUPPRESS)
+    result.add_argument("command", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
+    return result
+
+
+def main(argv=None):
+    arguments = parser().parse_args(argv)
+    try:
+        if arguments.inner_root is not None:
+            return _inner_main(arguments)
+        return _orchestrate(arguments)
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"check-sandbox: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,3 @@
+- retain original HUD border crops from nine mission captures
+- crop source rectangle `(80, 140, 220, 910)`; restore at `(80, 140)` on a 5120 × 2160 canvas
+- test row localization independently of glyph identity, including cooldown overlays and reduced resolutions

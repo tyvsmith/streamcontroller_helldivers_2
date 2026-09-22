@@ -8,6 +8,12 @@ Assumes the following:
 
 Simply install the plugin from the StreamController store and configure your Stream Deck buttons with your favorite stratagems.
 
+### Automatic Stratagem Detection (Beta)
+
+The plugin can scan your equipped stratagems from the game screen and fill your Stream Deck buttons for you. It is off by default: switch on **Enable automatic stratagems** in the plugin settings, then add the scan button to your deck. See the [Automatic Stratagem Detection guide](automatic_stratagems/README.md) for setup and usage.
+
+![A generated Automatic Stratagem Page](automatic_stratagems/docs/images/generated-page.png)
+
 ### Plugin Settings
 
 Access settings via **Settings → Plugins → HELLDIVERS 2 → ⚙️**
@@ -20,6 +26,8 @@ Access settings via **Settings → Plugins → HELLDIVERS 2 → ⚙️**
 | **Modifier Key** | Key to open stratagem menu (Left/Right Ctrl, Alt, or Shift) | Left Ctrl |
 | **Direction Keys** | Keys used for Up, Down, Left, and Right stratagem inputs (Arrow keys or WASD) | Arrow keys |
 | **Hold Modifier Key** | Hold modifier during sequence vs press-and-release | ON |
+| **Enable automatic stratagems** | Capture images of the game screen (Gamescope or your screenshot hotkey) to recognize stratagems; shows Scan and Auto actions and prepares the scanner runtime | OFF |
+| **Automatic stratagem settings** | Collapsed section showing scanner setup status; opens itself when setup needs action. Holds Scanner setup, Scan workers (1–32; fewer reduce memory use), and screenshot capture: keycode or script, folder, and deletion | 2 workers, F12, Steam folder, delete after success |
 | **Show Labels** | Display text labels on buttons (OFF for icon-only look) | ON |
 
 ## For Developers
@@ -29,6 +37,7 @@ Access settings via **Settings → Plugins → HELLDIVERS 2 → ⚙️**
 ```
 net_jslay_helldivers_2/
 ├── main.py                    # Plugin entry point
+├── __install__.py             # Store install/update hook: prepares the scanner
 ├── manifest.json              # Plugin metadata
 ├── VERSION                    # Version number
 ├── assets/
@@ -50,7 +59,7 @@ The `update/` module automates asset generation. It scrapes stratagem data from 
 
 #### Setup
 
-Create a virtual environment and install dependencies:
+Create the developer virtual environment and install dependencies. This environment serves the asset updater and the test suite; the automatic-stratagem scanner owns a separate environment that the plugin prepares for itself (see [automatic stratagems](automatic_stratagems/README.md#runtime-details)):
 
 ```bash
 cd /path/to/net_jslay_helldivers_2
@@ -64,6 +73,9 @@ source .venv/bin/activate  # Linux/macOS
 
 # Install dependencies
 pip install -r update/requirements.txt
+
+# Automatic stratagem tests also need the scanner's libraries
+pip install -r automatic_stratagems/requirements.txt
 ```
 
 > **Note**: The `.venv` directory is already in `.gitignore`.

@@ -1,6 +1,8 @@
 import json
 import os
-from time import sleep
+from threading import Lock
+
+from .stratagem_execution import execute_stratagem
 
 from src.backend.PluginManager.ActionHolder import ActionHolder
 from src.backend.PluginManager.PluginBase import PluginBase
@@ -13,13 +15,20 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw
 from loguru import logger as log
 
+AUTOMATIC_IMPORT_ERROR = None
+try:
+    from .automatic_stratagems.integration import (
+        UnavailableAutomaticAction, UnavailableScanCoordinator,
+        create_integration)
+except Exception as error:
+    AUTOMATIC_IMPORT_ERROR = str(error)
+    create_integration = None
+
 from .key_mapping import (
     DEFAULT_DIRECTION_KEY_LAYOUT,
     get_direction_key as resolve_direction_key,
     normalize_direction_key_layout,
 )
-
-
 log.debug("Init HELLDIVERS 2")
 
 
@@ -195,59 +204,15 @@ class CustomStratagemButton(KeyAction):
             log.error("UInput not initialized! Check /dev/uinput permissions.")
             log.error("Try: sudo usermod -aG input $USER (then logout/login)")
             return
-        
         sequence = self.get_sequence()
+        name = self.get_custom_name()
         if not sequence:
-            log.warning(f"No sequence configured for custom stratagem '{self.get_custom_name()}'!")
+            log.warning(f"No sequence configured for custom stratagem '{name}'!")
             return
-        
-        if self.plugin_base.executing:
+        if self.plugin_base.executing or self.plugin_base.input_lock.locked():
             log.debug("Currently executing other stratagem! Aborting!")
             return
-        
-        self.plugin_base.executing = True
-        modifier_pressed = False
-        
-        # Get settings
-        key_delay = self.plugin_base.get_key_delay()
-        modifier_key = self.plugin_base.get_modifier_key()
-        hold_modifier = self.plugin_base.get_hold_modifier()
-        
-        try:
-            log.info(f"Execute Custom Stratagem: {self.get_custom_name()}: {sequence}")
-            
-            if not self.plugin_base.hero_mode:
-                log.debug(f"Not in Hero mode - pressing {modifier_key}")
-                modifier_code = ecodes.ecodes.get(modifier_key, ecodes.KEY_LEFTCTRL)
-                self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 1)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-                modifier_pressed = True
-                
-                # If not holding, release modifier before sequence
-                if not hold_modifier:
-                    self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 0)
-                    self.plugin_base.ui.syn()
-                    sleep(key_delay)
-            
-            for key in sequence:
-                key_code = ecodes.ecodes[self.plugin_base.get_direction_key(key)]
-                self.plugin_base.ui.write(ecodes.EV_KEY, key_code, 1)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-                self.plugin_base.ui.write(ecodes.EV_KEY, key_code, 0)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-        except Exception as e:
-            log.error(f"Error executing custom stratagem: {e}")
-        finally:
-            # Release modifier if we were holding it
-            if modifier_pressed and hold_modifier and not self.plugin_base.hero_mode:
-                modifier_code = ecodes.ecodes.get(modifier_key, ecodes.KEY_LEFTCTRL)
-                self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 0)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-            self.plugin_base.executing = False
+        execute_stratagem(self.plugin_base, name, sequence)
 
     def on_key_up(self, data=None):
         pass
@@ -387,64 +352,94 @@ class StratagemButton(KeyAction):
             log.error("UInput not initialized! Check /dev/uinput permissions.")
             log.error("Try: sudo usermod -aG input $USER (then logout/login)")
             return
-        
         if not self.stratagem:
             log.error(f"No sequence for stratagem '{self.stratagem_key}'!")
             return
-        
-        if self.plugin_base.executing:
+        if self.plugin_base.executing or self.plugin_base.input_lock.locked():
             log.debug("Currently executing other stratagem! Aborting!")
             return
-        
-        self.plugin_base.executing = True
-        modifier_pressed = False
-        
-        # Get settings
-        key_delay = self.plugin_base.get_key_delay()
-        modifier_key = self.plugin_base.get_modifier_key()
-        hold_modifier = self.plugin_base.get_hold_modifier()
-        
-        try:
-            log.info(f"Execute Stratagem: {self.stratagem_key}: {self.stratagem}")
-            
-            if not self.plugin_base.hero_mode:
-                log.debug(f"Not in Hero mode - pressing {modifier_key}")
-                modifier_code = ecodes.ecodes.get(modifier_key, ecodes.KEY_LEFTCTRL)
-                self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 1)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-                modifier_pressed = True
-                
-                # If not holding, release modifier before sequence
-                if not hold_modifier:
-                    self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 0)
-                    self.plugin_base.ui.syn()
-                    sleep(key_delay)
-            
-            for key in self.stratagem:
-                key_code = ecodes.ecodes[self.plugin_base.get_direction_key(key)]
-                self.plugin_base.ui.write(ecodes.EV_KEY, key_code, 1)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-                self.plugin_base.ui.write(ecodes.EV_KEY, key_code, 0)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-        except Exception as e:
-            log.error(f"Error executing stratagem: {e}")
-        finally:
-            # Release modifier if we were holding it
-            if modifier_pressed and hold_modifier and not self.plugin_base.hero_mode:
-                modifier_code = ecodes.ecodes.get(modifier_key, ecodes.KEY_LEFTCTRL)
-                self.plugin_base.ui.write(ecodes.EV_KEY, modifier_code, 0)
-                self.plugin_base.ui.syn()
-                sleep(key_delay)
-            self.plugin_base.executing = False
+        execute_stratagem(self.plugin_base, self.stratagem_key, self.stratagem)
 
     def on_key_up(self, data=None):
         pass
 
     def on_key_short_up(self, data=None):
         pass
+
+
+if create_integration is None:
+    class UnavailableAutomaticAction(KeyAction):
+        def on_ready(self):
+            self.show_error(duration=-1)
+
+        def on_key_down(self, data=None):
+            self.show_error(duration=3)
+
+        def on_key_up(self, data=None):
+            pass
+
+        def on_key_short_up(self, data=None):
+            pass
+
+    class UnavailableScanCoordinator:
+        def __init__(self, error):
+            self.compatibility_error = f'Automatic scanning unavailable: {error}'
+            self.temporary_pages = None
+            self.closed = False
+
+        @property
+        def enabled(self):
+            return False
+
+        def shutdown(self, timeout=3):
+            self.closed = True
+            return True
+
+
+class _UnavailableAutomaticIntegration:
+    """Keep saved action IDs usable when the feature facade itself cannot load."""
+
+    ACTIONS = (
+        ('ScanStratagems', 'Automatic Stratagem Scanner',
+         'automatic_stratagems/assets/icons/scan-update.png'),
+        ('AutomaticStratagem', 'Automatic Stratagem',
+         'automatic_stratagems/assets/icons/auto-any.png'),
+        ('TemporaryScanBack', 'Temporary Scan Back', 'assets/icons/_stepbakcward.png'),
+        ('AutoStratagems', 'Automatic Stratagem Page',
+         'automatic_stratagems/assets/icons/scan-new-page.png'),
+    )
+
+    def __init__(self, plugin, error):
+        self.plugin = plugin
+        self.coordinator = UnavailableScanCoordinator(error)
+        log.error(self.coordinator.compatibility_error)
+
+    def install(self):
+        self.plugin.scan_coordinator = self.coordinator
+        for suffix, name, icon in self.ACTIONS:
+            self.plugin.add_action_holder(ActionHolder(
+                plugin_base=self.plugin,
+                action_base=UnavailableAutomaticAction,
+                action_id=f'net_jslay_helldivers_2::{suffix}',
+                action_name=name,
+                icon=Gtk.Image.new_from_file(os.path.join(self.plugin.PATH, icon))))
+
+    def settings_rows(self):
+        rows = [
+            Adw.SwitchRow(title='Enable automatic stratagems',
+                          subtitle=self.coordinator.compatibility_error),
+            Adw.ActionRow(title='Automatic stratagem settings',
+                          subtitle=self.coordinator.compatibility_error),
+        ]
+        for row in rows:
+            row.set_sensitive(False)
+        return rows
+
+    def schedule_visibility(self):
+        return False
+
+    def shutdown(self, *, uninstall=False):
+        self.coordinator.shutdown()
 
 
 class HellDiversPlugin(PluginBase):
@@ -466,6 +461,23 @@ class HellDiversPlugin(PluginBase):
         self.hero_mode = False
 
         self.executing = False
+        self.input_lock = Lock()
+        integration = None
+        try:
+            if create_integration is None:
+                raise RuntimeError(AUTOMATIC_IMPORT_ERROR)
+            integration = create_integration(self)
+            integration.install()
+        except Exception as error:
+            log.exception("Unable to install automatic scanning integration")
+            if integration is not None:
+                integration.shutdown()
+            integration = _UnavailableAutomaticIntegration(self, error)
+            try:
+                integration.install()
+            except Exception:
+                log.exception("Unable to register unavailable automatic actions")
+        self._automatic_integration = integration
 
         for stratagem in self.stratagems:
             try:
@@ -500,7 +512,12 @@ class HellDiversPlugin(PluginBase):
             app_version="1.5.0-beta"
         )
 
-    
+        self._automatic_integration.schedule_visibility()
+
+    def on_uninstall(self):
+        self._automatic_integration.shutdown(uninstall=True)
+        super().on_uninstall()
+
     def init_locale_manager(self):
         self.lm = self.locale_manager
         self.lm.set_to_os_default()
@@ -560,7 +577,7 @@ class HellDiversPlugin(PluginBase):
         settings = self.get_settings()
         settings[key] = value
         self.set_settings(settings)
-    
+
     # ---- Settings UI ----
     
     def get_settings_area(self):
@@ -578,9 +595,11 @@ class HellDiversPlugin(PluginBase):
         
         # Display settings
         group.add(self._create_show_labels_row())
+        for row in self._automatic_integration.settings_rows():
+            group.add(row)
         
         return group
-    
+
     def _create_key_delay_row(self) -> Adw.ActionRow:
         """Create the key delay slider row."""
         row = Adw.ActionRow(

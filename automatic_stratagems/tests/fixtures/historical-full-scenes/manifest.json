@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "path": "gamescope-20260910-173122.png",
+      "sha256": "558bb337fdb809a2e699bb89cced38bc67b11c0baf8afb2dd893a0707da50f55",
+      "source_sha256": "77d9d5b098510323a57987fbcd931c58073892690b2334c5621bc9ee08692eaa",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "run-a65kkldh",
+        "source": "user-authorized Gamescope diagnostic capture",
+        "captured_at": "unknown",
+        "backend": "gamescope",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "unknown",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "selection",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "OrbitalGasStrike",
+          "Railgun",
+          "SoloSilo",
+          "LaserSentry"
+        ]
+      }
+    },
+    {
+      "path": "steam-20260910173549_1.jpg",
+      "sha256": "b71075993051a815196c577b248594748018cc9c584a19ae4de92e5e4475e307",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "20260910173549_1",
+        "source": "user-provided Steam screenshot",
+        "captured_at": "unknown",
+        "backend": "steam-screenshot",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "unknown",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "selection",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "OrbitalGasStrike",
+          "Railgun",
+          "SoloSilo",
+          "LaserSentry"
+        ]
+      }
+    },
+    {
+      "path": "steam-20260908115655_1.jpg",
+      "sha256": "caf69d5f50866408ab01e25122d21225df63f3fb9a28909008961b76146029ad",
+      "dimensions": [
+        5120,
+        2160
+      ],
+      "split": "calibration",
+      "provenance": {
+        "capture_id": "20260908115655_1",
+        "source": "user-provided Steam screenshot",
+        "captured_at": "unknown",
+        "backend": "steam-screenshot",
+        "platform": "linux",
+        "desktop": "unknown",
+        "resolution": [
+          5120,
+          2160
+        ],
+        "hdr": "unknown",
+        "language": "English",
+        "game_build": "unknown",
+        "player_count": 1,
+        "hud_scale": "unknown",
+        "safe_area": "unknown",
+        "rights": "user-authorized local fixture",
+        "privacy_reviewed": true
+      },
+      "expected": {
+        "mode": "mission",
+        "ids": [
+          "Reinforce",
+          "SOSBeacon",
+          "Resupply",
+          "Stalwart",
+          "HeavyMachineGun",
+          "Epoch",
+          "GrenadeLauncher"
+        ]
+      }
+    }
+  ]
+}

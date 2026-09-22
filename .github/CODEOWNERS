@@ -1,0 +1,3 @@
+# Automatic stratagem detection and its store install hook
+/automatic_stratagems/ @tyvsmith
+/__install__.py @tyvsmith

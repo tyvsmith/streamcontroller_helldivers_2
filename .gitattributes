@@ -1,0 +1,3 @@
+# Keep test code and screenshot fixtures out of the source archives that StreamController
+# downloads when it installs or updates the plugin.
+/automatic_stratagems/tests export-ignore

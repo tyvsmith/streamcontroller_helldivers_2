@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""Fail when a stdlib-only file statically imports anything beyond the standard
+library and its own allowed internal packages.
+
+Some code in this plugin runs where only the Python standard library is
+guaranteed: the store install hook (`__install__.py`, which runs before the
+plugin loads and swallows every exception so a broken import never surfaces),
+host scripts run by the system `/usr/bin/python3` outside the Flatpak
+sandbox, and runtime provisioning code. A stray third-party import in any of
+that code installs "cleanly" and then silently never works.
+
+This tool parses each file in a scope with `ast` and walks the entire tree
+(module level, inside functions and classes, inside `try`/`except`, under
+`if TYPE_CHECKING`, everywhere) looking for `import`, `from ... import ...`,
+and calls to `importlib.import_module(...)` / `__import__(...)` whose first
+argument is a string literal. It targets accidental *static* imports only:
+a dynamic import built from a variable or other non-literal expression is
+ignored, since it cannot be resolved without running the program.
+
+Rules are a fixed table of scopes (paths relative to the repository root)
+and the repository-internal module prefixes each scope may import in
+addition to the standard library. Add a new scope by adding a row.
+"""
+import argparse
+import ast
+from dataclasses import dataclass
+from pathlib import Path
+import sys
+
+
+@dataclass(frozen=True)
+class Scope:
+    path: str  # relative to --root, forward slashes, matches a CLI SCOPE name
+    kind: str  # "dir" (checked recursively) or "file" (a single module)
+    allowed: tuple[str, ...]  # internal module prefixes allowed beyond stdlib
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+RULES: tuple[Scope, ...] = (
+    # Host scripts and the install hook both execute the package __init__.
+    Scope("automatic_stratagems/__init__.py", "file", ()),
+    Scope("automatic_stratagems/shared", "dir",
+          ("automatic_stratagems.shared",)),
+    Scope("automatic_stratagems/hostexec", "dir",
+          ("automatic_stratagems.shared", "automatic_stratagems.hostexec")),
+    Scope("automatic_stratagems/provision", "dir",
+          ("automatic_stratagems.shared", "automatic_stratagems.provision")),
+    Scope("__install__.py", "file",
+          ("automatic_stratagems.shared", "automatic_stratagems.provision")),
+)
+
+_DYNAMIC_IMPORT_NAMES = ("import_module", "__import__")
+
+
+def _package_parts(relative_path: Path) -> tuple[str, ...]:
+    """The dotted package a module belongs to, e.g. pkg/sub/mod.py -> ('pkg','sub').
+
+    This also holds for pkg/sub/__init__.py: its own __package__ is 'pkg.sub',
+    so dropping the filename stem gives the right answer for both cases.
+    """
+    parts = relative_path.with_suffix("").parts
+    return parts[:-1]
+
+
+class _ImportVisitor(ast.NodeVisitor):
+    """Collects every statically-resolvable imported module name and line."""
+
+    def __init__(self, package_parts: tuple[str, ...]):
+        self.package_parts = package_parts
+        self.found: list[tuple[int, str]] = []
+        self.structural_errors: list[tuple[int, str]] = []
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            self.found.append((node.lineno, alias.name))
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if node.level == 0:
+            if node.module != "__future__":
+                self.found.append((node.lineno, node.module))
+            self.generic_visit(node)
+            return
+
+        climb = node.level - 1
+        if climb > len(self.package_parts):
+            self.structural_errors.append((
+                node.lineno,
+                f"relative import climbs above the repository root (level {node.level})",
+            ))
+            self.generic_visit(node)
+            return
+
+        target = self.package_parts[: len(self.package_parts) - climb]
+        if node.module:
+            self.found.append((node.lineno, ".".join((*target, node.module))))
+        else:
+            for alias in node.names:
+                self.found.append((node.lineno, ".".join((*target, alias.name))))
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        func = node.func
+        is_dynamic_import = (
+            (isinstance(func, ast.Name) and func.id in _DYNAMIC_IMPORT_NAMES)
+            or (isinstance(func, ast.Attribute) and func.attr == "import_module")
+        )
+        if is_dynamic_import and node.args:
+            first = node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                self.found.append((node.lineno, first.value))
+        self.generic_visit(node)
+
+
+def _is_allowed(module_name: str, allowed: tuple[str, ...]) -> bool:
+    top_level = module_name.split(".", 1)[0]
+    if top_level in sys.stdlib_module_names:
+        return True
+    return any(module_name == prefix or module_name.startswith(prefix + ".")
+               for prefix in allowed)
+
+
+def _discover_files(rule: Scope, root: Path):
+    """Returns the .py files for a rule, or None if the scope does not exist."""
+    target = root / rule.path
+    if rule.kind == "file":
+        return [target] if target.is_file() else None
+    if not target.is_dir():
+        return None
+    return sorted(target.rglob("*.py"))
+
+
+def _check_file(path: Path, root: Path, rule: Scope):
+    """Yields (path_str, line, message) violations for a single file."""
+    display = path.relative_to(root).as_posix()
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        yield display, 0, f"{display}:0: cannot read: {error}"
+        return
+    try:
+        tree = ast.parse(source, filename=display)
+    except SyntaxError as error:
+        line = error.lineno or 0
+        yield display, line, f"{display}:{line}: syntax error: {error.msg}"
+        return
+
+    visitor = _ImportVisitor(_package_parts(path.relative_to(root)))
+    visitor.visit(tree)
+
+    for line, message in visitor.structural_errors:
+        yield display, line, f"{display}:{line}: {message}"
+
+    allowed_desc = ", ".join(("stdlib", *rule.allowed))
+    for line, module_name in visitor.found:
+        if not _is_allowed(module_name, rule.allowed):
+            yield (display, line,
+                   f"{display}:{line}: imports '{module_name}' (allowed: {allowed_desc})")
+
+
+def _run(rules: list[Scope], root: Path):
+    """Returns (violation_lines, files_checked)."""
+    violations: list[tuple[str, int, str]] = []
+    files_checked = 0
+
+    for rule in rules:
+        files = _discover_files(rule, root)
+        if files is None:
+            violations.append((rule.path, 0, f"{rule.path}: scope does not exist"))
+            continue
+        if not files:
+            violations.append((rule.path, 0, f"{rule.path}: scope has no .py files"))
+            continue
+        for path in files:
+            file_violations = list(_check_file(path, root, rule))
+            if not file_violations:
+                files_checked += 1
+            violations.extend(file_violations)
+
+    violations.sort(key=lambda item: (item[0], item[1]))
+    return [message for _, _, message in violations], files_checked
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="check-imports",
+        description=(
+            "Fail when a file in a stdlib-only scope statically imports anything "
+            "beyond the standard library and its allowed internal packages."
+        ),
+    )
+    parser.add_argument(
+        "scopes", nargs="*", metavar="SCOPE",
+        help="a rule's path (e.g. automatic_stratagems/hostexec or __install__.py); "
+             "default: every rule")
+    parser.add_argument("--root", type=Path, default=ROOT,
+                         help="repository root to check against (default: %(default)s)")
+    return parser
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    root = args.root.resolve()
+
+    known = {rule.path: rule for rule in RULES}
+    if args.scopes:
+        unknown = sorted({name for name in args.scopes if name not in known})
+        if unknown:
+            parser.error(
+                f"unknown scope(s): {', '.join(unknown)} "
+                f"(known: {', '.join(sorted(known))})")
+        selected = list(dict.fromkeys(known[name] for name in args.scopes))
+    else:
+        selected = list(RULES)
+
+    violations, files_checked = _run(selected, root)
+    if violations:
+        for message in violations:
+            print(message)
+        return 1
+    print(f"check-imports: {files_checked} files OK")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
