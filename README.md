@@ -8,7 +8,9 @@ Assumes the following:
 
 Simply install the plugin from the StreamController store and configure your Stream Deck buttons with your favorite stratagems.
 
-Automatic stratagems are optional and off by default. Switching them on in the plugin settings prepares the scanner runtime by itself; a Flatpak install needs no terminal steps, but a native install needs a C compiler and Linux kernel headers already present. See [automatic stratagems](automatic_stratagems/README.md) for Gamescope-first capture with Screenshot fallback, shared screenshot settings, automatic slots, and scanner setup.
+### Automatic Stratagem Detection (Beta)
+
+The plugin can scan your equipped stratagems from the game screen and fill your Stream Deck buttons for you. It is off by default: switch on **Enable automatic stratagems** in the plugin settings, then add the scan button to your deck. See the [Automatic Stratagem Detection guide](automatic_stratagems/README.md) for setup and usage.
 
 ### Plugin Settings
 
