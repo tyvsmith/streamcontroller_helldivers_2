@@ -398,7 +398,9 @@ environment.
 `provision.runtime_install.ensure_scanner_runtime` is the single preparation path. It
 verifies the resolved runtime first, installs once when that fails, verifies the
 result, and records `state`, `profile`, `error`, and `updated_at` in ignored
-`automatic_stratagems/runtime/setup-status.json`. It prepares nothing while the
+`automatic_stratagems/runtime/setup-status.json`. When it installed, the record
+also keeps `previous_error`, why the first check failed; readers ignore fields
+they do not know. It prepares nothing while the
 feature setting is off, reports failures instead of raising them, and is called
 from three places: `__install__.py` (StreamController's store install and update
 hook, using the plugin's own directory layout to find its settings and unwrapping

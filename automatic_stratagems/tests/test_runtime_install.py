@@ -71,6 +71,67 @@ class EnsureRuntimeTests(unittest.TestCase):
         self.assertEqual(calls, ['check', 'install', 'check'])
         self.assertEqual(status['profile'], 'native')
 
+    def test_a_reinstall_keeps_why_the_first_check_failed(self):
+        checks = []
+
+        def check():
+            checks.append('check')
+            if len(checks) == 1:
+                raise ScanSetupError('Missing scanner dependency: evdev')
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = runtime_install.ensure_scanner_runtime(
+                root, ENABLED, flatpak=False, check=check, install=lambda: None)
+            recorded = runtime_install.read_status(root)
+        self.assertEqual(status['state'], runtime_install.STATE_INSTALLED)
+        self.assertIsNone(status['error'])
+        self.assertEqual(
+            status['previous_error'], 'Missing scanner dependency: evdev')
+        self.assertEqual(recorded, status)
+
+    def test_a_failed_reinstall_keeps_why_the_first_check_failed(self):
+        def install():
+            raise ScanSetupError('Cannot download scanner runtime source')
+
+        with tempfile.TemporaryDirectory() as directory:
+            status = runtime_install.ensure_scanner_runtime(
+                Path(directory), ENABLED, flatpak=True,
+                check=lambda: (_ for _ in ()).throw(ScanSetupError('absent')),
+                install=install)
+        self.assertEqual(status['state'], runtime_install.STATE_ERROR)
+        self.assertEqual(status['error'], 'Cannot download scanner runtime source')
+        self.assertEqual(status['previous_error'], 'absent')
+
+    def test_a_ready_runtime_records_no_previous_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            status = runtime_install.ensure_scanner_runtime(
+                Path(directory), ENABLED, flatpak=True, check=lambda: None,
+                install=lambda: None)
+        self.assertNotIn('previous_error', status)
+
+    def test_a_long_previous_error_still_fits_the_status_record(self):
+        def check():
+            raise ScanSetupError('x' * 10000)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime_install.ensure_scanner_runtime(
+                root, ENABLED, flatpak=True, check=check, install=lambda: None)
+            recorded = runtime_install.read_status(root)
+        self.assertEqual(recorded['state'], runtime_install.STATE_ERROR)
+        self.assertTrue(recorded['previous_error'].startswith('xxx'))
+
+    def test_read_status_keeps_fields_it_does_not_know(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            record = {'schema_version': 1, 'state': 'installed', 'profile': 'native',
+                      'error': None, 'previous_error': 'absent',
+                      'updated_at': '2026-01-01T00:00:00Z'}
+            runtime_install.status_path(root).parent.mkdir(parents=True)
+            runtime_install.status_path(root).write_text(json.dumps(record))
+            self.assertEqual(runtime_install.read_status(root), record)
+
     def test_ensure_reports_an_installation_error_verbatim(self):
         def install():
             raise ScanSetupError('Cannot download scanner runtime source')

@@ -243,14 +243,24 @@ def _is_flatpak(environ: Mapping[str, str]) -> bool:
     return bool(environ.get("FLATPAK_ID")) or FLATPAK_INFO.exists()
 
 
-def _status(state: str, profile: str, error: object | None = None) -> dict:
-    return {
+def _status(
+    state: str,
+    profile: str,
+    error: object | None = None,
+    previous_error: object | None = None,
+) -> dict:
+    status = {
         "schema_version": STATUS_SCHEMA_VERSION,
         "state": state,
         "profile": profile,
         "error": None if error is None else str(error)[:MAX_ERROR_CHARACTERS],
         "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+    if previous_error is not None:
+        # Why the first check failed and triggered the install; readers that do
+        # not know this field ignore it.
+        status["previous_error"] = str(previous_error)[:MAX_ERROR_CHARACTERS]
+    return status
 
 
 def _record(root: Path, status: dict) -> dict:
@@ -288,11 +298,11 @@ def ensure_scanner_runtime(
                 install_scanner_venv(root)
     try:
         check()
-    except Exception:  # noqa: BLE001 - any unusable runtime is installed once
+    except Exception as first:  # noqa: BLE001 - any unusable runtime is installed once
         try:
             install()
             check()
         except Exception as error:  # noqa: BLE001 - reported, never raised
-            return _record(root, _status(STATE_ERROR, profile, error))
-        return _record(root, _status(STATE_INSTALLED, profile))
+            return _record(root, _status(STATE_ERROR, profile, error, first))
+        return _record(root, _status(STATE_INSTALLED, profile, previous_error=first))
     return _record(root, _status(STATE_READY, profile))
