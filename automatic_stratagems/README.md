@@ -429,3 +429,8 @@ screen, inject input, restart the app, or verify real Flatpak Steam/Gamescope.
 
 See [Architecture](docs/architecture.md) for component boundaries, persistence,
 process ownership, and extension points.
+
+## Credits
+
+Automatic stratagems was designed and built by Ty Smith
+([@tyvsmith](https://github.com/tyvsmith)), who maintains `automatic_stratagems/`.
