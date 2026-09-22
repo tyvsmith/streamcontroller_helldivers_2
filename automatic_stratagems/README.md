@@ -137,6 +137,8 @@ Helpers each source needs:
 
 All in **Settings → Plugins → HELLDIVERS 2**:
 
+![Automatic stratagem and screenshot capture settings](docs/images/screenshot-capture-settings.png)
+
 - **Scan workers:** recognition parallelism, 1–32, default 2. Lower it on
   memory-constrained systems; capture and key input stay serialized
 - **Screenshot capture** (expand it):
