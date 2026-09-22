@@ -13,7 +13,10 @@ import time
 from typing import Callable, Mapping
 import venv
 
-from .runtime_profile import FLATPAK_INFO, SCANNER_VENV, ScanSetupError, atomic_json
+from .runtime_profile import (
+    FLATPAK_INFO, MAX_ACTIVATION_BYTES, SCANNER_VENV, ScanSetupError, atomic_json,
+)
+from ..shared.fs import canonical_json
 from ..shared.bounded_json import read_bounded_json
 from .verify import check_runtime
 
@@ -263,7 +266,30 @@ def _status(
     return status
 
 
+def _fit_status(status: dict) -> dict:
+    """Shorten the error texts until the serialized record fits both size caps.
+
+    Non-ASCII text escapes to up to 12 bytes per character, so the character
+    cap alone cannot keep the record small enough to write or read back.
+    """
+    limit = min(MAX_STATUS_BYTES, MAX_ACTIVATION_BYTES)
+    status = dict(status)
+    while True:
+        excess = len(canonical_json(status)) - limit
+        texts = [key for key in ("error", "previous_error")
+                 if isinstance(status.get(key), str) and status[key]]
+        if excess <= 0 or not texts:
+            return status
+        texts.sort(key=lambda key: len(status[key]), reverse=True)
+        text = status[texts[0]]
+        # Cut the longest text, but not below the next one, so both keep a prefix.
+        floor = len(status[texts[1]]) if len(texts) > 1 else 0
+        cut = max(1, min(-(-excess // 12), len(text) - floor))
+        status[texts[0]] = text[:len(text) - cut]
+
+
 def _record(root: Path, status: dict) -> dict:
+    status = _fit_status(status)
     try:
         atomic_json(status_path(root), status)
     except Exception:  # noqa: BLE001 - the hook must never fail on reporting

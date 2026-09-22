@@ -122,6 +122,28 @@ class EnsureRuntimeTests(unittest.TestCase):
         self.assertEqual(recorded['state'], runtime_install.STATE_ERROR)
         self.assertTrue(recorded['previous_error'].startswith('xxx'))
 
+    def test_long_non_ascii_errors_still_write_a_record_within_the_cap(self):
+        def check():
+            raise ScanSetupError('é' * 1024)
+
+        def install():
+            raise ScanSetupError('😀' * 1024)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = runtime_install.ensure_scanner_runtime(
+                root, ENABLED, flatpak=True, check=check, install=install)
+            size = runtime_install.status_path(root).stat().st_size
+            recorded = runtime_install.read_status(root)
+        self.assertLessEqual(size, runtime_install.MAX_STATUS_BYTES)
+        self.assertEqual(recorded, status)
+        self.assertEqual(recorded['state'], runtime_install.STATE_ERROR)
+        self.assertEqual(recorded['profile'], 'flatpak')
+        self.assertEqual(recorded['schema_version'], 1)
+        self.assertTrue(recorded['updated_at'].endswith('Z'))
+        self.assertTrue(recorded['error'].startswith('😀'))
+        self.assertTrue(recorded['previous_error'].startswith('é'))
+
     def test_read_status_keeps_fields_it_does_not_know(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
