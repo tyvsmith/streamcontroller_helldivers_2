@@ -12,6 +12,8 @@ Simply install the plugin from the StreamController store and configure your Str
 
 The plugin can scan your equipped stratagems from the game screen and fill your Stream Deck buttons for you. It is off by default: switch on **Enable automatic stratagems** in the plugin settings, then add the scan button to your deck. See the [Automatic Stratagem Detection guide](automatic_stratagems/README.md) for setup and usage.
 
+![A generated Automatic Stratagem Page](automatic_stratagems/docs/images/generated-page.png)
+
 ### Plugin Settings
 
 Access settings via **Settings → Plugins → HELLDIVERS 2 → ⚙️**
