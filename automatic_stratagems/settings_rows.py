@@ -2,7 +2,8 @@
 
 Each `build_*` function builds one row (or row group) for
 `AutomaticIntegration.settings_rows` and stores any handle the integration
-needs later (`enable_row`, `setup_row`, `setup_button`) directly on the integration object
+needs later (`enable_row`, `settings_section`, `setup_row`,
+`setup_button`) directly on the integration object
 passed in. Persistence goes back through the integration's own
 `_save_setting`/`_save_screenshot_setting` methods so callers that replace
 those methods (tests included) keep intercepting saves.
@@ -15,17 +16,25 @@ from gi.repository import Adw, Gio, Gtk
 from .provision.runtime_install import FEATURE_SETTING, read_status
 
 
+SECTION_TITLE = "Automatic stratagem settings"
+
+
 def build_settings_rows(integration):
-    """Build the rows for `AutomaticIntegration.settings_rows`."""
+    """Build the rows for `AutomaticIntegration.settings_rows`.
+
+    Only the feature switch stays outside the collapsed section, whose
+    subtitle carries the scanner setup status so failures show while closed.
+    """
     enable = build_enable_row(integration)
-    integration.settings_controls = [
-        build_setup_row(integration),
-        build_workers_row(integration),
-        build_screenshot_row(integration),
-    ]
-    for row in integration.settings_controls:
-        row.set_sensitive(integration.coordinator.enabled)
-    return [enable, *integration.settings_controls]
+    section = Adw.ExpanderRow(title=SECTION_TITLE)
+    integration.settings_section = section
+    integration.setup_needs_action = False
+    for row in (build_setup_row(integration), build_workers_row(integration),
+                *build_screenshot_rows(integration)):
+        section.add_row(row)
+    integration.settings_controls = [section]
+    section.set_sensitive(integration.coordinator.enabled)
+    return [enable, section]
 
 
 def build_enable_row(integration):
@@ -90,15 +99,32 @@ def refresh_setup_row(integration):
     if row is None:
         return
     if integration.preparing:
-        row.set_subtitle(PREPARING_TEXT)
+        text = summary = PREPARING_TEXT
         needs_action = False
     else:
         record = read_status(integration.plugin.PATH)
-        row.set_subtitle(_status_text(record))
+        text = _status_text(record)
+        summary = _summary_text(record, text)
         needs_action = (integration.coordinator.enabled and
                         (record is None
                          or record.get("state") not in VERIFIED_STATES))
+    row.set_subtitle(text)
     integration.setup_button.set_visible(needs_action)
+    section = integration.settings_section
+    if section is None:
+        return
+    section.set_subtitle(summary)
+    # Open only on the change to needing action; after that the user decides.
+    if needs_action and not integration.setup_needs_action:
+        section.set_expanded(True)
+    integration.setup_needs_action = needs_action
+
+
+def _summary_text(record, text):
+    """Shorten the status for the collapsed section; a failure's detail stays in the row."""
+    if record is not None and record.get("state") == "error":
+        return "Scanner preparation failed. See Scanner setup."
+    return text
 
 
 def automatic_changed(integration, row, _property):
@@ -138,9 +164,10 @@ def build_workers_row(integration):
     return row
 
 
-def build_screenshot_row(integration):
+def build_screenshot_rows(integration):
+    """Build the screenshot rows, led by a heading row that names the group."""
     settings = integration.screenshot_config(integration.plugin.get_settings())
-    section = Adw.ExpanderRow(
+    heading = Adw.ActionRow(
         title="Screenshot capture",
         subtitle="Configure the screenshot source used by Automatic and Screenshot scans",
     )
@@ -175,8 +202,6 @@ def build_screenshot_row(integration):
                   "Gamescope or Steam in-game screenshots are preferred. Steam in-game "
                   "screenshots require the Steam overlay to be enabled."),
     )
-    for row in (trigger, hotkey, script, folder, delete, help_row):
-        section.add_row(row)
 
     def trigger_changed(row, _property):
         value = integration.screenshot_triggers[row.get_selected()]
@@ -229,7 +254,7 @@ def build_screenshot_row(integration):
         dialog.select_folder(None, None, chosen)
 
     browse.connect("clicked", browse_clicked)
-    return section
+    return [heading, trigger, hotkey, script, folder, delete, help_row]
 
 
 def save_setting(plugin, key, value):

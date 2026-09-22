@@ -9,9 +9,11 @@ Gamescope or your screenshot hotkey, to recognize stratagems.
 
 1. Install the HELLDIVERS 2 plugin from the StreamController store.
 2. Open **Settings → Plugins → HELLDIVERS 2** and switch on **Enable automatic
-   stratagems**. The scanner prepares itself in the background. The **Scanner
-   setup** row says when it is ready. It shows a **Run setup** button only
-   when the runtime needs it: not yet prepared, or the last attempt failed.
+   stratagems**. The scanner prepares itself in the background. The collapsed
+   **Automatic stratagem settings** section below the switch shows its status.
+   If the runtime needs setup (not yet prepared, or the last attempt failed),
+   the section opens itself and **Scanner setup** offers a **Run setup**
+   button.
 3. Make sure one capture path works:
    - **Steam screenshot (default):** Steam's F12 screenshot key with the Steam
      overlay enabled. The plugin presses F12 for you and reads the new image
@@ -143,9 +145,17 @@ All in **Settings → Plugins → HELLDIVERS 2**:
 
 ![Automatic stratagem and screenshot capture settings](docs/images/screenshot-capture-settings.png)
 
-- **Scan workers:** recognition parallelism, 1–32, default 2. Lower it on
-  memory-constrained systems; capture and key input stay serialized
-- **Screenshot capture** (expand it):
+- **Enable automatic stratagems:** the feature switch, off by default. Every
+  other automatic setting sits in the section below it and is unavailable
+  while the switch is off
+- **Automatic stratagem settings** (collapsed): its subtitle shows the scanner
+  setup status. It opens itself when setup needs action; once the runtime is
+  verified it stays open or closed as you leave it. Inside:
+  - **Scanner setup:** the last preparation result, with **Run setup** when
+    the runtime is not prepared or the last attempt failed
+  - **Scan workers:** recognition parallelism, 1–32, default 2. Lower it on
+    memory-constrained systems; capture and key input stay serialized
+  - **Screenshot capture:** a heading for the screenshot rows that follow
   - **Trigger:** Hotkey (default) or Script
   - **Screenshot keycode:** `KEY_F12` by default. For a chord, join evdev key
     names with `+`, such as `KEY_LEFTCTRL+KEY_F12`

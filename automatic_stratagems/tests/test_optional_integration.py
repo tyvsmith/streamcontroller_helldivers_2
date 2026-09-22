@@ -292,18 +292,21 @@ class OptionalIntegrationTests(unittest.TestCase):
         rows = self.feature_namespace(plugin._automatic_integration)['settings_rows']
         plugin.get_settings = lambda: {}
         plugin.scan_coordinator = Mock()
-        section, trigger = Mock(), Mock()
+        trigger = Mock()
         hotkey, script, folder = Mock(), Mock(), Mock()
-        delete, browse, help_row = Mock(), Mock(), Mock()
+        delete, browse = Mock(), Mock()
+        heading, help_row = Mock(), Mock()
         rows.Gtk.StringList.new.reset_mock()
-        with patch.object(rows.Adw, 'ExpanderRow', return_value=section), \
-             patch.object(rows.Adw, 'ComboRow', return_value=trigger), \
+        with patch.object(rows.Adw, 'ComboRow', return_value=trigger), \
              patch.object(rows.Adw, 'EntryRow',
                           side_effect=[hotkey, script, folder]), \
              patch.object(rows.Adw, 'SwitchRow', return_value=delete), \
-             patch.object(rows.Adw, 'ActionRow', return_value=help_row), \
+             patch.object(rows.Adw, 'ActionRow',
+                          side_effect=[heading, help_row]), \
              patch.object(rows.Gtk, 'Button', return_value=browse):
-            self.assertIs(plugin._automatic_integration._screenshot_row(), section)
+            self.assertEqual(
+                plugin._automatic_integration._screenshot_rows(),
+                [heading, trigger, hotkey, script, folder, delete, help_row])
 
         rows.Gtk.StringList.new.assert_called_once_with(['Hotkey', 'Script'])
         trigger.set_selected.assert_called_once_with(0)
@@ -313,7 +316,6 @@ class OptionalIntegrationTests(unittest.TestCase):
         script.set_visible.assert_called_once_with(False)
         folder.set_text.assert_called_once_with('')
         delete.set_active.assert_called_once_with(True)
-        self.assertEqual(section.add_row.call_count, 6)
 
     def test_global_screenshot_rows_reopen_with_only_script_field_visible(self):
         module, plugin = self.import_without_automatic_actions()
@@ -321,14 +323,13 @@ class OptionalIntegrationTests(unittest.TestCase):
         plugin.get_settings = lambda: {'screenshot_trigger': 'script'}
         plugin.scan_coordinator = Mock()
         hotkey, script, folder = Mock(), Mock(), Mock()
-        with patch.object(rows.Adw, 'ExpanderRow', return_value=Mock()), \
-             patch.object(rows.Adw, 'ComboRow', return_value=Mock()), \
+        with patch.object(rows.Adw, 'ComboRow', return_value=Mock()), \
              patch.object(rows.Adw, 'EntryRow',
                           side_effect=[hotkey, script, folder]), \
              patch.object(rows.Adw, 'SwitchRow', return_value=Mock()), \
              patch.object(rows.Adw, 'ActionRow', return_value=Mock()), \
              patch.object(rows.Gtk, 'Button', return_value=Mock()):
-            plugin._automatic_integration._screenshot_row()
+            plugin._automatic_integration._screenshot_rows()
         hotkey.set_visible.assert_called_once_with(False)
         script.set_visible.assert_called_once_with(True)
 
@@ -341,7 +342,7 @@ class OptionalIntegrationTests(unittest.TestCase):
         integration.coordinator = Mock()
         settings_rows = self.feature_namespace(integration)['settings_rows']
 
-        section, trigger = Mock(), Mock()
+        trigger = Mock()
         hotkey, script, folder = Mock(), Mock(), Mock()
         text_state = {'value': ''}
         folder.get_text.side_effect = lambda: text_state['value']
@@ -349,8 +350,7 @@ class OptionalIntegrationTests(unittest.TestCase):
             'value', value)
         delete, browse, help_row = Mock(), Mock(), Mock()
         dialog = Mock()
-        with patch.object(settings_rows.Adw, 'ExpanderRow', return_value=section), \
-             patch.object(settings_rows.Adw, 'ComboRow', return_value=trigger), \
+        with patch.object(settings_rows.Adw, 'ComboRow', return_value=trigger), \
              patch.object(settings_rows.Adw, 'EntryRow',
                           side_effect=[hotkey, script, folder]), \
              patch.object(settings_rows.Adw, 'SwitchRow', return_value=delete), \
@@ -359,7 +359,7 @@ class OptionalIntegrationTests(unittest.TestCase):
              patch.object(settings_rows.Gtk, 'FileDialog') as file_dialog_cls, \
              patch.object(settings_rows.Gio, 'File') as gio_file_cls:
             file_dialog_cls.new.return_value = dialog
-            integration._screenshot_row()
+            integration._screenshot_rows()
 
             browse_clicked = browse.connect.call_args.args[1]
             browse_clicked()
@@ -385,7 +385,7 @@ class OptionalIntegrationTests(unittest.TestCase):
         integration.coordinator = Mock()
         settings_rows = self.feature_namespace(integration)['settings_rows']
 
-        section, trigger = Mock(), Mock()
+        trigger = Mock()
         hotkey, script, folder = Mock(), Mock(), Mock()
         text_state = {'value': ''}
         folder.get_text.side_effect = lambda: text_state['value']
@@ -393,8 +393,7 @@ class OptionalIntegrationTests(unittest.TestCase):
             'value', value)
         delete, browse, help_row = Mock(), Mock(), Mock()
         dialog = Mock()
-        with patch.object(settings_rows.Adw, 'ExpanderRow', return_value=section), \
-             patch.object(settings_rows.Adw, 'ComboRow', return_value=trigger), \
+        with patch.object(settings_rows.Adw, 'ComboRow', return_value=trigger), \
              patch.object(settings_rows.Adw, 'EntryRow',
                           side_effect=[hotkey, script, folder]), \
              patch.object(settings_rows.Adw, 'SwitchRow', return_value=delete), \
@@ -403,7 +402,7 @@ class OptionalIntegrationTests(unittest.TestCase):
              patch.object(settings_rows.Gtk, 'FileDialog') as file_dialog_cls, \
              patch.object(settings_rows.Gio, 'File') as gio_file_cls:
             file_dialog_cls.new.return_value = dialog
-            integration._screenshot_row()
+            integration._screenshot_rows()
             folder.set_text.reset_mock()
 
             browse_clicked = browse.connect.call_args.args[1]
@@ -882,13 +881,140 @@ class OptionalIntegrationTests(unittest.TestCase):
 
         button.set_visible.assert_called_with(True)
 
+    def built_settings(self, record, *, enabled=True):
+        """Build every settings row against `record`; return (integration, rows, section, feature)."""
+        _, integration, feature = self.prepared_integration()
+        integration.coordinator.enabled = enabled
+        integration.coordinator.compatibility_error = None
+        settings_rows = feature['settings_rows']
+        section = Mock()
+
+        def titled(**kwargs):
+            return Mock(title=kwargs.get('title'))
+
+        with patch.object(settings_rows.Adw, 'ExpanderRow',
+                          return_value=section) as expander, \
+             patch.object(settings_rows.Adw, 'SwitchRow', side_effect=titled), \
+             patch.object(settings_rows.Adw, 'ActionRow', side_effect=titled), \
+             patch.object(settings_rows.Adw, 'ComboRow', side_effect=titled), \
+             patch.object(settings_rows.Adw, 'EntryRow', side_effect=titled), \
+             patch.object(settings_rows, 'read_status', lambda root: record):
+            rows = integration.settings_rows()
+        expander.assert_called_once_with(title='Automatic stratagem settings')
+        return integration, rows, section, feature
+
+    def refresh_with(self, integration, feature, record):
+        with patch.object(feature['settings_rows'], 'read_status',
+                          lambda root: record):
+            integration.refresh_setup_row()
+
+    def test_only_the_enable_switch_sits_outside_the_settings_section(self):
+        _, rows, section, _ = self.built_settings(self.status('installed'))
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0].title, 'Enable automatic stratagems')
+        self.assertIs(rows[1], section)
+        self.assertEqual(
+            [call.args[0].title for call in section.add_row.call_args_list],
+            ['Scanner setup', 'Scan workers', 'Screenshot capture', 'Trigger',
+             'Screenshot keycode', 'Absolute screenshot script path',
+             'Screenshot folder (blank: Steam folder)',
+             'Delete after successful scan', 'Screenshot setup'])
+
+    def test_the_settings_section_follows_the_feature_switch(self):
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                integration, _, section, _ = self.built_settings(
+                    self.status('installed'), enabled=enabled)
+                self.assertEqual(integration.settings_controls, [section])
+                section.set_sensitive.assert_called_with(enabled)
+
+    def test_the_section_subtitle_tracks_the_setup_status(self):
+        integration, _, section, feature = self.built_settings(
+            self.status('installed'))
+        self.assertIn('Ready', section.set_subtitle.call_args.args[0])
+
+        with patch.dict(feature, {'Thread': Mock()}):
+            integration.prepare_runtime()
+        section.set_subtitle.assert_called_with("Preparing the scanner runtime…")
+
+        integration.preparing = False
+        self.refresh_with(integration, feature,
+                          self.status('error', error='pip failed'))
+        self.assertIn('failed', section.set_subtitle.call_args.args[0])
+
+        self.refresh_with(integration, feature, None)
+        self.assertIn('not been prepared', section.set_subtitle.call_args.args[0])
+
+    def test_the_section_opens_on_build_when_setup_needs_action(self):
+        for record in (None, self.status('error', error='pip failed'),
+                       self.status('mystery')):
+            with self.subTest(record=record):
+                _, _, section, _ = self.built_settings(record)
+                section.set_expanded.assert_called_once_with(True)
+
+    def test_the_section_stays_collapsed_when_setup_is_verified(self):
+        for state in ('ready', 'installed'):
+            with self.subTest(state):
+                _, _, section, _ = self.built_settings(self.status(state))
+                self.assertNotIn(True, [call.args[0] for call in
+                                        section.set_expanded.call_args_list])
+
+    def test_the_section_stays_collapsed_while_the_feature_is_off(self):
+        _, _, section, _ = self.built_settings(None, enabled=False)
+
+        section.set_expanded.assert_not_called()
+
+    def test_the_section_opens_after_a_failed_preparation(self):
+        integration, _, section, feature = self.built_settings(
+            self.status('installed'))
+        failed = self.status('error', error='pip failed')
+        glib = feature['GLib']
+        glib.idle_add.reset_mock()
+
+        with patch.dict(feature, {'Thread': self.inline_thread()}), \
+             patch.object(feature['runtime_preparation'],
+                          'ensure_scanner_runtime', Mock(return_value=failed)):
+            integration.prepare_runtime()
+        section.set_expanded.assert_not_called()
+        refresh = glib.idle_add.call_args.args[0]
+        with patch.object(feature['settings_rows'], 'read_status',
+                          lambda root: failed):
+            refresh()
+
+        section.set_expanded.assert_called_once_with(True)
+
+    def test_the_section_opens_once_per_change_to_needing_action(self):
+        failed = self.status('error', error='pip failed')
+        integration, _, section, feature = self.built_settings(failed)
+
+        self.refresh_with(integration, feature, failed)
+        self.refresh_with(integration, feature, self.status('installed'))
+
+        section.set_expanded.assert_called_once_with(True)
+
+        self.refresh_with(integration, feature, failed)
+
+        self.assertEqual(section.set_expanded.call_count, 2)
+        section.set_expanded.assert_called_with(True)
+
     def test_unavailable_integration_keeps_disabled_settings_rows(self):
         _, plugin = self.import_without_automatic_actions(
             missing_optional='capture_source')
 
-        rows = plugin._automatic_integration.settings_rows()
+        integration = plugin._automatic_integration
+        adw = type(integration).settings_rows.__globals__['Adw']
 
-        self.assertEqual(len(rows), 4)
+        def titled(**kwargs):
+            return Mock(title=kwargs.get('title'))
+
+        with patch.object(adw, 'SwitchRow', side_effect=titled), \
+             patch.object(adw, 'ActionRow', side_effect=titled):
+            rows = integration.settings_rows()
+
+        self.assertEqual(
+            [row.title for row in rows],
+            ['Enable automatic stratagems', 'Automatic stratagem settings'])
         for row in rows:
             row.set_sensitive.assert_called_with(False)
 

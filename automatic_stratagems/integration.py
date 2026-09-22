@@ -127,6 +127,8 @@ class AutomaticIntegration:
         self.chooser_handler = None
         self.settings_controls = []
         self.enable_row = None
+        self.settings_section = None
+        self.setup_needs_action = False
         self.setup_row = None
         self.setup_button = None
         self.preparing = False
@@ -290,8 +292,8 @@ class AutomaticIntegration:
     def _workers_row(self):
         return settings_rows.build_workers_row(self)
 
-    def _screenshot_row(self):
-        return settings_rows.build_screenshot_row(self)
+    def _screenshot_rows(self):
+        return settings_rows.build_screenshot_rows(self)
 
     def shutdown(self, *, uninstall=False):
         self.closed = True
@@ -339,15 +341,7 @@ class UnavailableAutomaticIntegration:
                 subtitle=self.coordinator.compatibility_error,
             ),
             Adw.ActionRow(
-                title="Scanner setup",
-                subtitle=self.coordinator.compatibility_error,
-            ),
-            Adw.ActionRow(
-                title="Scan workers",
-                subtitle=self.coordinator.compatibility_error,
-            ),
-            Adw.ActionRow(
-                title="Screenshot capture",
+                title="Automatic stratagem settings",
                 subtitle=self.coordinator.compatibility_error,
             ),
         ]
