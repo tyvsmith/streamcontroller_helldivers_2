@@ -1,9 +1,13 @@
 import json
 import os
 from pathlib import Path
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -169,6 +173,105 @@ class ScannerVenvTests(unittest.TestCase):
             with self.assertRaisesRegex(ScanSetupError, 'no matching distribution'):
                 runtime_install.install_scanner_venv(
                     root, runner=lambda command: (1, b'no matching distribution'))
+
+
+def _process_gone(pid, timeout=10):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        try:
+            with open(f'/proc/{pid}/stat') as stat:
+                if stat.read().rsplit(')', 1)[1].split()[0] == 'Z':
+                    return True
+        except OSError:
+            return True
+        time.sleep(0.02)
+    return False
+
+
+class PipProcessTests(unittest.TestCase):
+    """The native pip install runs in its own group that shutdown can stop."""
+
+    def setUp(self):
+        registry = patch.object(
+            runtime_install, '_INSTALLS', runtime_install._InstallRegistry())
+        registry.start()
+        self.addCleanup(registry.stop)
+        self.directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.directory, True)
+
+    def start_pip(self, script):
+        result = {}
+
+        def run():
+            try:
+                result['value'] = runtime_install._pip(
+                    [sys.executable, '-c', script])
+            except BaseException as error:  # noqa: BLE001 - asserted below
+                result['error'] = error
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        return thread, result
+
+    def wait_for(self, path, timeout=10):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if path.exists() and path.read_text().strip():
+                return path.read_text().split()
+            time.sleep(0.02)
+        self.fail(f'{path} was never written')
+
+    def test_pip_runs_in_a_new_process_group(self):
+        code, stderr = runtime_install._pip([
+            sys.executable, '-c',
+            'import os, sys; sys.stderr.write(f"{os.getpid()} {os.getpgrp()}")'])
+        self.assertEqual(code, 0)
+        pid, group = stderr.decode().split()
+        self.assertEqual(pid, group)
+        self.assertNotEqual(int(group), os.getpgrp())
+
+    def test_terminate_stops_the_running_install_and_its_children(self):
+        marker = self.directory / 'pids'
+        script = (
+            'import os, subprocess, sys, time\n'
+            'child = subprocess.Popen([sys.executable, "-c",'
+            ' "import time; time.sleep(60)"])\n'
+            f'open({str(marker)!r}, "w").write(f"{{os.getpid()}} {{child.pid}}")\n'
+            'time.sleep(60)\n')
+        thread, result = self.start_pip(script)
+        _pid, child = self.wait_for(marker)
+
+        self.assertTrue(runtime_install.terminate_runtime_installs(grace=5))
+
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result['value'][0], -signal.SIGTERM)
+        self.assertTrue(_process_gone(int(child)))
+
+    def test_terminate_kills_an_install_that_ignores_sigterm(self):
+        marker = self.directory / 'pid'
+        script = (
+            'import os, signal, time\n'
+            'signal.signal(signal.SIGTERM, signal.SIG_IGN)\n'
+            f'open({str(marker)!r}, "w").write(str(os.getpid()))\n'
+            'time.sleep(60)\n')
+        thread, result = self.start_pip(script)
+        self.wait_for(marker)
+
+        started = time.monotonic()
+        self.assertTrue(runtime_install.terminate_runtime_installs(grace=0.3))
+        thread.join(10)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(result['value'][0], -signal.SIGKILL)
+
+    def test_no_install_starts_once_installs_are_terminated(self):
+        self.assertTrue(runtime_install.terminate_runtime_installs(grace=1))
+        with self.assertRaisesRegex(ScanSetupError, 'shutting down'):
+            runtime_install._pip([sys.executable, '-c', 'pass'])
 
 
 class DefaultInstallerTests(unittest.TestCase):

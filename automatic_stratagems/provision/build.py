@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import io
 import json
@@ -303,6 +304,100 @@ def _read_activation(path: Path, *, required: bool) -> dict | None:
     return value
 
 
+STAGE_LOCK_SUFFIX = ".lock"
+
+
+def _try_lock(descriptor: int) -> bool:
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    return True
+
+
+def _claim_stage(staging_dir: Path) -> tuple[Path, int]:
+    """Create a stage that its install owns for as long as it holds the lock.
+
+    The lock file exists and is held before the stage directory does, so a
+    stage without a lock file was abandoned. It is removed only after the stage.
+    """
+    while True:
+        stage = staging_dir / f"{FLATPAK_PROFILE}-{uuid.uuid4().hex}"
+        lock = staging_dir / f"{stage.name}{STAGE_LOCK_SUFFIX}"
+        descriptor = os.open(
+            lock, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600
+        )
+        try:
+            if _try_lock(descriptor):
+                # A sweep may have unlinked the file between creation and flock.
+                held = os.fstat(descriptor)
+                try:
+                    current = lock.lstat()
+                except FileNotFoundError:
+                    current = None
+                if current is not None and (current.st_dev, current.st_ino) == (
+                    held.st_dev, held.st_ino
+                ):
+                    stage.mkdir(mode=0o700)
+                    return stage, descriptor
+        except BaseException:
+            os.close(descriptor)
+            raise
+        os.close(descriptor)
+
+
+def _release_stage(stage: Path, descriptor: int) -> None:
+    try:
+        if stage.exists():
+            shutil.rmtree(stage)
+        (stage.parent / f"{stage.name}{STAGE_LOCK_SUFFIX}").unlink(missing_ok=True)
+    finally:
+        os.close(descriptor)
+
+
+def _remove_entry(path: Path) -> None:
+    try:
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def sweep_stale_staging(staging_dir: Path) -> None:
+    """Remove stages and stage locks that no running install holds."""
+    try:
+        entries = list(staging_dir.iterdir())
+    except FileNotFoundError:
+        return
+    for entry in entries:
+        if entry.name.endswith(STAGE_LOCK_SUFFIX):
+            stage = entry.with_name(entry.name[:-len(STAGE_LOCK_SUFFIX)])
+            lock = entry
+        else:
+            stage = entry
+            lock = entry.with_name(entry.name + STAGE_LOCK_SUFFIX)
+        try:
+            descriptor = os.open(lock, os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
+        except FileNotFoundError:
+            descriptor = None
+        except OSError:
+            continue
+        try:
+            if descriptor is not None and not _try_lock(descriptor):
+                continue
+            if stage.exists() or stage.is_symlink():
+                _remove_entry(stage)
+            if descriptor is not None:
+                lock.unlink(missing_ok=True)
+        except OSError:
+            continue
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+
 def install_runtime(
     root: Path,
     *,
@@ -319,6 +414,7 @@ def install_runtime(
     staging_dir = runtime_dir / "staging"
     profiles_dir.mkdir(parents=True, exist_ok=True)
     staging_dir.mkdir(parents=True, exist_ok=True)
+    sweep_stale_staging(staging_dir)
     target = profiles_dir / f"{FLATPAK_PROFILE}-{lock_hash}"
     manifest = _profile_manifest(lock, lock_hash)
     manifest_bytes = canonical_json(manifest)
@@ -365,8 +461,7 @@ def install_runtime(
     for entry in lock["files"]:
         _validate_file_entry(entry, set(sources), seen)
 
-    stage = staging_dir / f"{FLATPAK_PROFILE}-{uuid.uuid4().hex}"
-    stage.mkdir(mode=0o700)
+    stage, stage_lock = _claim_stage(staging_dir)
     try:
         (stage / "python").mkdir()
         for entry in lock["files"]:
@@ -392,8 +487,7 @@ def install_runtime(
         atomic_json(activation_path, _activation_for(target, manifest_hash, previous))
         return target
     finally:
-        if stage.exists():
-            shutil.rmtree(stage)
+        _release_stage(stage, stage_lock)
 
 
 def rollback_runtime(

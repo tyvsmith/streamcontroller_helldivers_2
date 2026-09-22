@@ -410,7 +410,8 @@ switch and its **Scanner setup** row, and the scan worker thread, inside the sca
 operation, on any `ScanSetupError` (including a missing capture command). That
 last caller holds the shared input lock until preparation finishes, so no scan
 can start meanwhile. It has no cancel event, a native pip install may run for
-1800 seconds, and the bounded shutdown join does not wait for it. The scan
+1800 seconds, and the bounded shutdown join does not wait for it; shutdown stops
+pip instead, as described below. The scan
 prepares the runtime in place of scanning and asks for another
 scan, so scanning still never installs. Installation is idempotent: Flatpak
 profiles are content-addressed and reused, and the native environment is rebuilt
@@ -421,11 +422,17 @@ lives in `build.py`.
 
 The settings switch and **Scanner setup** row prepare the runtime on a daemon
 thread that shutdown deliberately does not join, because a native install can run
-for up to 30 minutes. If StreamController exits mid-install, the pip child is not
-owned and may finish on its own, a Flatpak staging directory can remain under
-`runtime/staging/`, and the status record keeps the previous attempt. The next
-preparation re-verifies and rebuilds; activation is atomic, so a half-built
-profile is never selected.
+for up to 30 minutes. Instead, pip runs in its own session and `runtime_install`
+tracks it; `AutomaticIntegration.shutdown` calls
+`runtime_preparation.stop_runtime_install`, which sends the process group SIGTERM,
+then SIGKILL after two seconds, and refuses any pip launch after that. The
+unjoined thread then records the failed install and ends. A Flatpak install holds
+an exclusive `flock` on `runtime/staging/<stage>.lock`, created before its stage
+directory and removed after it; every Flatpak install starts by removing stages
+and locks that no live install holds, so a directory left by an interrupted
+install is swept on the next attempt. If StreamController is killed outright, the
+status record keeps the previous attempt. The next preparation re-verifies and
+rebuilds; activation is atomic, so a half-built profile is never selected.
 
 Tests cover sessions/actions, persistence, generated pages, stale completion,
 input ownership, process cleanup, recognition, and negative screenshots. The

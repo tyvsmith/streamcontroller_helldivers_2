@@ -5,11 +5,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import signal
+import subprocess
+import tempfile
+import threading
+import time
 from typing import Callable, Mapping
 import venv
 
 from .runtime_profile import FLATPAK_INFO, SCANNER_VENV, ScanSetupError, atomic_json
-from .scanner_runtime import run_captured
 from ..shared.bounded_json import read_bounded_json
 from .verify import check_runtime
 
@@ -49,10 +53,89 @@ def scanner_venv(root: Path) -> Path:
     return Path(root) / SCANNER_VENV
 
 
+def _signal_group(process: subprocess.Popen, signum: int) -> None:
+    # The leader is unreaped while returncode is None, so its pid still names
+    # this install's group and cannot have been reused.
+    if process.returncode is None:
+        try:
+            os.killpg(process.pid, signum)
+        except ProcessLookupError:
+            pass
+
+
+class _InstallRegistry:
+    """Track running pip installs so plugin shutdown can stop their groups."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._processes: set[subprocess.Popen] = set()
+        self._stopped = False
+
+    def start(self, command: list[str], **options) -> subprocess.Popen:
+        with self._lock:
+            if self._stopped:
+                raise ScanSetupError(
+                    "Scanner runtime install skipped: StreamController is shutting down")
+            process = subprocess.Popen(command, start_new_session=True, **options)
+            self._processes.add(process)
+            return process
+
+    def finish(self, process: subprocess.Popen) -> None:
+        with self._lock:
+            self._processes.discard(process)
+
+    def terminate(self, grace: float) -> bool:
+        with self._lock:
+            self._stopped = True
+            processes = list(self._processes)
+            for process in processes:
+                _signal_group(process, signal.SIGTERM)
+        deadline = time.monotonic() + max(0.0, grace)
+        stopped = True
+        for process in processes:
+            try:
+                process.wait(max(0.0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                _signal_group(process, signal.SIGKILL)
+                try:
+                    process.wait(1)
+                except subprocess.TimeoutExpired:
+                    stopped = False
+        return stopped
+
+
+_INSTALLS = _InstallRegistry()
+
+
+def terminate_runtime_installs(grace: float) -> bool:
+    """Stop running pip installs and refuse new ones; True when every group exited.
+
+    Each install's process group gets SIGTERM, then SIGKILL once ``grace``
+    seconds pass.
+    """
+    return _INSTALLS.terminate(grace)
+
+
 def _pip(command: list[str]) -> tuple[int, bytes]:
-    code, _stdout, stderr = run_captured(
-        command, timeout=PIP_TIMEOUT_SECONDS, limit=MAX_PIP_OUTPUT_BYTES)
-    return code, stderr
+    """Run pip in its own session, so shutdown can stop it and its build children."""
+    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        process = _INSTALLS.start(
+            command, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr)
+        try:
+            try:
+                code = process.wait(PIP_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                _signal_group(process, signal.SIGKILL)
+                process.wait()
+                raise
+        finally:
+            _INSTALLS.finish(process)
+        if max(os.fstat(stdout.fileno()).st_size,
+               os.fstat(stderr.fileno()).st_size) > MAX_PIP_OUTPUT_BYTES:
+            raise ScanSetupError(
+                f"Scanner runtime child output exceeded {MAX_PIP_OUTPUT_BYTES // 1024} KiB")
+        stderr.seek(0)
+        return code, stderr.read(MAX_PIP_OUTPUT_BYTES + 1)
 
 
 def install_scanner_venv(

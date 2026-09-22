@@ -295,6 +295,7 @@ class AutomaticIntegration:
 
     def shutdown(self, *, uninstall=False):
         self.closed = True
+        runtime_preparation.stop_runtime_install()
         try:
             if not self.coordinator.shutdown():
                 log.error("Automatic scanner cleanup did not finish before shutdown deadline")
