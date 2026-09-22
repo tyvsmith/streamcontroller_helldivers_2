@@ -227,9 +227,9 @@ and maintenance overhead, not one failure.
   (`pipewiresrc`, `videoconvert`, `pngenc`). A scan opened the desktop's sharing
   picker, which offers applications, whole screens, and regions with no hint of
   which one works; on Hyprland only **Windows** did, and **Outputs** was
-  rejected even while showing the fullscreen game. One remembered selection
-  worked, but a later scan reopened the picker, so a scan could not count on
-  staying silent mid-mission. Each desktop ships its own portal implementation
+  rejected even while showing the fullscreen game. In live testing the picker
+  kept reopening on later scans despite the restore token, so a scan could not
+  count on staying silent mid-mission. Each desktop ships its own portal implementation
   (Hyprland, GNOME, KDE, GTK) with its own picker and persistence rules, and
   only Hyprland was verified. It also added `dbus-next` to the scanner runtime
   and GStreamer PipeWire plugins on the host.
