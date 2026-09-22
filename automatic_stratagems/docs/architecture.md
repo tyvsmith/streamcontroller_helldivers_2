@@ -216,6 +216,46 @@ are retained. Steam cleanup claims the new image and its
 new same-name thumbnail together; uncertain pairs are restored or retained.
 Steam's screenshot index is not modified.
 
+### Removed and unbuilt backends
+
+Three more backends were built, live-tested, and removed: Portal window
+sharing, X11, and a desktop game-window crop. The reason is complexity
+and maintenance overhead, not one failure.
+
+- **Portal (ScreenCast).** `org.freedesktop.portal.ScreenCast` with a window
+  source, persist mode 2, and a restore token, read through GStreamer
+  (`pipewiresrc`, `videoconvert`, `pngenc`). A scan opened the desktop's sharing
+  picker, which offers applications, whole screens, and regions with no hint of
+  which one works; on Hyprland only **Windows** did, and **Outputs** was
+  rejected even while showing the fullscreen game. One remembered selection
+  worked, but a later scan reopened the picker, so a scan could not count on
+  staying silent mid-mission. Each desktop ships its own portal implementation
+  (Hyprland, GNOME, KDE, GTK) with its own picker and persistence rules, and
+  only Hyprland was verified. It also added `dbus-next` to the scanner runtime
+  and GStreamer PipeWire plugins on the host.
+- **X11.** `xprop` and ImageMagick `import` of the active window. It cannot
+  work in a Wayland session.
+- **Desktop crop.** A compositor screenshot cropped to the game window (`grim`
+  with `hyprctl` geometry on Hyprland), which needs one implementation per
+  compositor.
+
+Desktop capture paths read the compositor's output. With HDR on, those frames
+arrive oversaturated, and matching degraded most for stratagems dimmed by a
+cooldown timer. Gamescope and Steam screenshots capture the game's own rendering
+without that shift, and match better.
+
+Screenshot instead reuses the capture tool the user already has: Steam F12 by
+default, or any hotkey or script that saves the game window. The desktop owns
+permission and UX once, and the plugin only watches a folder. Gamescope needs no
+interaction at all.
+
+The Screenshot portal (`org.freedesktop.portal.Screenshot` with
+`interactive=false`) was not built. It shares the per-desktop implementation and
+first-grant concerns above, and whether it returns the fullscreen game with
+correct HDR colors is unverified. A ScreenCast live watch, streaming a few
+frames per second cropped to the stratagem list, remains a possible opt-in
+addition.
+
 ## Recognition and uncertainty
 
 Capture-quality checks reject uniform frames and the known Steam false-color

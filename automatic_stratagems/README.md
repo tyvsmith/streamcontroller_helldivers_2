@@ -7,7 +7,9 @@ without its dependencies.
 
 ## Setup
 
-The button capture choices are Automatic, Gamescope, and Screenshot. Earlier live checks
+The button capture choices are Automatic, Gamescope, and Screenshot; see
+[removed and unbuilt backends](docs/architecture.md#removed-and-unbuilt-backends)
+for why Portal, X11, and desktop-crop capture were dropped. Earlier live checks
 covered Steam F12 and native Gamescope on StreamController 1.5.0-beta.15 Flatpak,
 Hyprland, GNOME 50, x86_64, CPython 3.13, and the English game UI at 5120×2160.
 The configurable trigger workflow requires its own live desktop verification;
