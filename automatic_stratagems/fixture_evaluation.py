@@ -43,6 +43,7 @@ TEXT_PROVENANCE_FIELDS = (
     'hdr', 'language', 'game_build', 'hud_scale', 'safe_area',
 )
 UNKNOWN = 'unknown'
+SHA256_PATTERN = re.compile(r'[0-9a-f]{64}')
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,7 @@ class ValidatedCase:
     capture_id: str
     expected_mode: str
     expected_ids: list[str | None]
+    source_sha256: str | None = None
 
 
 def _relative_image_path(value):
@@ -295,6 +297,10 @@ def _catalog_ids():
     return set(catalog())
 
 
+def _is_sha256(value):
+    return isinstance(value, str) and SHA256_PATTERN.fullmatch(value) is not None
+
+
 def _builtin_calibration(path):
     if path is None:
         return {}, {}
@@ -306,12 +312,14 @@ def _builtin_calibration(path):
     capture_splits = {}
     for relative, item in inventory.items():
         if (not isinstance(item, dict) or
-                not isinstance(item.get('sha256'), str) or
-                re.fullmatch(r'[0-9a-f]{64}', item['sha256']) is None or
+                not _is_sha256(item.get('sha256')) or
+                not _is_sha256(item.get('source_sha256', item.get('sha256'))) or
                 item.get('split') != 'calibration' or
                 not isinstance(item.get('capture_id'), str)):
             raise ValueError(f'Built-in fixture inventory is invalid: {relative}')
         hashes.setdefault(item['sha256'], set()).add('calibration')
+        if 'source_sha256' in item:
+            hashes.setdefault(item['source_sha256'], set()).add('calibration')
         capture_id = item['capture_id']
         capture_splits.setdefault(capture_id, set()).add('calibration')
     return hashes, capture_splits
@@ -334,8 +342,9 @@ def validate_manifest(manifest_path, *, builtin_manifest=BUILTIN_MANIFEST):
     hashes, capture_splits = _builtin_calibration(builtin_manifest)
     for index, case in enumerate(cases):
         label = f'Fixture case {index + 1}'
-        if not isinstance(case, dict) or set(case) != {
-                'path', 'sha256', 'dimensions', 'split', 'provenance', 'expected'}:
+        required = {'path', 'sha256', 'dimensions', 'split', 'provenance', 'expected'}
+        if not isinstance(case, dict) or not required <= set(case) <= required | {
+                'source_sha256'}:
             raise ValueError(f'{label} has invalid fields')
         relative = _relative_image_path(case['path'])
         relative_text = relative.as_posix()
@@ -350,8 +359,12 @@ def validate_manifest(manifest_path, *, builtin_manifest=BUILTIN_MANIFEST):
             raise ValueError(
                 f'Fixture path escapes the manifest directory: {relative_text}') from error
         digest = case['sha256']
-        if not isinstance(digest, str) or re.fullmatch(r'[0-9a-f]{64}', digest) is None:
+        if not _is_sha256(digest):
             raise ValueError(f'{label} has an invalid SHA-256')
+        # A losslessly re-encoded fixture keeps its original capture digest.
+        source_digest = case.get('source_sha256')
+        if 'source_sha256' in case and not _is_sha256(source_digest):
+            raise ValueError(f'{label} has an invalid source SHA-256')
         actual_digest, actual_dimensions = _inspect_image(path)
         if digest != actual_digest:
             raise ValueError(f'{label} SHA-256 does not match the image')
@@ -376,10 +389,12 @@ def validate_manifest(manifest_path, *, builtin_manifest=BUILTIN_MANIFEST):
         if unknown:
             raise ValueError(f'{label} ID is not in the scanner catalog: {unknown[0]}')
         hashes.setdefault(digest, set()).add(split)
+        if source_digest is not None:
+            hashes.setdefault(source_digest, set()).add(split)
         capture_splits.setdefault(capture_id, set()).add(split)
         validated.append(ValidatedCase(
             relative_text, path, digest, dimensions, split, capture_id,
-            expected['mode'], list(identifiers)))
+            expected['mode'], list(identifiers), source_digest))
     if any(len(splits) > 1 for splits in hashes.values()):
         raise ValueError('Identical fixture content appears across calibration and heldout splits')
     for capture_id, splits in capture_splits.items():

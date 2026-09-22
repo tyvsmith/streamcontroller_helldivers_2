@@ -21,6 +21,7 @@ EXPECTED = {
          'AntiMaterialRifle', 'RocketSentry', 'WarpPack',
          'OrbitalGatlingBarrage'],
         (4943, 1936),
+        'b11249c46d2099e09791b5a7f21e748471785e08def334d3860b5ccbd0cf1af1',
         'd82823dec9c2259e8e741437acdb7fc260dfb32b7104f0b68b8b8ae5a39462d6',
     ),
     'screenshot-2026-09-06_22-14-47.png': (
@@ -28,6 +29,7 @@ EXPECTED = {
         ['Reinforce', 'SOSBeacon', 'Resupply', None, 'EagleRearm',
          'OrbitalGatlingBarrage', 'Meltagun', 'WarpPack', 'RocketSentry'],
         (5120, 2160),
+        'f64cfd7f8209718206dcfbb0026f05090b48751ff26dabeccd5ac6d22f1bba80',
         'cc0208a34f33e4e588fd8178ff01f2b4dba848fb4a1f131be106d2e9c43b693a',
     ),
     'screenshot-2026-09-08_11-52-36.png': (
@@ -35,6 +37,7 @@ EXPECTED = {
         ['Reinforce', 'SOSBeacon', 'Resupply', 'Stalwart',
          'HeavyMachineGun', 'MachineGun', 'Railgun'],
         (5120, 2160),
+        '99bafc7caa0e0da7ee3e0db117bda8870fbdf227939b3808438fbd9df5afeceb',
         'c180c36d3cc9ec33b0b3f972c6fdc6b623d3fc155b16172a3a6a9df866e405a0',
     ),
     'screenshot-2026-09-08_11-57-00.png': (
@@ -42,10 +45,12 @@ EXPECTED = {
         ['Reinforce', 'SOSBeacon', 'Resupply', 'Stalwart',
          'HeavyMachineGun', 'Epoch', 'GrenadeLauncher'],
         (5120, 2160),
+        '4a67b87ac2be4400dba075d8d8e13b6aee4cc1be8bb61964e2f3f74c3ca8dd76',
         '9af9007a156b13712611cf222e9c447637a700c0c3826a7f4733a2c85077ac58',
     ),
     'screenshot-2026-09-08_12-20-34.png': (
         'mission', [], (5122, 2162),
+        '424875627196aeb117bd7f529e381aba3df6d6042bb653a14ab3fb4084d7364f',
         '05215e3eba005a68bf267d9dbee42e3359be3215e6a9d18d44d9e12e189d84c6',
     ),
     WASHED_OUT_SELECTION: (
@@ -53,6 +58,7 @@ EXPECTED = {
         ['Reinforce', 'SOSBeacon', 'Resupply', 'Stalwart',
          'HeavyMachineGun', 'Railgun', 'Speargun'],
         (5122, 2162),
+        'fbd80906282a0f2f63a4ede9264450822bb9981aa9bf7818c907e6faa3471da8',
         '05abf6df01c129db7bdf486787efdc97b7bd716b48d2623d1a648a5b7a740f84',
     ),
     'screenshot-2026-09-08_12-22-27.png': (
@@ -60,10 +66,12 @@ EXPECTED = {
         ['Reinforce', 'SOSBeacon', 'Resupply', 'Stalwart',
          'HeavyMachineGun', 'Railgun', 'Speargun'],
         (5122, 2162),
+        'd8419ef340e7a9aa4d2395a33e0c87e997d900b37b68969678b8c415d9447308',
         'dc0db2965e6ceec0441b07af2868ab4c04f95543ab713b172c6f5241778cd1b6',
     ),
     'screenshot-2026-09-10_19-48-31.png': (
         'mission', [], (1433, 819),
+        '3db1642631d054b461b1c2d4b4f35a64f9571f8dc70ee05cbe3dcbf3bb24b529',
         'dfcbf4e2da3c129c795fb3e6dbb214d885ad7ef4dc39934f83f95be5a8878887',
     ),
     'screenshot-2026-09-11_14-19-16.png': (
@@ -71,6 +79,7 @@ EXPECTED = {
         ['Reinforce', 'SOSBeacon', 'Resupply', 'OrbitalGasStrike',
          'GrenadeLauncher', 'HellbombPortable', 'BreakthroughExosuit'],
         (5120, 2160),
+        'd126756ab7ebeead80da9178465d89d4d770cc4eb11f37b0ad1bf14a6f62295f',
         '6a153bc196efa9f15ddbbebde3f03f0407fc1d244af2558d329b7a85d8a7f332',
     ),
 }
@@ -86,17 +95,19 @@ class HdrFullSceneTests(unittest.TestCase):
             MANIFEST, Path(cls.temporary.name) / 'results.json',
             split='calibration', workers=1, interpreter=sys.executable)
 
-    def test_manifest_preserves_independently_labeled_original_bytes(self):
+    def test_manifest_pins_reencoded_bytes_and_original_capture_digest(self):
         self.assertEqual({case.relative_path for case in self.cases}, set(EXPECTED))
         manifest = json.loads(MANIFEST.read_text())['cases']
         for case in self.cases:
             with self.subTest(path=case.relative_path):
-                mode, identifiers, dimensions, digest = EXPECTED[case.relative_path]
+                mode, identifiers, dimensions, digest, source_digest = (
+                    EXPECTED[case.relative_path])
                 self.assertEqual(case.split, 'calibration')
                 self.assertEqual(case.expected_mode, mode)
                 self.assertEqual(case.expected_ids, identifiers)
                 self.assertEqual(case.dimensions, dimensions)
                 self.assertEqual(case.sha256, digest)
+                self.assertEqual(case.source_sha256, source_digest)
                 source = next(item for item in manifest
                               if item['path'] == case.relative_path)
                 self.assertEqual(source['provenance']['source'],
@@ -112,7 +123,7 @@ class HdrFullSceneTests(unittest.TestCase):
         for case in self.artifact['cases']:
             with self.subTest(path=case['path']):
                 self.assertIsNone(case['error'])
-                mode, identifiers, _, _ = EXPECTED[case['path']]
+                mode, identifiers, *_ = EXPECTED[case['path']]
                 status = ('no_detections' if not identifiers else
                           'partial' if None in identifiers else 'matched')
                 self.assertEqual(case['actual_mode'], mode)

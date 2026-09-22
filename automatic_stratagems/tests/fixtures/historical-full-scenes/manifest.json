@@ -3,7 +3,8 @@
   "cases": [
     {
       "path": "gamescope-20260910-173122.png",
-      "sha256": "77d9d5b098510323a57987fbcd931c58073892690b2334c5621bc9ee08692eaa",
+      "sha256": "558bb337fdb809a2e699bb89cced38bc67b11c0baf8afb2dd893a0707da50f55",
+      "source_sha256": "77d9d5b098510323a57987fbcd931c58073892690b2334c5621bc9ee08692eaa",
       "dimensions": [
         5120,
         2160

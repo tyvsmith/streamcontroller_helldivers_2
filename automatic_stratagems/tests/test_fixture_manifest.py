@@ -57,10 +57,13 @@ class FixtureManifestTests(unittest.TestCase):
             relative = path.relative_to(FIXTURES).as_posix()
             with self.subTest(path=relative), Image.open(path) as image:
                 item = inventory[relative]
-                self.assertEqual(
-                    set(item),
-                    {'sha256', 'dimensions', 'label_ref', 'split', 'capture_id'})
+                required = {'sha256', 'dimensions', 'label_ref', 'split', 'capture_id'}
+                self.assertLessEqual(required, set(item))
+                self.assertLessEqual(set(item), required | {'source_sha256'})
                 self.assertEqual(item['sha256'], hashlib.sha256(path.read_bytes()).hexdigest())
+                if 'source_sha256' in item:
+                    # Losslessly re-encoded; the original capture's digest is provenance.
+                    self.assertRegex(item['source_sha256'], r'^[0-9a-f]{64}$')
                 self.assertEqual(item['dimensions'], list(image.size))
                 self.assertEqual(item['split'], 'calibration')
                 self.assertIsInstance(item['capture_id'], str)

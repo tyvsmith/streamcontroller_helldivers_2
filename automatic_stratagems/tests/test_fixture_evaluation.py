@@ -218,6 +218,40 @@ class FixtureEvaluationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'content.*splits'):
                 fixtures.validate_manifest(manifest)
 
+    def test_source_digest_is_optional_validated_and_checked_for_overlap(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = self.image(root / 'scene.png')
+            original = hashlib.sha256(b'original capture bytes').hexdigest()
+            case = self.case(image, split='calibration', ids=[])
+            case['source_sha256'] = original
+            manifest = self.write_manifest(root, [case])
+            validated = fixtures.validate_manifest(manifest, builtin_manifest=None)
+            self.assertEqual(validated[0].source_sha256, original)
+            self.assertEqual(validated[0].sha256, case['sha256'])
+
+            for value in ('0' * 63, 'A' * 64, None, 7):
+                with self.subTest(source_sha256=value):
+                    manifest = self.write_manifest(root, [{**case, 'source_sha256': value}])
+                    with self.assertRaisesRegex(ValueError, 'source SHA-256'):
+                        fixtures.validate_manifest(manifest, builtin_manifest=None)
+
+            # A held-out copy of the original bytes still overlaps the re-encoded case.
+            other = self.image(root / 'other.png', color='white')
+            heldout = self.case(other, ids=[], capture_id='capture-two')
+            case['source_sha256'] = heldout['sha256']
+            manifest = self.write_manifest(root, [case, heldout])
+            with self.assertRaisesRegex(ValueError, 'content.*splits'):
+                fixtures.validate_manifest(manifest, builtin_manifest=None)
+
+            builtin = root / 'builtin.json'
+            builtin.write_text(json.dumps({'inventory': {'panel.png': {
+                'sha256': 'a' * 64, 'source_sha256': heldout['sha256'],
+                'split': 'calibration', 'capture_id': 'builtin-capture'}}}))
+            manifest = self.write_manifest(root, [heldout])
+            with self.assertRaisesRegex(ValueError, 'content.*splits'):
+                fixtures.validate_manifest(manifest, builtin_manifest=builtin)
+
     def test_evaluation_is_serial_no_cache_exact_and_split_specific(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

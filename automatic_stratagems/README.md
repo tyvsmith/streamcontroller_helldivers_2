@@ -506,6 +506,9 @@ ordered expected catalog IDs (`null` for an unknown row):
 - Results compare detected mode and ordered IDs, including unknown rows;
   mismatches return a failing status. Hash checks alone cannot establish
   independence
+- A re-encoded image keeps its original capture digest in `source_sha256`.
+  Committed PNG fixtures are losslessly re-encoded: the pixels the scanner
+  decodes are unchanged, and `sha256` pins the committed bytes
 - Tools leave source images untouched, refuse to overwrite output files,
   never capture the desktop, and add nothing to Git
 - Full scenes may contain private information; review and curate them before

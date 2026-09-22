@@ -476,8 +476,16 @@ language, resolution, HDR, player count, HUD scale, and safe area. Held-out case
 require concrete metadata and timezone-aware timestamps; calibration may record
 unknown metadata. Rights/privacy fields do not authorize publication.
 
+A case may also carry `source_sha256`, the digest of the original capture when
+the committed file is a lossless re-encoding. Committed PNG fixtures are
+re-encoded this way: same filename, dimensions, and decoded RGB pixels, with
+alpha, which the scanner discards, dropped. `sha256` pins the committed bytes;
+`source_sha256` in the case and the inventory keeps the capture's provenance.
+JPEGs keep their original bytes.
+
 Validation rejects changed bytes, invalid labels, duplicate paths, and known
-cross-split capture overlap. Mixed manifests require an explicit split. Manifest JSON is
-bounded to 1 MiB and 256 cases; discovery to 4,096 entries and eight levels.
+cross-split capture overlap, checking both digests. Mixed manifests require an
+explicit split. Manifest JSON is bounded to 1 MiB and 256 cases; discovery to
+4,096 entries and eight levels.
 Private outputs are atomic and never overwrite an existing result. Capture and
 label independence remains a human requirement, not something hashes can prove.
