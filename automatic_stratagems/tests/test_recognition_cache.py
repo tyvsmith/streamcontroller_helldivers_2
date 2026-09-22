@@ -97,6 +97,37 @@ class RecognitionCacheTests(unittest.TestCase):
             cache.put(key, {'id': 'A'})
             self.assertIsNone(cache.get(key))
 
+    def test_read_only_database_reports_unavailable_after_failed_write(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / 'recognition.sqlite3'
+            RecognitionCache(directory, 'v1')
+            path.chmod(0o444)
+            try:
+                cache = RecognitionCache(directory, 'v1')
+                key = cache.key(b'pixels', {})
+                self.assertIsNone(cache.get(key))
+                cache.put(key, {'id': 'A'})
+                info = cache.info()
+                self.assertFalse(info['available'])
+                self.assertIn('read-only', info['reason'])
+                self.assertIsNone(cache.get(key))
+                self.assertEqual(cache.info()['misses'], 2)
+            finally:
+                path.chmod(0o644)
+
+    def test_transient_write_failure_keeps_cache_available(self):
+        with TemporaryDirectory() as directory:
+            cache = RecognitionCache(directory, 'v1')
+            key = cache.key(b'pixels', {})
+            with closing(sqlite3.connect(Path(directory) / 'recognition.sqlite3')) as connection:
+                connection.execute('BEGIN EXCLUSIVE')
+                cache.put(key, {'id': 'A'})
+                connection.rollback()
+            self.assertTrue(cache.info()['available'])
+            self.assertNotIn('reason', cache.info())
+            cache.put(key, {'id': 'A'})
+            self.assertEqual(cache.get(key), {'id': 'A'})
+
     def test_corrupt_payload_and_large_entries_are_misses(self):
         with TemporaryDirectory() as directory:
             cache = RecognitionCache(directory, 'v1', max_entry_bytes=64)

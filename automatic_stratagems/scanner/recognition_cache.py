@@ -9,6 +9,10 @@ from threading import RLock
 
 from ..shared.bounded_json import loads_bounded_json
 
+# Primary SQLite result codes meaning this process can never write the database,
+# unlike SQLITE_BUSY or a constraint failure, which affect one write.
+_UNWRITABLE_CODES = (sqlite3.SQLITE_PERM, sqlite3.SQLITE_READONLY, sqlite3.SQLITE_CANTOPEN)
+
 
 class RecognitionCache:
     """Callers provide a matcher/catalog fingerprint and cache only trusted results."""
@@ -16,9 +20,11 @@ class RecognitionCache:
     def __init__(self, directory, fingerprint, *, max_entries=512, max_entry_bytes=65536):
         """Open or create the on-disk cache; corrupt or unwritable storage disables it.
 
-        available is False when the directory or table cannot be created; while
-        unavailable every get returns None and counts a miss, and put does nothing.
-        Later write failures are swallowed.
+        available is False when the directory or table cannot be created, and becomes
+        False when a put finds the database read-only (the table can already exist in
+        a read-only file, so opening does not prove writability); reason says why.
+        While unavailable every get returns None and counts a miss, and put does
+        nothing. Other write failures, such as a busy lock, are swallowed.
         """
         self.path = Path(directory) / 'recognition.sqlite3'
         self.fingerprint = fingerprint
@@ -26,6 +32,7 @@ class RecognitionCache:
         self.max_entry_bytes = max(1, max_entry_bytes)
         self.lock = RLock()
         self.available = False
+        self.reason = None
         self.hits = 0
         self.misses = 0
         try:
@@ -36,8 +43,8 @@ class RecognitionCache:
                     key TEXT UNIQUE NOT NULL,
                     result TEXT NOT NULL)''')
             self.available = True
-        except (OSError, sqlite3.Error):
-            pass
+        except (OSError, sqlite3.Error) as error:
+            self.reason = f'open failed: {error}'
 
     def _connect(self):
         """Open a new short-timeout connection to the cache database."""
@@ -52,10 +59,16 @@ class RecognitionCache:
         return digest.hexdigest()
 
     def info(self):
-        """Return a diagnostics snapshot: availability, path, and hit/miss counts."""
+        """Return a diagnostics snapshot: availability, path, and hit/miss counts.
+
+        Adds reason once the cache has been disabled.
+        """
         with self.lock:
-            return {'available': self.available, 'path': str(self.path),
+            info = {'available': self.available, 'path': str(self.path),
                     'hits': self.hits, 'misses': self.misses}
+            if self.reason is not None:
+                info['reason'] = self.reason
+            return info
 
     def get(self, key):
         """Look up key, counting the result as a hit or a miss.
@@ -93,7 +106,8 @@ class RecognitionCache:
 
         Does nothing when the cache is unavailable, result is not a dict, or the
         serialized payload exceeds max_entry_bytes. The insert and eviction run as one
-        transaction, so an eviction failure rolls back the whole write.
+        transaction, so an eviction failure rolls back the whole write. A read-only
+        database disables the cache.
         """
         if not self.available or not isinstance(result, dict):
             return
@@ -107,7 +121,12 @@ class RecognitionCache:
                 connection.execute('''DELETE FROM entries WHERE sequence NOT IN (
                     SELECT sequence FROM entries ORDER BY sequence DESC LIMIT ?)''',
                                    (self.max_entries,))
-        except (OSError, sqlite3.Error, ValueError, TypeError, RecursionError):
+        except sqlite3.Error as error:
+            if getattr(error, 'sqlite_errorcode', 0) & 0xff in _UNWRITABLE_CODES:
+                with self.lock:
+                    self.available = False
+                    self.reason = f'read-only: {error}'
+        except (OSError, ValueError, TypeError, RecursionError):
             pass
 
 
