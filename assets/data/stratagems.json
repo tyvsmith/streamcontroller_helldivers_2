@@ -33,6 +33,14 @@
     "UP",
     "UP"
   ],
+  "Apex": [
+    "DOWN",
+    "LEFT",
+    "LEFT",
+    "UP",
+    "DOWN",
+    "LEFT"
+  ],
   "AquiferDrill": [
     "LEFT",
     "LEFT",
@@ -205,6 +213,12 @@
     "RIGHT",
     "DOWN",
     "DOWN",
+    "RIGHT"
+  ],
+  "EagleGasAirstrike": [
+    "UP",
+    "RIGHT",
+    "LEFT",
     "RIGHT"
   ],
   "EagleNapalmAirstrike": [
@@ -494,6 +508,17 @@
     "RIGHT",
     "UP"
   ],
+  "Maelstrom": [
+    "LEFT",
+    "DOWN",
+    "RIGHT",
+    "DOWN",
+    "LEFT",
+    "DOWN",
+    "UP",
+    "LEFT",
+    "RIGHT"
+  ],
   "Maxigun": [
     "DOWN",
     "LEFT",
@@ -515,6 +540,13 @@
     "UP",
     "RIGHT",
     "RIGHT",
+    "DOWN"
+  ],
+  "Nova": [
+    "DOWN",
+    "LEFT",
+    "RIGHT",
+    "DOWN",
     "DOWN"
   ],
   "OneTrueFlag": [

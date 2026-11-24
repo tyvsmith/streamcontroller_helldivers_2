@@ -331,7 +331,7 @@
   },
   {
     "file": "uncataloged-gas.png",
-    "expected": null,
+    "expected": "EagleGasAirstrike",
     "empty": false,
     "mission": true
   },

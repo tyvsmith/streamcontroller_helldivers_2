@@ -26,7 +26,7 @@ EXPECTED = {
     ),
     'screenshot-2026-09-06_22-14-47.png': (
         'mission',
-        ['Reinforce', 'SOSBeacon', 'Resupply', None, 'EagleRearm',
+        ['Reinforce', 'SOSBeacon', 'Resupply', 'EagleGasAirstrike', 'EagleRearm',
          'OrbitalGatlingBarrage', 'Meltagun', 'WarpPack', 'RocketSentry'],
         (5120, 2160),
         'f64cfd7f8209718206dcfbb0026f05090b48751ff26dabeccd5ac6d22f1bba80',

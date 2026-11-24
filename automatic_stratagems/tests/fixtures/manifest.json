@@ -94,8 +94,8 @@
       "language": "English",
       "purpose": "row location, identity, cooldown, HDR, and unknown abstention",
       "legacy_source_expectations": {
-        "20260906221445_1.jpg": ["Reinforce", "SOSBeacon", "Resupply", null, "EagleRearm", "OrbitalGatlingBarrage", "Meltagun", "WarpPack", "RocketSentry"],
-        "20260906221359_1.jpg": ["Reinforce", "SOSBeacon", "Resupply", null, "OrbitalGatlingBarrage", "Meltagun", "WarpPack", "RocketSentry"]
+        "20260906221445_1.jpg": ["Reinforce", "SOSBeacon", "Resupply", "EagleGasAirstrike", "EagleRearm", "OrbitalGatlingBarrage", "Meltagun", "WarpPack", "RocketSentry"],
+        "20260906221359_1.jpg": ["Reinforce", "SOSBeacon", "Resupply", "EagleGasAirstrike", "OrbitalGatlingBarrage", "Meltagun", "WarpPack", "RocketSentry"]
       },
       "expected_ids": {
         "18n2fofu.png": ["Reinforce", "SOSBeacon", "Resupply", "Eagle110MMRocketPods", "HeavyMachineGun", "C4Pack", "LumbererExosuit"],
@@ -118,7 +118,7 @@
         "m9ulsh1d.png": ["Reinforce", "SOSBeacon", "Resupply", null, null, "ExpendableNapalm", "RecoillessRifle"],
         "mizvu8wl.png": ["Reinforce", "SOSBeacon", "Resupply", null, null, "ExpendableNapalm", "RecoillessRifle"],
         "mj_qoe0j.png": ["Reinforce", "SOSBeacon", "Resupply", "OneTrueFlag", "BreakthroughExosuit", "AntiPersonnelMinefield", "AntiMaterialRifle"],
-        "original.png": ["Reinforce", "SOSBeacon", "Resupply", null, "EagleRearm", "OrbitalGatlingBarrage", "Meltagun", "WarpPack", "RocketSentry"],
+        "original.png": ["Reinforce", "SOSBeacon", "Resupply", "EagleGasAirstrike", "EagleRearm", "OrbitalGatlingBarrage", "Meltagun", "WarpPack", "RocketSentry"],
         "psappcvv.png": ["Reinforce", "SOSBeacon", "Resupply", "BreakthroughExosuit", "WarpPack", "AutocannonSentry", "BulletStorm"],
         "q6c5g5lc.png": ["Reinforce", "SOSBeacon", "Resupply", "OrbitalLaser", "OrbitalWalkingBarrage", "OrbitalRailcannonStrike", "OrbitalGatlingBarrage"],
         "v2q3vnp3.png": ["Reinforce", "SOSBeacon", "Resupply", "Eagle110MMRocketPods", "HeavyMachineGun", "C4Pack", "LumbererExosuit"],

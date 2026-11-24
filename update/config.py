@@ -285,6 +285,11 @@ STRATAGEM_MAPPINGS = {
         "svg": "Eagle Napalm Airstrike",
         "name": "Eagle Napalm Airstrike",
     },
+    "EagleGasAirstrike": {
+        "wiki": "Eagle Gas Airstrike",
+        "svg": "Eagle Gas Strike",
+        "name": "Eagle Gas Airstrike",
+    },
     "JumpPack": {"wiki": "LIFT-850 Jump Pack", "svg": "Jump Pack", "name": "Jump Pack"},
     "EagleSmokeStrike": {
         "wiki": "Eagle Smoke Strike",
@@ -315,6 +320,11 @@ STRATAGEM_MAPPINGS = {
         "wiki": "M-104 Incinerator FRV",
         "svg": "Incinerator FRV",
         "name": "Incinerator FRV",
+    },
+    "Maelstrom": {
+        "wiki": "TD-110 Maelstrom",
+        "svg": "TD-110 Maelstrom",
+        "name": "TD-110 Maelstrom",
     },
     "EagleRearm": {"wiki": "Eagle Rearm", "svg": "Eagle Rearm", "name": "Eagle Rearm"},
     # =========================================================================
@@ -583,6 +593,19 @@ STRATAGEM_MAPPINGS = {
         "wiki": "40-K Meltagun",
         "svg": "40-K Meltagun",
         "name": "40-K Meltagun",
+    },
+    # =========================================================================
+    # SCOPE OF AUTHORITY
+    # =========================================================================
+    "Apex": {
+        "wiki": "AMW-20 Apex",
+        "svg": "AMW-20 Apex",
+        "name": "AMW-20 Apex",
+    },
+    "Nova": {
+        "wiki": "LAS-44 Nova",
+        "svg": "LAS-44 Nova",
+        "name": "LAS-44 Nova",
     },
 }
 
