@@ -101,10 +101,10 @@
   },
   "profile": "gnome-50-x86_64-cpython-313",
   "python_packages": {
-    "evdev": "1.9.1",
-    "numpy": "2.2.3",
-    "opencv-python": "4.11.0.86",
-    "pillow": "11.1.0"
+    "evdev": "1.9.3",
+    "numpy": "2.5.2",
+    "opencv-python": "5.0.0.93",
+    "pillow": "12.3.0"
   },
   "release": 1,
   "schema_version": 1,

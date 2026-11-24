@@ -32,10 +32,10 @@ from .runtime_profile import (
 
 _PYTHON_PROFILES = {
     FLATPAK_PROFILE: (
-        ("numpy", "numpy", "2.2.3"),
-        ("opencv-python", "cv2", "4.11.0.86"),
-        ("pillow", "PIL", "11.1.0"),
-        ("evdev", "evdev", "1.9.1"),
+        ("numpy", "numpy", "2.5.2"),
+        ("opencv-python", "cv2", "5.0.0.93"),
+        ("pillow", "PIL", "12.3.0"),
+        ("evdev", "evdev", "1.9.3"),
     ),
     "native": (
         ("numpy", "numpy", "2.5.3"),

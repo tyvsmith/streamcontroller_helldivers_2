@@ -223,28 +223,28 @@ class ScannerRuntimeTests(unittest.TestCase):
 
     def test_preflight_rejects_a_numerical_version_change(self):
         versions = {
-            "numpy": "2.2.4",
-            "opencv-python-headless": "4.11.0.86",
-            "pillow": "11.1.0",
-            "evdev": "1.9.1",
+            "numpy": "2.5.3",
+            "opencv-python-headless": "5.0.0.93",
+            "pillow": "12.3.0",
+            "evdev": "1.9.3",
             "dbus-next": "0.2.3",
         }
         with patch("importlib.metadata.version", side_effect=versions.__getitem__):
-            with self.assertRaisesRegex(scanner_runtime.ScanSetupError, "numpy.*2.2.3"):
+            with self.assertRaisesRegex(scanner_runtime.ScanSetupError, "numpy.*2.5.2"):
                 scanner_runtime.verify_python_dependencies(PROFILE)
 
     def test_flatpak_preflight_uses_the_installed_opencv_distribution(self):
         versions = {
-            "numpy": "2.2.3",
-            "opencv-python": "4.11.0.86",
-            "pillow": "11.1.0",
-            "evdev": "1.9.1",
+            "numpy": "2.5.2",
+            "opencv-python": "5.0.0.93",
+            "pillow": "12.3.0",
+            "evdev": "1.9.3",
             "dbus-next": "0.2.3",
         }
         with patch("importlib.metadata.version", side_effect=versions.__getitem__), \
              patch("importlib.import_module"):
             result = scanner_runtime.verify_python_dependencies(PROFILE)
-        self.assertEqual(result["opencv-python"], "4.11.0.86")
+        self.assertEqual(result["opencv-python"], "5.0.0.93")
 
     def test_preflight_executes_tesseract_and_requires_exact_english_output(self):
         with tempfile.TemporaryDirectory() as directory:
