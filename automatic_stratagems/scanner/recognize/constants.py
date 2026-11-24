@@ -101,3 +101,10 @@ OCCUPANCY_RIM_MIN = 2
 # HUD icon size, used to compare outer and inner edge bands.
 MISSION_FRAME_BORDER_FRACTION = .057
 MISSION_FRAME_BORDER_MIN = 2
+
+# category_arbitrated: how far a frame-hue-matching candidate may trail the
+# accepted one and still count as tied, letting the hue pick between them. Shape
+# twins that differ only in color sit within .02 (Orbital Precision Strike and
+# SEAF Artillery score .855 and .854 on a real capture), while a rival the shape
+# evidence genuinely rejects trails by .3, so the hue cannot overrule shape.
+CATEGORY_TIE_MARGIN = .05

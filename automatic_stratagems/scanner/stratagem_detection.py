@@ -12,7 +12,7 @@ from .mission_references import match_reference
 from .icon_normalization import normalize_icon, icon_category, icon_occluded, stretch_icon
 from .mission_layout import mission_frames
 from .recognize.constants import (
-    EQUIPPED_DETAIL_INSET, EQUIPPED_FEATURE_INSET, ICON_GRAY_INSET, ICON_SILHOUETTE_INSET,
+    CATEGORY_TIE_MARGIN, EQUIPPED_DETAIL_INSET, EQUIPPED_FEATURE_INSET, ICON_GRAY_INSET, ICON_SILHOUETTE_INSET,
     SILHOUETTE_CANVAS, SILHOUETTE_EXTENT, TEMPLATE_INTERIOR, TILE_PX,
 )
 from .recognize.match_result import (
@@ -108,13 +108,17 @@ def detect_mission_icons(im, entries, *, executor=None, cache=None):
         # Normalize before interpolation mixes the pale glyph with its background.
         prepared = (enhanced if enhanced is not None
                     else normalize_icon(tile.image, mission=True, frame_category=category))
-        allowed = {}
-        for key, value in entries.items():
-            if category is None or bank.get(key)['category'] == category:
-                allowed[key] = value
-        candidate = detect_icons(prepared.resize((TILE_PX, TILE_PX)), allowed, [[0, 0, TILE_PX, TILE_PX]], bank=bank, executor=candidate_executor)[0]
+
+        retry = detect_icons(prepared.resize((TILE_PX, TILE_PX)), entries,
+                             [[0, 0, TILE_PX, TILE_PX]], bank=bank,
+                             executor=candidate_executor)[0]
+        candidate = category_arbitrated(
+            retry, category, {key: bank.get(key)['category'] for key in entries}, tile.image)
         icon['contrast_attempt' if enhanced is not None else 'native_normalized_attempt'] = candidate
-        if candidate['id'] is not None:
+        if candidate.get('decision') == 'category_conflict':
+            # A hue-blind colorless retry must not overturn a hue disagreement.
+            icon.update(id=None, decision='category_conflict', conflict=True)
+        elif candidate['id'] is not None:
             # An alternate ID must explain both glyph components, not just a
             # rocket-shaped subset of a washed-out icon.
             if icon['id'] is None or icon['id'] == candidate['id'] or candidate.get('decision') == 'discriminating_details':
@@ -194,6 +198,53 @@ def icon_details(features):
         color = (labels == 1 + stats[1:, cv2.CC_STAT_AREA].argmax()).astype(np.uint8)
     return [silhouette((features[:, :, 0] * 255).astype(np.uint8), 127),
             silhouette(color * 255, 127)]
+
+
+def _close_shape_candidates(row):
+    """Return candidates close to the accepted match on the same shape ranking.
+
+    Anchors on the accepted key's own score in whichever ranking the row carries,
+    and reads only that one, so scores are never compared across two bases. A
+    candidate tying it within CATEGORY_TIE_MARGIN ranks beside it.
+    """
+    for field in (DETAIL_TOP3, SILHOUETTE_TOP3):
+        ranking = row.get(field)
+        if not ranking:
+            continue
+        accepted = {key: score for score, key in ranking}.get(row['id'])
+        if accepted is None:
+            return []
+        return [key for score, key in ranking if abs(accepted - score) <= CATEGORY_TIE_MARGIN]
+    return []
+
+
+def category_arbitrated(row, category, categories, image):
+    """Compare a full-catalog mission match with the original tile's color."""
+    key = row.get('id')
+    if key is None or row.get('conflict'):
+        return row
+
+    close = _close_shape_candidates(row)
+    twins = ('OrbitalPrecisionStrike', 'SEAFArtillery')
+    if key in twins and all(twin in close for twin in twins):
+        # HDR clipping can wash out the frame while leaving the glyph readable.
+        # Read the original interior so retries cannot manufacture color evidence.
+        w, h = image.size
+        x, y = round(w * .12), round(h * .12)
+        artwork = icon_category(image.crop((x, y, w - x, h - y)))
+        if artwork in ('red', 'yellow'):
+            if category is not None and category != artwork:
+                return {**row, 'id': None, 'conflict': True, 'decision': 'category_conflict'}
+            category = artwork
+        if category is None:
+            return {**row, 'id': None, 'conflict': True, 'decision': 'category_conflict'}
+
+    if category is None or categories.get(key) == category:
+        return row
+    tied = next((candidate for candidate in close if categories.get(candidate) == category), None)
+    if tied is not None:
+        return {**row, 'id': tied, 'decision': 'category_tiebreak'}
+    return {**row, 'id': None, 'conflict': True, 'decision': 'category_conflict'}
 
 
 def _normalized_component_correlation(observed, reference):
@@ -512,19 +563,13 @@ def detect_icons(im, entries, boxes, *, mission=False, _normalized=False, bank=N
 
         Falls back to gray/edge template correlation and silhouette overlap when the
         box is under 125px, or when match_equipped found no id and no conflict.
-        Returns a dict with id (None when fewer than two candidates remain, or when
-        the correlation and shape rankings disagree), box, method and the evidence
-        rankings.
+        Returns a dict with id (None when fewer than two candidates remain, when the
+        correlation and shape rankings disagree, or when the match contradicts the
+        tile's frame hue), box, method and the evidence rankings.
         """
         x, y, width, height = box
-        category = icon_category(im.crop((x, y, x + width, y + height)), frame=True) if mission else None
-        candidates = {key for key in entries if category is None or categories[key] == category}
-        detail = {'icon_category': category}
-        if min(width, height) >= 125:
-            detail.update(match_equipped(pixels[y:y + height, x:x + width],
-                                         [r for r in references if r[0] in candidates], bank=bank, executor=candidate_executor))
-            if detail["id"] is not None or detail["conflict"]:
-                return {**detail, "box": [x, y, width, height], "method": "icon-details"}
+        crop = im.crop((x, y, x + width, y + height)) if mission else None
+        category = icon_category(crop, frame=True) if mission else None
         gray = cv2.cvtColor(pixels[y + ICON_GRAY_INSET:y + height - ICON_GRAY_INSET,
                                    x + ICON_GRAY_INSET:x + width - ICON_GRAY_INSET], cv2.COLOR_RGB2GRAY)
         edge = cv2.Canny(gray, 40, 100)
@@ -548,19 +593,31 @@ def detect_icons(im, entries, boxes, *, mission=False, _normalized=False, bank=N
                 best = max(best, float((.65 * g + .35 * e).max()))
             shape = float(np.minimum(mask, reference).sum() / (np.maximum(mask, reference).sum() + 1e-6))
             return (best, key), (shape, key)
-        scored = ordered_map(candidate_executor, correlate_gray, [t for t in templates if t[0] in candidates])
-        if len(scored) < 2:
-            return {**detail, 'id': None, 'box': list(box), 'method': 'icon'}
-        correlations, shapes = (list(values) for values in zip(*scored))
-        correlations.sort(reverse=True)
-        shapes.sort(reverse=True)
-        accepted = []
-        for ranking, threshold, margin in [(correlations, .65, .12), (shapes, .80, .12)]:
-            if ranking[0][0] >= threshold and ranking[0][0] - ranking[1][0] >= margin:
-                accepted.append(ranking[0][1])
-        key = accepted[0] if accepted and len(set(accepted)) == 1 else None
-        return {**detail, "id": key, "box": [x, y, width, height], "method": "icon",
-                     CORRELATION_TOP3: correlations[:3], SILHOUETTE_TOP3: shapes[:3]}
+
+        def matched():
+            """Run both matching passes over the whole catalog."""
+            detail = {'icon_category': category}
+            if min(width, height) >= 125:
+                detail.update(match_equipped(pixels[y:y + height, x:x + width],
+                                             references, bank=bank, executor=candidate_executor))
+                if detail["id"] is not None or detail["conflict"]:
+                    return {**detail, "box": [x, y, width, height], "method": "icon-details"}
+            scored = ordered_map(candidate_executor, correlate_gray, templates)
+            if len(scored) < 2:
+                return {**detail, 'id': None, 'box': list(box), 'method': 'icon'}
+            correlations, shapes = (list(values) for values in zip(*scored))
+            correlations.sort(reverse=True)
+            shapes.sort(reverse=True)
+            accepted = []
+            for ranking, threshold, margin in [(correlations, .65, .12), (shapes, .80, .12)]:
+                if ranking[0][0] >= threshold and ranking[0][0] - ranking[1][0] >= margin:
+                    accepted.append(ranking[0][1])
+            key = accepted[0] if accepted and len(set(accepted)) == 1 else None
+            return {**detail, "id": key, "box": [x, y, width, height], "method": "icon",
+                         CORRELATION_TOP3: correlations[:3], SILHOUETTE_TOP3: shapes[:3]}
+
+        row = matched()
+        return category_arbitrated(row, category, categories, crop) if mission else row
 
     rows = ordered_map(row_executor, match_box, boxes)
     if not _normalized:
@@ -580,11 +637,14 @@ def detect_icons(im, entries, boxes, *, mission=False, _normalized=False, bank=N
             else:
                 tile = normalize_icon(crop, mission=mission)
             tile = tile.resize((TILE_PX, TILE_PX))
-            allowed = {key: value for key, value in entries.items()
-                       if row.get('icon_category') is None or categories[key] == row['icon_category']}
-            candidate = detect_icons(tile, allowed, [[0, 0, TILE_PX, TILE_PX]],
-                                     mission=mission, _normalized=True, bank=bank, executor=normalization_executor)[0]
+
+            retry = detect_icons(tile, entries, [[0, 0, TILE_PX, TILE_PX]],
+                                 _normalized=True, bank=bank,
+                                 executor=normalization_executor)[0]
+            candidate = category_arbitrated(retry, row['icon_category'], categories, crop) if mission else retry
             row['normalized_attempt'] = candidate
+            if candidate.get('decision') == 'category_conflict':
+                row.update(conflict=True, decision='category_conflict')
             if candidate['id'] is not None:
                 return {**candidate, 'box': [x, y, w, h], 'method': 'normalized-icon',
                            'icon_category': row.get('icon_category')}
